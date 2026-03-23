@@ -7,6 +7,7 @@ public actor SyncEngine {
     private let coordinator: SyncCoordinator
     private let networkMonitor: NetworkMonitor
     private let fileWatcher: FileWatcher
+    private let configWatcher: ConfigWatcher
     private var gitManagers: [String: GitManager] = [:]
     private var adapterEngines: [String: AdapterEngine] = [:]
     private var syncStates: [String: SyncState] = [:]
@@ -18,6 +19,7 @@ public actor SyncEngine {
         self.coordinator = SyncCoordinator()
         self.networkMonitor = NetworkMonitor()
         self.fileWatcher = FileWatcher()
+        self.configWatcher = ConfigWatcher()
     }
 
     // MARK: - Lifecycle
@@ -45,6 +47,17 @@ public actor SyncEngine {
             }
         }
 
+        // Start config watcher — auto-reload when adapter.json changes
+        let configPaths = serviceIds.map {
+            syncFolder.appendingPathComponent($0).appendingPathComponent(".api2file").path
+        }
+        configWatcher.start(directories: configPaths) { [weak self] serviceId in
+            guard let self else { return }
+            Task {
+                await self.reloadService(serviceId)
+            }
+        }
+
         // Start sync coordinator
         await coordinator.startAll()
 
@@ -55,6 +68,7 @@ public actor SyncEngine {
     /// Stop the sync engine
     public func stop() async {
         fileWatcher.stop()
+        configWatcher.stop()
         networkMonitor.stop()
         await coordinator.stopAll()
     }
@@ -153,6 +167,27 @@ public actor SyncEngine {
             status: .connected,
             fileCount: state.files.count
         )
+    }
+
+    // MARK: - Config Reload
+
+    /// Reload a service when its adapter.json changes
+    private func reloadService(_ serviceId: String) async {
+        // Stop existing sync for this service
+        await coordinator.unregister(serviceId: serviceId)
+        adapterEngines.removeValue(forKey: serviceId)
+        syncStates.removeValue(forKey: serviceId)
+        serviceInfos.removeValue(forKey: serviceId)
+
+        // Re-register with updated config
+        do {
+            try await registerService(serviceId)
+            await coordinator.startService(serviceId: serviceId)
+            try generateGuides()
+            print("[SyncEngine] Reloaded config for \(serviceId)")
+        } catch {
+            print("[SyncEngine] Failed to reload \(serviceId): \(error)")
+        }
     }
 
     // MARK: - Sync Operations

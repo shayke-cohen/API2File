@@ -34,6 +34,12 @@ public actor SyncCoordinator {
         }
     }
 
+    /// Start sync for a single service
+    public func startService(serviceId: String) {
+        guard let context = services[serviceId] else { return }
+        startPolling(serviceId: serviceId, interval: context.syncInterval)
+    }
+
     /// Stop all sync operations
     public func stopAll() {
         isPaused = true
