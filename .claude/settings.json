@@ -53,7 +53,8 @@
       "Bash(if kill:*)",
       "Bash(then echo:*)",
       "Bash(else echo:*)",
-      "Bash(fi)"
+      "Bash(fi)",
+      "Read(//Library/Logs/DiagnosticReports/**)"
     ]
   }
 }

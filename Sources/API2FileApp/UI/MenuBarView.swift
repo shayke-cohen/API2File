@@ -5,125 +5,96 @@ struct MenuBarView: View {
     @ObservedObject var appState: AppState
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            if appState.services.isEmpty {
-                emptyState
-                Divider()
-            } else {
-                ForEach(appState.services, id: \.serviceId) { service in
-                    ServiceRow(service: service) {
-                        appState.syncService(serviceId: service.serviceId)
-                    }
-                }
-                Divider()
-            }
-
-            Button("Add Service...") {
-                appState.openAddServiceWindow()
-            }
-
-            Button("Sync Now") {
-                appState.syncNow()
-            }
-            .disabled(appState.isPaused || appState.services.isEmpty)
-
-            Button(appState.isPaused ? "Resume Syncing" : "Pause Syncing") {
-                appState.togglePause()
-            }
-            .disabled(appState.services.isEmpty)
-
-            Divider()
-
-            Button("Open ~/API2File") {
-                let url = appState.config.resolvedSyncFolder
-                NSWorkspace.shared.open(url)
-            }
-
-            if #available(macOS 14.0, *) {
-                SettingsLink {
-                    Text("Preferences...")
-                }
-            } else {
-                Button("Preferences...") {
-                    NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
-                }
-            }
-
-            Divider()
-
-            Button("Quit API2File") {
-                NSApplication.shared.terminate(nil)
-            }
-            .keyboardShortcut("q")
-        }
-        .padding(4)
-    }
-
-    private var emptyState: some View {
-        VStack(spacing: 6) {
-            Image(systemName: "cloud.fill")
-                .font(.title2)
-                .foregroundStyle(.secondary)
+        // Services section
+        if appState.services.isEmpty {
             Text("No services connected")
-                .fontWeight(.medium)
-            Text("Sync cloud data to local files")
-                .font(.caption)
-                .foregroundStyle(.secondary)
             Button("Add Your First Service...") {
                 appState.openAddServiceWindow()
             }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.small)
-            .padding(.top, 4)
+        } else {
+            ForEach(appState.services, id: \.serviceId) { service in
+                serviceMenu(service)
+            }
         }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 8)
+
+        Divider()
+
+        Button("Add Service...") {
+            appState.openAddServiceWindow()
+        }
+
+        Button("Sync Now") {
+            appState.syncNow()
+        }
+        .disabled(appState.isPaused || appState.services.isEmpty)
+
+        Button(appState.isPaused ? "Resume Syncing" : "Pause Syncing") {
+            appState.togglePause()
+        }
+        .disabled(appState.services.isEmpty)
+
+        Divider()
+
+        Button("Open ~/API2File") {
+            let url = appState.config.resolvedSyncFolder
+            NSWorkspace.shared.open(url)
+        }
+
+        if #available(macOS 14.0, *) {
+            SettingsLink {
+                Text("Preferences...")
+            }
+        } else {
+            Button("Preferences...") {
+                NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+            }
+        }
+
+        Divider()
+
+        Button("Quit API2File") {
+            NSApplication.shared.terminate(nil)
+        }
+        .keyboardShortcut("q")
     }
-}
 
-struct ServiceRow: View {
-    let service: ServiceInfo
-    let onSync: () -> Void
-
-    var body: some View {
-        HStack(spacing: 8) {
-            Circle()
-                .fill(statusColor)
-                .frame(width: 8, height: 8)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(service.displayName)
-                    .fontWeight(.medium)
-                if let lastSync = service.lastSyncTime {
-                    Text(lastSync, style: .relative)
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                }
+    @ViewBuilder
+    private func serviceMenu(_ service: ServiceInfo) -> some View {
+        Menu {
+            Button("Sync Now") {
+                appState.syncService(serviceId: service.serviceId)
             }
-            Spacer()
-            Button(action: onSync) {
-                Image(systemName: "arrow.triangle.2.circlepath")
-                    .font(.caption)
-            }
-            .buttonStyle(.borderless)
             .disabled(service.status == .syncing)
-            .help("Sync \(service.displayName)")
-            Text(statusText)
-                .foregroundStyle(.secondary)
-                .font(.caption)
+
+            Button("Open Folder") {
+                let url = appState.config.resolvedSyncFolder
+                    .appendingPathComponent(service.serviceId)
+                NSWorkspace.shared.open(url)
+            }
+
+            if let time = service.lastSyncTime {
+                Divider()
+                Text("Last synced: \(time.formatted(.relative(presentation: .named)))")
+            }
+
+            Text("\(service.fileCount) files")
+        } label: {
+            let icon = statusIcon(service.status)
+            Text("\(icon) \(service.displayName) — \(statusText(service))")
         }
     }
 
-    private var statusColor: Color {
-        switch service.status {
-        case .connected: return .green
-        case .syncing: return .blue
-        case .paused: return .gray
-        case .error: return .red
-        case .disconnected: return .gray
+    private func statusIcon(_ status: ServiceStatus) -> String {
+        switch status {
+        case .connected: return "🟢"
+        case .syncing: return "🔵"
+        case .paused: return "⏸"
+        case .error: return "🔴"
+        case .disconnected: return "⚪"
         }
     }
 
-    private var statusText: String {
+    private func statusText(_ service: ServiceInfo) -> String {
         switch service.status {
         case .connected: return "Synced"
         case .syncing: return "Syncing..."
