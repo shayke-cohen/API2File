@@ -12,7 +12,7 @@ public struct GlobalConfig: Codable, Sendable {
     public var launchAtLogin: Bool
 
     public init(
-        syncFolder: String = "~/API2File",
+        syncFolder: String = "~/API2File-Data",
         gitAutoCommit: Bool = true,
         commitMessageFormat: String = "sync: {service} — {summary}",
         defaultSyncInterval: Int = 60,

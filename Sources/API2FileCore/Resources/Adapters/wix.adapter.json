@@ -1,0 +1,232 @@
+{
+  "service": "wix",
+  "displayName": "Wix — Website & Business Platform",
+  "version": "1.0",
+
+  "auth": {
+    "type": "apiKey",
+    "keychainKey": "api2file.wix.key",
+    "setup": {
+      "instructions": "1. Go to dev.wix.com → API Keys → Generate API Key. 2. Copy your Site ID from the Wix dashboard URL. 3. After connecting, edit ~/API2File/wix/.api2file/adapter.json and set your wix-site-id in globals.headers.",
+      "url": "https://dev.wix.com/apps"
+    }
+  },
+
+  "globals": {
+    "baseUrl": "https://www.wixapis.com",
+    "headers": {
+      "Content-Type": "application/json",
+      "wix-site-id": "YOUR_SITE_ID_HERE"
+    }
+  },
+
+  "resources": [
+    {
+      "name": "contacts",
+      "description": "Wix CRM contacts as a CSV spreadsheet",
+
+      "pull": {
+        "method": "POST",
+        "url": "https://www.wixapis.com/contacts/v4/contacts/query",
+        "body": {
+          "query": {
+            "paging": {
+              "limit": 100
+            }
+          }
+        },
+        "dataPath": "$.contacts"
+      },
+
+      "push": {
+        "create": {
+          "method": "POST",
+          "url": "https://www.wixapis.com/contacts/v4/contacts",
+          "bodyWrapper": "info"
+        },
+        "update": {
+          "method": "PATCH",
+          "url": "https://www.wixapis.com/contacts/v4/contacts/{id}",
+          "bodyWrapper": "info"
+        },
+        "delete": {
+          "method": "DELETE",
+          "url": "https://www.wixapis.com/contacts/v4/contacts/{id}"
+        }
+      },
+
+      "fileMapping": {
+        "strategy": "collection",
+        "directory": ".",
+        "filename": "contacts.csv",
+        "format": "csv",
+        "idField": "id",
+        "transforms": {
+          "pull": [
+            { "op": "flatten", "path": "info.name", "to": "" },
+            { "op": "flatten", "path": "info.emails", "to": "emails" },
+            { "op": "flatten", "path": "info.phones", "to": "phones" },
+            { "op": "omit", "fields": ["info", "revision", "source", "lastActivity"] }
+          ]
+        }
+      },
+
+      "sync": {
+        "interval": 120,
+        "debounceMs": 1000
+      }
+    },
+    {
+      "name": "blog-posts",
+      "description": "Wix blog posts as Markdown files",
+
+      "pull": {
+        "method": "POST",
+        "url": "https://www.wixapis.com/blog/v3/posts/query",
+        "body": {
+          "query": {
+            "paging": {
+              "limit": 50
+            }
+          }
+        },
+        "dataPath": "$.posts"
+      },
+
+      "push": {
+        "create": {
+          "method": "POST",
+          "url": "https://www.wixapis.com/blog/v3/draft-posts",
+          "bodyWrapper": "draftPost"
+        },
+        "update": {
+          "method": "PUT",
+          "url": "https://www.wixapis.com/blog/v3/draft-posts/{id}",
+          "bodyWrapper": "draftPost"
+        }
+      },
+
+      "fileMapping": {
+        "strategy": "one-per-record",
+        "directory": "blog",
+        "filename": "{slug|slugify}.md",
+        "format": "md",
+        "idField": "id",
+        "contentField": "richContent",
+        "transforms": {
+          "pull": [
+            { "op": "omit", "fields": ["coverMedia", "memberId", "hashtags", "commentingEnabled", "minutesToRead", "tagIds", "pricingPlanIds"] }
+          ]
+        }
+      },
+
+      "sync": {
+        "interval": 120,
+        "debounceMs": 1000
+      }
+    },
+    {
+      "name": "products",
+      "description": "Wix Store products as a CSV catalog",
+
+      "pull": {
+        "method": "POST",
+        "url": "https://www.wixapis.com/stores/v1/products/query",
+        "body": {
+          "query": {
+            "paging": {
+              "limit": 100
+            }
+          },
+          "includeVariants": true
+        },
+        "dataPath": "$.products"
+      },
+
+      "push": {
+        "create": {
+          "method": "POST",
+          "url": "https://www.wixapis.com/stores/v1/products",
+          "bodyWrapper": "product"
+        },
+        "update": {
+          "method": "PATCH",
+          "url": "https://www.wixapis.com/stores/v1/products/{id}",
+          "bodyWrapper": "product"
+        },
+        "delete": {
+          "method": "DELETE",
+          "url": "https://www.wixapis.com/stores/v1/products/{id}"
+        }
+      },
+
+      "fileMapping": {
+        "strategy": "collection",
+        "directory": ".",
+        "filename": "products.csv",
+        "format": "csv",
+        "idField": "id",
+        "transforms": {
+          "pull": [
+            { "op": "flatten", "path": "priceData", "to": "" },
+            { "op": "flatten", "path": "stock", "to": "" },
+            { "op": "omit", "fields": ["media", "additionalInfoSections", "customTextFields", "variants", "productOptions"] }
+          ]
+        }
+      },
+
+      "sync": {
+        "interval": 120,
+        "debounceMs": 1000
+      }
+    },
+    {
+      "name": "bookings",
+      "description": "Wix Bookings services as JSON files",
+
+      "pull": {
+        "method": "GET",
+        "url": "https://www.wixapis.com/bookings/v2/services",
+        "dataPath": "$.services"
+      },
+
+      "fileMapping": {
+        "strategy": "one-per-record",
+        "directory": "bookings",
+        "filename": "{name|slugify}.json",
+        "format": "json",
+        "idField": "id",
+        "readOnly": true
+      },
+
+      "sync": {
+        "interval": 300,
+        "debounceMs": 500
+      }
+    },
+    {
+      "name": "collections",
+      "description": "Wix CMS data collections catalog",
+
+      "pull": {
+        "method": "GET",
+        "url": "https://www.wixapis.com/cms/v2/collections",
+        "dataPath": "$.collections"
+      },
+
+      "fileMapping": {
+        "strategy": "collection",
+        "directory": ".",
+        "filename": "collections.json",
+        "format": "json",
+        "idField": "id",
+        "readOnly": true
+      },
+
+      "sync": {
+        "interval": 300,
+        "debounceMs": 500
+      }
+    }
+  ]
+}

@@ -19,6 +19,46 @@
             "target": "API2FileApp",
             "configuration": "release",
             "preLaunchTask": "swift: Build Release API2FileApp"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:API2File}",
+            "name": "Debug api2file-demo",
+            "target": "api2file-demo",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug api2file-demo"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:API2File}",
+            "name": "Release api2file-demo",
+            "target": "api2file-demo",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release api2file-demo"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:API2File}",
+            "name": "Debug api2file",
+            "target": "api2file",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug api2file"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:API2File}",
+            "name": "Release api2file",
+            "target": "api2file",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release api2file"
         }
     ]
 }

@@ -9,10 +9,10 @@ struct PreferencesView: View {
             GeneralTab(config: $appState.config)
                 .tabItem { Label("General", systemImage: "gear") }
 
-            ServicesTab(services: appState.services)
+            ServicesTab(appState: appState)
                 .tabItem { Label("Services", systemImage: "cloud") }
         }
-        .frame(width: 500, height: 350)
+        .frame(width: 600, height: 400)
     }
 }
 
@@ -35,35 +35,98 @@ struct GeneralTab: View {
 }
 
 struct ServicesTab: View {
-    let services: [ServiceInfo]
+    @ObservedObject var appState: AppState
+    @State private var selectedServiceId: String?
 
     var body: some View {
-        VStack {
-            if services.isEmpty {
-                Text("No services connected")
-                    .foregroundStyle(.secondary)
-                    .frame(maxHeight: .infinity)
+        VStack(spacing: 0) {
+            if appState.services.isEmpty {
+                emptyState
             } else {
-                List(services, id: \.serviceId) { service in
-                    HStack {
-                        Circle()
-                            .fill(service.status == .error ? Color.red : Color.green)
-                            .frame(width: 8, height: 8)
-                        Text(service.displayName)
-                        Spacer()
-                        Text("\(service.fileCount) files")
+                NavigationSplitView {
+                    List(appState.services, id: \.serviceId, selection: $selectedServiceId) { service in
+                        ServiceListRow(service: service)
+                            .contextMenu {
+                                Button("Sync Now") {
+                                    appState.syncService(serviceId: service.serviceId)
+                                }
+                                Button("Open Folder") {
+                                    let url = appState.config.resolvedSyncFolder
+                                        .appendingPathComponent(service.serviceId)
+                                    NSWorkspace.shared.open(url)
+                                }
+                                Divider()
+                                Button("Disconnect...", role: .destructive) {
+                                    appState.removeService(serviceId: service.serviceId)
+                                }
+                            }
+                    }
+                    .listStyle(.sidebar)
+                } detail: {
+                    if let id = selectedServiceId,
+                       let service = appState.services.first(where: { $0.serviceId == id }) {
+                        ServiceDetailView(service: service, appState: appState)
+                    } else {
+                        Text("Select a service")
                             .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
                 }
             }
 
+            Divider()
+
             HStack {
                 Spacer()
                 Button("Add Service...") {
-                    // TODO: Open add service flow
+                    appState.openAddServiceWindow()
                 }
             }
-            .padding()
+            .padding(10)
+        }
+    }
+
+    private var emptyState: some View {
+        VStack(spacing: 12) {
+            Spacer()
+            Image(systemName: "externaldrive.connected.to.line.below")
+                .font(.system(size: 36))
+                .foregroundStyle(.secondary)
+            Text("No services connected")
+                .font(.headline)
+            Text("Connect a cloud service to start syncing\ndata as files on your Mac.")
+                .multilineTextAlignment(.center)
+                .foregroundStyle(.secondary)
+            Button("Add Service...") {
+                appState.openAddServiceWindow()
+            }
+            .buttonStyle(.borderedProminent)
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+struct ServiceListRow: View {
+    let service: ServiceInfo
+
+    var body: some View {
+        HStack {
+            Circle()
+                .fill(service.status == .error ? Color.red : Color.green)
+                .frame(width: 8, height: 8)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(service.displayName)
+                if let time = service.lastSyncTime {
+                    Text(time, style: .relative)
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
+            }
+            Spacer()
+            Text("\(service.fileCount) files")
+                .foregroundStyle(.secondary)
+                .font(.caption)
         }
     }
 }

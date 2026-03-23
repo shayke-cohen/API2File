@@ -4,7 +4,7 @@
 
 set -e
 
-SYNC_DIR="$HOME/API2File"
+SYNC_DIR="$HOME/API2File-Data"
 DEMO_DIR="$SYNC_DIR/demo"
 
 echo "=== API2File Demo Setup ==="

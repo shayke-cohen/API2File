@@ -83,7 +83,7 @@ final class GlobalConfigTests: XCTestCase {
 
     func testDefaultValues() {
         let config = GlobalConfig()
-        XCTAssertEqual(config.syncFolder, "~/API2File")
+        XCTAssertEqual(config.syncFolder, "~/API2File-Data")
         XCTAssertTrue(config.gitAutoCommit)
         XCTAssertEqual(config.commitMessageFormat, "sync: {service} — {summary}")
         XCTAssertEqual(config.defaultSyncInterval, 60)
@@ -130,18 +130,18 @@ final class GlobalConfigTests: XCTestCase {
         let config = GlobalConfig.loadOrDefault(syncFolder: bogusDir)
 
         // Should return defaults since the file doesn't exist
-        XCTAssertEqual(config.syncFolder, "~/API2File")
+        XCTAssertEqual(config.syncFolder, "~/API2File-Data")
         XCTAssertTrue(config.gitAutoCommit)
         XCTAssertEqual(config.defaultSyncInterval, 60)
     }
 
     func testResolvedSyncFolderExpandsTilde() {
-        let config = GlobalConfig(syncFolder: "~/API2File")
+        let config = GlobalConfig(syncFolder: "~/API2File-Data")
         let resolved = config.resolvedSyncFolder
 
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         XCTAssertTrue(resolved.path.hasPrefix(home), "Resolved path should start with home directory")
-        XCTAssertTrue(resolved.path.hasSuffix("API2File"), "Resolved path should end with API2File")
+        XCTAssertTrue(resolved.path.hasSuffix("API2File-Data"), "Resolved path should end with API2File-Data")
         XCTAssertFalse(resolved.path.contains("~"), "Resolved path should not contain tilde")
     }
 

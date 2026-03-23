@@ -1,0 +1,101 @@
+{
+  "service": "airtable",
+  "displayName": "Airtable — Spreadsheet Database",
+  "version": "1.0",
+
+  "auth": {
+    "type": "bearer",
+    "keychainKey": "api2file.airtable.key",
+    "setup": {
+      "instructions": "1. Go to airtable.com/create/tokens and create a Personal Access Token. 2. Grant scopes: data.records:read, data.records:write, schema.bases:read. 3. Select the bases to sync. 4. After connecting, edit ~/API2File/airtable/.api2file/adapter.json — replace BASE_ID with your base ID (starts with 'app') and TABLE_NAME with your table name.",
+      "url": "https://airtable.com/create/tokens"
+    }
+  },
+
+  "globals": {
+    "baseUrl": "https://api.airtable.com/v0",
+    "headers": {
+      "Content-Type": "application/json"
+    }
+  },
+
+  "resources": [
+    {
+      "name": "records",
+      "description": "Airtable records — one JSON file per record, edit and push back",
+
+      "pull": {
+        "method": "GET",
+        "url": "https://api.airtable.com/v0/BASE_ID/TABLE_NAME",
+        "dataPath": "$.records",
+        "pagination": {
+          "type": "offset",
+          "pageSize": 100
+        }
+      },
+
+      "push": {
+        "create": {
+          "method": "POST",
+          "url": "https://api.airtable.com/v0/BASE_ID/TABLE_NAME",
+          "bodyWrapper": "fields"
+        },
+        "update": {
+          "method": "PATCH",
+          "url": "https://api.airtable.com/v0/BASE_ID/TABLE_NAME/{id}",
+          "bodyWrapper": "fields"
+        },
+        "delete": {
+          "method": "DELETE",
+          "url": "https://api.airtable.com/v0/BASE_ID/TABLE_NAME/{id}"
+        }
+      },
+
+      "fileMapping": {
+        "strategy": "one-per-record",
+        "directory": "records",
+        "filename": "{id}.json",
+        "format": "json",
+        "idField": "id",
+        "transforms": {
+          "pull": [
+            { "op": "omit", "fields": ["createdTime"] }
+          ]
+        }
+      },
+
+      "sync": {
+        "interval": 60,
+        "debounceMs": 1000
+      }
+    },
+    {
+      "name": "bases",
+      "description": "Catalog of your Airtable bases — reference list",
+
+      "pull": {
+        "method": "GET",
+        "url": "https://api.airtable.com/v0/meta/bases",
+        "dataPath": "$.bases",
+        "pagination": {
+          "type": "offset",
+          "pageSize": 100
+        }
+      },
+
+      "fileMapping": {
+        "strategy": "collection",
+        "directory": ".",
+        "filename": "bases.json",
+        "format": "json",
+        "idField": "id",
+        "readOnly": true
+      },
+
+      "sync": {
+        "interval": 600,
+        "debounceMs": 500
+      }
+    }
+  ]
+}

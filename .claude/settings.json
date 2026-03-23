@@ -46,7 +46,14 @@
       "Bash(curl -s http://localhost:8089/api/tasks)",
       "Bash(sleep 20 echo '=== Debug log \\(tail\\) ===' tail -20 /tmp/api2file-debug.log 2)",
       "Read(//Users/shayco/API2File/=== SVG/PNG/**)",
-      "Bash(grep -r \"import\" /Users/shayco/API2File/Sources/API2FileCore/Adapters/Formats/*.swift)"
+      "Bash(grep -r \"import\" /Users/shayco/API2File/Sources/API2FileCore/Adapters/Formats/*.swift)",
+      "Bash(python3:*)",
+      "Bash(swift run:*)",
+      "Bash(killall api2file-demo:*)",
+      "Bash(if kill:*)",
+      "Bash(then echo:*)",
+      "Bash(else echo:*)",
+      "Bash(fi)"
     ]
   }
 }

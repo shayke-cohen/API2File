@@ -1,0 +1,219 @@
+{
+  "service": "github",
+  "displayName": "GitHub — Repositories & Issues",
+  "version": "1.0",
+
+  "auth": {
+    "type": "bearer",
+    "keychainKey": "api2file.github.key",
+    "setup": {
+      "instructions": "Go to github.com → Settings → Developer Settings → Personal Access Tokens → Fine-grained tokens → Generate. Select the repos you want to sync and grant 'Issues: Read and Write' and 'Metadata: Read' permissions.",
+      "url": "https://github.com/settings/tokens?type=beta"
+    }
+  },
+
+  "globals": {
+    "baseUrl": "https://api.github.com",
+    "headers": {
+      "Accept": "application/vnd.github+json",
+      "X-GitHub-Api-Version": "2022-11-28",
+      "Content-Type": "application/json"
+    }
+  },
+
+  "resources": [
+    {
+      "name": "repos",
+      "description": "Your GitHub repositories as a CSV index",
+
+      "pull": {
+        "method": "GET",
+        "url": "https://api.github.com/user/repos?sort=updated&direction=desc",
+        "dataPath": "$",
+        "pagination": {
+          "type": "page",
+          "pageSize": 30
+        }
+      },
+
+      "fileMapping": {
+        "strategy": "collection",
+        "directory": ".",
+        "filename": "repos.csv",
+        "format": "csv",
+        "idField": "id",
+        "readOnly": true,
+        "transforms": {
+          "pull": [
+            { "op": "flatten", "path": "owner", "to": "" },
+            { "op": "pick", "fields": ["id", "name", "full_name", "login", "description", "private", "html_url", "language", "stargazers_count", "forks_count", "open_issues_count", "default_branch", "updated_at", "created_at"] }
+          ]
+        }
+      },
+
+      "sync": {
+        "interval": 300,
+        "debounceMs": 500
+      }
+    },
+    {
+      "name": "issues",
+      "description": "Open issues assigned to you — edit to update, add rows to create",
+
+      "pull": {
+        "method": "GET",
+        "url": "https://api.github.com/issues?filter=assigned&state=open&sort=updated",
+        "dataPath": "$",
+        "pagination": {
+          "type": "page",
+          "pageSize": 50
+        }
+      },
+
+      "push": {
+        "update": {
+          "method": "PATCH",
+          "url": "https://api.github.com/repos/{repo}/issues/{number}"
+        }
+      },
+
+      "fileMapping": {
+        "strategy": "collection",
+        "directory": ".",
+        "filename": "issues.csv",
+        "format": "csv",
+        "idField": "id",
+        "transforms": {
+          "pull": [
+            { "op": "flatten", "path": "repository", "to": "" },
+            { "op": "flatten", "path": "user", "to": "author" },
+            { "op": "flatten", "path": "assignee", "to": "assignee" },
+            { "op": "pick", "fields": ["id", "number", "full_name", "title", "state", "author", "assignee", "body", "created_at", "updated_at", "html_url"] }
+          ]
+        }
+      },
+
+      "sync": {
+        "interval": 120,
+        "debounceMs": 1000
+      }
+    },
+    {
+      "name": "gists",
+      "description": "Your GitHub Gists as individual JSON files",
+
+      "pull": {
+        "method": "GET",
+        "url": "https://api.github.com/gists",
+        "dataPath": "$",
+        "pagination": {
+          "type": "page",
+          "pageSize": 30
+        }
+      },
+
+      "push": {
+        "create": {
+          "method": "POST",
+          "url": "https://api.github.com/gists"
+        },
+        "update": {
+          "method": "PATCH",
+          "url": "https://api.github.com/gists/{id}"
+        },
+        "delete": {
+          "method": "DELETE",
+          "url": "https://api.github.com/gists/{id}"
+        }
+      },
+
+      "fileMapping": {
+        "strategy": "one-per-record",
+        "directory": "gists",
+        "filename": "{id}.json",
+        "format": "json",
+        "idField": "id",
+        "transforms": {
+          "pull": [
+            { "op": "flatten", "path": "owner", "to": "" },
+            { "op": "pick", "fields": ["id", "description", "login", "public", "html_url", "files", "created_at", "updated_at"] }
+          ]
+        }
+      },
+
+      "sync": {
+        "interval": 300,
+        "debounceMs": 500
+      }
+    },
+    {
+      "name": "notifications",
+      "description": "Unread GitHub notifications",
+
+      "pull": {
+        "method": "GET",
+        "url": "https://api.github.com/notifications?all=false",
+        "dataPath": "$",
+        "pagination": {
+          "type": "page",
+          "pageSize": 50
+        }
+      },
+
+      "fileMapping": {
+        "strategy": "collection",
+        "directory": ".",
+        "filename": "notifications.csv",
+        "format": "csv",
+        "idField": "id",
+        "readOnly": true,
+        "transforms": {
+          "pull": [
+            { "op": "flatten", "path": "subject", "to": "" },
+            { "op": "flatten", "path": "repository", "to": "" },
+            { "op": "pick", "fields": ["id", "title", "type", "reason", "full_name", "unread", "updated_at"] }
+          ]
+        }
+      },
+
+      "sync": {
+        "interval": 60,
+        "debounceMs": 500
+      }
+    },
+    {
+      "name": "starred",
+      "description": "Your starred repositories — a curated list",
+
+      "pull": {
+        "method": "GET",
+        "url": "https://api.github.com/user/starred?sort=created&direction=desc",
+        "dataPath": "$",
+        "pagination": {
+          "type": "page",
+          "pageSize": 30
+        }
+      },
+
+      "fileMapping": {
+        "strategy": "collection",
+        "directory": ".",
+        "filename": "starred.csv",
+        "format": "csv",
+        "idField": "id",
+        "readOnly": true,
+        "transforms": {
+          "pull": [
+            { "op": "flatten", "path": "owner", "to": "" },
+            { "op": "pick", "fields": ["id", "full_name", "login", "description", "html_url", "language", "stargazers_count", "topics", "updated_at"] }
+          ]
+        }
+      },
+
+      "sync": {
+        "interval": 600,
+        "debounceMs": 500
+      }
+    }
+  ]
+}

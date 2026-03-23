@@ -7,18 +7,19 @@ struct MenuBarView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             if appState.services.isEmpty {
-                Text("No services connected")
-                    .foregroundStyle(.secondary)
+                emptyState
                 Divider()
             } else {
                 ForEach(appState.services, id: \.serviceId) { service in
-                    ServiceRow(service: service)
+                    ServiceRow(service: service) {
+                        appState.syncService(serviceId: service.serviceId)
+                    }
                 }
                 Divider()
             }
 
             Button("Add Service...") {
-                // TODO: Open add service flow
+                appState.openAddServiceWindow()
             }
 
             Button("Sync Now") {
@@ -57,19 +58,55 @@ struct MenuBarView: View {
         }
         .padding(4)
     }
+
+    private var emptyState: some View {
+        VStack(spacing: 6) {
+            Image(systemName: "cloud.fill")
+                .font(.title2)
+                .foregroundStyle(.secondary)
+            Text("No services connected")
+                .fontWeight(.medium)
+            Text("Sync cloud data to local files")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Button("Add Your First Service...") {
+                appState.openAddServiceWindow()
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.small)
+            .padding(.top, 4)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 8)
+    }
 }
 
 struct ServiceRow: View {
     let service: ServiceInfo
+    let onSync: () -> Void
 
     var body: some View {
-        HStack {
+        HStack(spacing: 8) {
             Circle()
                 .fill(statusColor)
                 .frame(width: 8, height: 8)
-            Text(service.displayName)
-                .fontWeight(.medium)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(service.displayName)
+                    .fontWeight(.medium)
+                if let lastSync = service.lastSyncTime {
+                    Text(lastSync, style: .relative)
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
+            }
             Spacer()
+            Button(action: onSync) {
+                Image(systemName: "arrow.triangle.2.circlepath")
+                    .font(.caption)
+            }
+            .buttonStyle(.borderless)
+            .disabled(service.status == .syncing)
+            .help("Sync \(service.displayName)")
             Text(statusText)
                 .foregroundStyle(.secondary)
                 .font(.caption)
