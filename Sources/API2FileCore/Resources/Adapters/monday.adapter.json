@@ -1,0 +1,73 @@
+{
+  "service": "monday",
+  "displayName": "Monday.com",
+  "version": "1.0",
+
+  "auth": {
+    "type": "bearer",
+    "keychainKey": "api2file.monday.api-key",
+    "setup": {
+      "instructions": "Go to monday.com → Avatar → Developers → My Access Tokens → Show/Generate",
+      "url": "https://monday.com/apps/manage"
+    }
+  },
+
+  "globals": {
+    "baseUrl": "https://api.monday.com/v2",
+    "method": "POST",
+    "headers": {
+      "Content-Type": "application/json"
+    }
+  },
+
+  "resources": [
+    {
+      "name": "boards",
+      "description": "Monday.com boards with all items as CSV rows",
+
+      "pull": {
+        "url": "https://api.monday.com/v2",
+        "type": "graphql",
+        "query": "{ boards(limit: 50) { id name description state board_kind groups { id title } items_page(limit: 200) { items { id name group { id title } column_values { id title text type } } } } }",
+        "dataPath": "$.data.boards"
+      },
+
+      "push": {
+        "create": {
+          "url": "https://api.monday.com/v2",
+          "type": "graphql",
+          "mutation": "mutation($boardId: ID!, $itemName: String!, $columnValues: JSON) { create_item(board_id: $boardId, item_name: $itemName, column_values: $columnValues) { id } }"
+        },
+        "update": {
+          "url": "https://api.monday.com/v2",
+          "type": "graphql",
+          "mutation": "mutation($boardId: ID!, $itemId: ID!, $columnValues: JSON) { change_multiple_column_values(board_id: $boardId, item_id: $itemId, column_values: $columnValues) { id } }"
+        },
+        "delete": {
+          "url": "https://api.monday.com/v2",
+          "type": "graphql",
+          "mutation": "mutation($itemId: ID!) { delete_item(item_id: $itemId) { id } }"
+        }
+      },
+
+      "fileMapping": {
+        "strategy": "collection",
+        "directory": "boards",
+        "filename": "{name|slugify}.csv",
+        "format": "csv",
+        "idField": "id",
+        "transforms": {
+          "pull": [
+            { "op": "keyBy", "path": "column_values", "key": "title", "value": "text", "to": "columns" },
+            { "op": "omit", "fields": ["column_values", "board_kind"] }
+          ]
+        }
+      },
+
+      "sync": {
+        "interval": 60,
+        "debounceMs": 500
+      }
+    }
+  ]
+}

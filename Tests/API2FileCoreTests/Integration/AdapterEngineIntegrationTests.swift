@@ -1,0 +1,510 @@
+import XCTest
+@testable import API2FileCore
+
+final class AdapterEngineIntegrationTests: XCTestCase {
+
+    // MARK: - Properties
+
+    private var tempDir: URL!
+
+    // MARK: - Setup / Teardown
+
+    override func setUp() async throws {
+        try await super.setUp()
+        tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("AdapterEngineIntegrationTests-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+    }
+
+    override func tearDown() async throws {
+        if let tempDir, FileManager.default.fileExists(atPath: tempDir.path) {
+            try? FileManager.default.removeItem(at: tempDir)
+        }
+        try await super.tearDown()
+    }
+
+    // MARK: - loadConfig
+
+    func testLoadConfigFromAdapterJSON() throws {
+        // Create a valid adapter.json inside .api2file/
+        let api2fileDir = tempDir.appendingPathComponent(".api2file")
+        try FileManager.default.createDirectory(at: api2fileDir, withIntermediateDirectories: true)
+
+        let configJSON = """
+        {
+            "service": "test-api",
+            "displayName": "Test API",
+            "version": "1.0",
+            "auth": {
+                "type": "bearer",
+                "keychainKey": "test-api-key"
+            },
+            "globals": {
+                "baseUrl": "https://api.example.com",
+                "headers": {
+                    "X-Custom": "value"
+                }
+            },
+            "resources": [
+                {
+                    "name": "items",
+                    "description": "Test items",
+                    "pull": {
+                        "url": "{baseUrl}/items",
+                        "dataPath": "$.data.items"
+                    },
+                    "fileMapping": {
+                        "strategy": "collection",
+                        "directory": "items",
+                        "filename": "all-items.csv",
+                        "format": "csv"
+                    },
+                    "sync": {
+                        "interval": 120
+                    }
+                }
+            ]
+        }
+        """
+        try configJSON.write(
+            to: api2fileDir.appendingPathComponent("adapter.json"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let config = try AdapterEngine.loadConfig(from: tempDir)
+
+        XCTAssertEqual(config.service, "test-api")
+        XCTAssertEqual(config.displayName, "Test API")
+        XCTAssertEqual(config.version, "1.0")
+        XCTAssertEqual(config.auth.type, .bearer)
+        XCTAssertEqual(config.auth.keychainKey, "test-api-key")
+        XCTAssertEqual(config.globals?.baseUrl, "https://api.example.com")
+        XCTAssertEqual(config.globals?.headers?["X-Custom"], "value")
+        XCTAssertEqual(config.resources.count, 1)
+        XCTAssertEqual(config.resources[0].name, "items")
+        XCTAssertEqual(config.resources[0].fileMapping.strategy, .collection)
+        XCTAssertEqual(config.resources[0].fileMapping.format, .csv)
+        XCTAssertEqual(config.resources[0].fileMapping.directory, "items")
+        XCTAssertEqual(config.resources[0].fileMapping.filename, "all-items.csv")
+        XCTAssertEqual(config.resources[0].sync?.interval, 120)
+    }
+
+    func testLoadConfigThrowsWhenMissing() {
+        XCTAssertThrowsError(try AdapterEngine.loadConfig(from: tempDir)) { error in
+            guard let adapterError = error as? AdapterError else {
+                XCTFail("Expected AdapterError, got \(type(of: error))")
+                return
+            }
+            if case .configNotFound = adapterError {
+                // Expected
+            } else {
+                XCTFail("Expected configNotFound, got \(adapterError)")
+            }
+        }
+    }
+
+    // MARK: - Full Pull Pipeline (transform + format chain)
+
+    func testPullPipeline_JSONPathExtraction_TransformPipeline_FormatConversion() throws {
+        // Simulate a raw API response
+        let apiResponse: [String: Any] = [
+            "data": [
+                "items": [
+                    ["id": 1, "old_name": "Widget", "price": 9.99, "_internal": "skip"],
+                    ["id": 2, "old_name": "Gadget", "price": 19.99, "_internal": "skip"]
+                ]
+            ] as [String: Any]
+        ]
+
+        // Step 1: JSONPath extraction (simulates pull.dataPath = "$.data.items")
+        let extracted = JSONPath.extract("$.data.items", from: apiResponse)
+        let records = extracted as! [[String: Any]]
+        XCTAssertEqual(records.count, 2)
+
+        // Step 2: Transform pipeline (omit internal fields, rename old_name to name)
+        let transforms: [TransformOp] = [
+            TransformOp(op: "omit", fields: ["_internal"]),
+            TransformOp(op: "rename", from: "old_name", to: "name")
+        ]
+        let transformed = TransformPipeline.apply(transforms, to: records)
+
+        XCTAssertEqual(transformed.count, 2)
+        XCTAssertNil(transformed[0]["_internal"])
+        XCTAssertNil(transformed[0]["old_name"])
+        XCTAssertEqual(transformed[0]["name"] as? String, "Widget")
+        XCTAssertEqual(transformed[0]["price"] as? Double, 9.99)
+
+        // Step 3: Format conversion to CSV
+        let csvData = try FormatConverterFactory.encode(records: transformed, format: .csv)
+        let csvString = String(data: csvData, encoding: .utf8)!
+        XCTAssertTrue(csvString.contains("_id"))
+        XCTAssertTrue(csvString.contains("name"))
+        XCTAssertTrue(csvString.contains("price"))
+        XCTAssertTrue(csvString.contains("Widget"))
+        XCTAssertTrue(csvString.contains("Gadget"))
+
+        // Step 4: Create SyncableFile
+        let syncableFile = SyncableFile(
+            relativePath: "items/all-items.csv",
+            format: .csv,
+            content: csvData,
+            remoteId: nil,
+            readOnly: false
+        )
+
+        XCTAssertEqual(syncableFile.relativePath, "items/all-items.csv")
+        XCTAssertEqual(syncableFile.format, .csv)
+        XCTAssertFalse(syncableFile.readOnly)
+        XCTAssertFalse(syncableFile.contentHash.isEmpty)
+        // SHA256 hex is 64 chars
+        XCTAssertEqual(syncableFile.contentHash.count, 64)
+    }
+
+    func testPullPipeline_JSONFormat_OnePerRecord() throws {
+        // Simulate extracted records
+        let records: [[String: Any]] = [
+            ["id": 101, "title": "My Blog Post", "body": "Hello world"],
+            ["id": 102, "title": "Another Post", "body": "More content"]
+        ]
+
+        // Transform: pick only id and title
+        let transforms: [TransformOp] = [
+            TransformOp(op: "pick", fields: ["id", "title"])
+        ]
+        let transformed = TransformPipeline.apply(transforms, to: records)
+
+        // Format each as JSON (one-per-record)
+        for record in transformed {
+            let jsonData = try FormatConverterFactory.encode(records: [record], format: .json)
+            let decoded = try JSONSerialization.jsonObject(with: jsonData) as! [String: Any]
+            XCTAssertNotNil(decoded["id"])
+            XCTAssertNotNil(decoded["title"])
+            XCTAssertNil(decoded["body"])
+        }
+    }
+
+    // MARK: - Full Push Pipeline (file content -> format decode -> transforms -> API JSON)
+
+    func testPushPipeline_CSVDecode_TransformToAPIJSON() throws {
+        // Create a CSV file content (simulating what a user edited)
+        let csvContent = "_id,name,price,status\n1,Widget,9.99,active\n2,Gadget,19.99,inactive\n"
+        let csvData = Data(csvContent.utf8)
+
+        // Step 1: Decode CSV back to records
+        let records = try FormatConverterFactory.decode(data: csvData, format: .csv)
+
+        XCTAssertEqual(records.count, 2)
+        // CSV decoder converts _id back to "id"
+        XCTAssertEqual(records[0]["id"] as? Int, 1)
+        XCTAssertEqual(records[0]["name"] as? String, "Widget")
+        XCTAssertEqual(records[0]["price"] as? Double, 9.99)
+        XCTAssertEqual(records[0]["status"] as? String, "active")
+
+        // Step 2: Apply push transforms (e.g., omit status, rename name to title)
+        let pushTransforms: [TransformOp] = [
+            TransformOp(op: "omit", fields: ["status"]),
+            TransformOp(op: "rename", from: "name", to: "title")
+        ]
+        let transformed = TransformPipeline.apply(pushTransforms, to: records)
+
+        XCTAssertEqual(transformed.count, 2)
+        XCTAssertEqual(transformed[0]["title"] as? String, "Widget")
+        XCTAssertNil(transformed[0]["name"])
+        XCTAssertNil(transformed[0]["status"])
+        XCTAssertEqual(transformed[0]["id"] as? Int, 1)
+        XCTAssertEqual(transformed[0]["price"] as? Double, 9.99)
+
+        // Step 3: Verify records are ready for API serialization
+        for record in transformed {
+            let jsonData = try JSONSerialization.data(withJSONObject: record)
+            XCTAssertFalse(jsonData.isEmpty)
+        }
+    }
+
+    func testPushPipeline_JSONDecode_TransformToAPIJSON() throws {
+        // Simulate a JSON file that a user edited
+        let jsonContent = """
+        {
+            "id": 42,
+            "title": "Updated Post",
+            "body": "New content here"
+        }
+        """
+        let jsonData = Data(jsonContent.utf8)
+
+        // Step 1: Decode JSON back to records
+        let records = try FormatConverterFactory.decode(data: jsonData, format: .json)
+        XCTAssertEqual(records.count, 1)
+        XCTAssertEqual(records[0]["id"] as? Int, 42)
+        XCTAssertEqual(records[0]["title"] as? String, "Updated Post")
+
+        // Step 2: Apply push transforms (pick specific fields for API)
+        let pushTransforms: [TransformOp] = [
+            TransformOp(op: "pick", fields: ["title", "body"])
+        ]
+        let transformed = TransformPipeline.apply(pushTransforms, to: records)
+
+        XCTAssertEqual(transformed.count, 1)
+        XCTAssertEqual(transformed[0]["title"] as? String, "Updated Post")
+        XCTAssertEqual(transformed[0]["body"] as? String, "New content here")
+        XCTAssertNil(transformed[0]["id"]) // id was not picked
+    }
+
+    // MARK: - FileMapper.filePath
+
+    func testFilePathGeneratesCorrectPathWithSlugify() {
+        let config = FileMappingConfig(
+            strategy: .onePerRecord,
+            directory: "boards",
+            filename: "{name|slugify}.csv",
+            format: .csv
+        )
+        let record: [String: Any] = ["id": 1, "name": "Marketing Board"]
+
+        let path = FileMapper.filePath(for: record, config: config)
+        XCTAssertEqual(path, "boards/marketing-board.csv")
+    }
+
+    func testFilePathWithIdFallback() {
+        let config = FileMappingConfig(
+            strategy: .onePerRecord,
+            directory: "items",
+            format: .json,
+            idField: "id"
+        )
+        let record: [String: Any] = ["id": 42, "name": "Widget"]
+
+        let path = FileMapper.filePath(for: record, config: config)
+        XCTAssertEqual(path, "items/42.json")
+    }
+
+    func testFilePathWithEmptyDirectory() {
+        let config = FileMappingConfig(
+            strategy: .onePerRecord,
+            directory: "",
+            filename: "{name|slugify}.md",
+            format: .markdown
+        )
+        let record: [String: Any] = ["name": "Hello World"]
+
+        let path = FileMapper.filePath(for: record, config: config)
+        XCTAssertEqual(path, "hello-world.md")
+    }
+
+    func testFilePathWithDotDirectory() {
+        let config = FileMappingConfig(
+            strategy: .onePerRecord,
+            directory: ".",
+            filename: "{id}.json",
+            format: .json
+        )
+        let record: [String: Any] = ["id": 99]
+
+        let path = FileMapper.filePath(for: record, config: config)
+        XCTAssertEqual(path, "99.json")
+    }
+
+    func testFilePathWithSpecialCharsInName() {
+        let config = FileMappingConfig(
+            strategy: .onePerRecord,
+            directory: "pages",
+            filename: "{title|slugify}.html",
+            format: .html
+        )
+        let record: [String: Any] = ["title": "Q&A: Best Practices! (2024)"]
+
+        let path = FileMapper.filePath(for: record, config: config)
+        // slugify: lowercase, replace special chars with hyphens, trim trailing hyphens
+        XCTAssertTrue(path.hasPrefix("pages/"))
+        XCTAssertTrue(path.hasSuffix(".html"))
+        XCTAssertFalse(path.contains("&"))
+        XCTAssertFalse(path.contains("!"))
+        XCTAssertFalse(path.contains("("))
+    }
+
+    // MARK: - FileMapper.writeFiles + readFile
+
+    func testWriteFilesCreatesFilesOnDisk() throws {
+        let files = [
+            SyncableFile(
+                relativePath: "boards/marketing.csv",
+                format: .csv,
+                content: Data("_id,name\n1,Marketing\n".utf8),
+                remoteId: "1"
+            ),
+            SyncableFile(
+                relativePath: "boards/engineering.csv",
+                format: .csv,
+                content: Data("_id,name\n2,Engineering\n".utf8),
+                remoteId: "2"
+            )
+        ]
+
+        try FileMapper.writeFiles(files, to: tempDir)
+
+        // Verify files exist
+        let file1Path = tempDir.appendingPathComponent("boards/marketing.csv")
+        let file2Path = tempDir.appendingPathComponent("boards/engineering.csv")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: file1Path.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: file2Path.path))
+
+        // Verify content
+        let content1 = try String(contentsOf: file1Path, encoding: .utf8)
+        XCTAssertEqual(content1, "_id,name\n1,Marketing\n")
+
+        let content2 = try String(contentsOf: file2Path, encoding: .utf8)
+        XCTAssertEqual(content2, "_id,name\n2,Engineering\n")
+    }
+
+    func testWriteFilesCreatesIntermediateDirectories() throws {
+        let files = [
+            SyncableFile(
+                relativePath: "deeply/nested/dir/file.json",
+                format: .json,
+                content: Data("{\"key\": \"value\"}".utf8)
+            )
+        ]
+
+        try FileMapper.writeFiles(files, to: tempDir)
+
+        let filePath = tempDir.appendingPathComponent("deeply/nested/dir/file.json")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: filePath.path))
+    }
+
+    func testReadFileReturnsWrittenContent() throws {
+        let originalContent = Data("{\"id\": 1, \"name\": \"Test\"}".utf8)
+        let files = [
+            SyncableFile(
+                relativePath: "items/test.json",
+                format: .json,
+                content: originalContent
+            )
+        ]
+
+        try FileMapper.writeFiles(files, to: tempDir)
+
+        let filePath = tempDir.appendingPathComponent("items/test.json")
+        let readData = try FileMapper.readFile(at: filePath, format: .json)
+
+        XCTAssertEqual(readData, originalContent)
+    }
+
+    func testWriteThenReadRoundtrip_CSV() throws {
+        // Create records, encode to CSV, write, read back, decode
+        let records: [[String: Any]] = [
+            ["id": 1, "name": "Widget", "price": 9.99],
+            ["id": 2, "name": "Gadget", "price": 19.99]
+        ]
+
+        let csvData = try FormatConverterFactory.encode(records: records, format: .csv)
+        let files = [
+            SyncableFile(
+                relativePath: "products/all.csv",
+                format: .csv,
+                content: csvData
+            )
+        ]
+
+        try FileMapper.writeFiles(files, to: tempDir)
+
+        let filePath = tempDir.appendingPathComponent("products/all.csv")
+        let readData = try FileMapper.readFile(at: filePath, format: .csv)
+        let decodedRecords = try FormatConverterFactory.decode(data: readData, format: .csv)
+
+        XCTAssertEqual(decodedRecords.count, 2)
+        XCTAssertEqual(decodedRecords[0]["name"] as? String, "Widget")
+        XCTAssertEqual(decodedRecords[1]["name"] as? String, "Gadget")
+    }
+
+    func testWriteThenReadRoundtrip_JSON() throws {
+        let records: [[String: Any]] = [
+            ["id": 1, "title": "Post One"]
+        ]
+
+        let jsonData = try FormatConverterFactory.encode(records: records, format: .json)
+        let files = [
+            SyncableFile(
+                relativePath: "posts/post-one.json",
+                format: .json,
+                content: jsonData
+            )
+        ]
+
+        try FileMapper.writeFiles(files, to: tempDir)
+
+        let filePath = tempDir.appendingPathComponent("posts/post-one.json")
+        let readData = try FileMapper.readFile(at: filePath, format: .json)
+        let decodedRecords = try FormatConverterFactory.decode(data: readData, format: .json)
+
+        XCTAssertEqual(decodedRecords.count, 1)
+        XCTAssertEqual(decodedRecords[0]["id"] as? Int, 1)
+        XCTAssertEqual(decodedRecords[0]["title"] as? String, "Post One")
+    }
+
+    // MARK: - End-to-End: API Response -> Files on Disk
+
+    func testFullPipelineFromAPIResponseToFilesOnDisk() throws {
+        // Simulate raw API response
+        let apiResponse: [String: Any] = [
+            "results": [
+                [
+                    "id": 101,
+                    "name": "Project Alpha",
+                    "metadata": ["status": "active", "priority": "high"] as [String: Any]
+                ],
+                [
+                    "id": 102,
+                    "name": "Project Beta",
+                    "metadata": ["status": "archived", "priority": "low"] as [String: Any]
+                ]
+            ]
+        ]
+
+        // Extract data from response
+        let extracted = JSONPath.extract("$.results", from: apiResponse) as! [[String: Any]]
+
+        // Transform: flatten metadata, pick fields
+        let transforms: [TransformOp] = [
+            TransformOp(op: "rename", from: "metadata.status", to: "status"),
+            TransformOp(op: "pick", fields: ["id", "name", "status"])
+        ]
+        let transformed = TransformPipeline.apply(transforms, to: extracted)
+
+        // Create file mapping config for one-per-record JSON files
+        let mappingConfig = FileMappingConfig(
+            strategy: .onePerRecord,
+            directory: "projects",
+            filename: "{name|slugify}.json",
+            format: .json
+        )
+
+        // Map to SyncableFiles
+        var syncableFiles: [SyncableFile] = []
+        for record in transformed {
+            let path = FileMapper.filePath(for: record, config: mappingConfig)
+            let data = try FormatConverterFactory.encode(records: [record], format: .json)
+            syncableFiles.append(SyncableFile(
+                relativePath: path,
+                format: .json,
+                content: data,
+                remoteId: "\(record["id"]!)"
+            ))
+        }
+
+        // Write to disk
+        try FileMapper.writeFiles(syncableFiles, to: tempDir)
+
+        // Verify files
+        let file1 = tempDir.appendingPathComponent("projects/project-alpha.json")
+        let file2 = tempDir.appendingPathComponent("projects/project-beta.json")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: file1.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: file2.path))
+
+        // Read back and verify content
+        let data1 = try FileMapper.readFile(at: file1, format: .json)
+        let decoded1 = try FormatConverterFactory.decode(data: data1, format: .json)
+        XCTAssertEqual(decoded1[0]["name"] as? String, "Project Alpha")
+        XCTAssertEqual(decoded1[0]["status"] as? String, "active")
+    }
+}

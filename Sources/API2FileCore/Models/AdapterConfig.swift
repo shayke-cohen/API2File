@@ -1,0 +1,341 @@
+import Foundation
+
+/// Root adapter configuration — parsed from .api2file/adapter.json
+public struct AdapterConfig: Codable, Sendable {
+    public let service: String
+    public let displayName: String
+    public let version: String
+    public let auth: AuthConfig
+    public let globals: GlobalsConfig?
+    public let resources: [ResourceConfig]
+
+    public init(service: String, displayName: String, version: String, auth: AuthConfig, globals: GlobalsConfig? = nil, resources: [ResourceConfig]) {
+        self.service = service
+        self.displayName = displayName
+        self.version = version
+        self.auth = auth
+        self.globals = globals
+        self.resources = resources
+    }
+}
+
+// MARK: - Auth
+
+public struct AuthConfig: Codable, Sendable {
+    public let type: AuthType
+    public let keychainKey: String
+    public let setup: AuthSetup?
+    // OAuth2 specific
+    public let authorizeUrl: String?
+    public let tokenUrl: String?
+    public let refreshUrl: String?
+    public let scopes: [String]?
+    public let callbackPort: Int?
+
+    public init(type: AuthType, keychainKey: String, setup: AuthSetup? = nil, authorizeUrl: String? = nil, tokenUrl: String? = nil, refreshUrl: String? = nil, scopes: [String]? = nil, callbackPort: Int? = nil) {
+        self.type = type
+        self.keychainKey = keychainKey
+        self.setup = setup
+        self.authorizeUrl = authorizeUrl
+        self.tokenUrl = tokenUrl
+        self.refreshUrl = refreshUrl
+        self.scopes = scopes
+        self.callbackPort = callbackPort
+    }
+}
+
+public enum AuthType: String, Codable, Sendable {
+    case bearer
+    case oauth2
+    case apiKey
+    case basic
+}
+
+public struct AuthSetup: Codable, Sendable {
+    public let instructions: String
+    public let url: String?
+
+    public init(instructions: String, url: String? = nil) {
+        self.instructions = instructions
+        self.url = url
+    }
+}
+
+// MARK: - Globals
+
+public struct GlobalsConfig: Codable, Sendable {
+    public let baseUrl: String?
+    public let headers: [String: String]?
+    public let method: String?
+
+    public init(baseUrl: String? = nil, headers: [String: String]? = nil, method: String? = nil) {
+        self.baseUrl = baseUrl
+        self.headers = headers
+        self.method = method
+    }
+}
+
+// MARK: - Resource
+
+public struct ResourceConfig: Codable, Sendable {
+    public let name: String
+    public let description: String?
+    public let pull: PullConfig?
+    public let push: PushConfig?
+    public let fileMapping: FileMappingConfig
+    public let children: [ResourceConfig]?
+    public let sync: SyncConfig?
+
+    public init(name: String, description: String? = nil, pull: PullConfig? = nil, push: PushConfig? = nil, fileMapping: FileMappingConfig, children: [ResourceConfig]? = nil, sync: SyncConfig? = nil) {
+        self.name = name
+        self.description = description
+        self.pull = pull
+        self.push = push
+        self.fileMapping = fileMapping
+        self.children = children
+        self.sync = sync
+    }
+}
+
+// MARK: - Pull
+
+public struct PullConfig: Codable, Sendable {
+    public let method: String?
+    public let url: String
+    public let type: APIType?
+    public let query: String?
+    public let body: JSONValue?
+    public let dataPath: String?
+    public let pagination: PaginationConfig?
+
+    public init(method: String? = nil, url: String, type: APIType? = nil, query: String? = nil, body: JSONValue? = nil, dataPath: String? = nil, pagination: PaginationConfig? = nil) {
+        self.method = method
+        self.url = url
+        self.type = type
+        self.query = query
+        self.body = body
+        self.dataPath = dataPath
+        self.pagination = pagination
+    }
+}
+
+public enum APIType: String, Codable, Sendable {
+    case rest
+    case graphql
+}
+
+public struct PaginationConfig: Codable, Sendable {
+    public let type: PaginationType
+    public let nextCursorPath: String?
+    public let pageSize: Int?
+
+    public init(type: PaginationType, nextCursorPath: String? = nil, pageSize: Int? = nil) {
+        self.type = type
+        self.nextCursorPath = nextCursorPath
+        self.pageSize = pageSize
+    }
+}
+
+public enum PaginationType: String, Codable, Sendable {
+    case cursor
+    case offset
+    case page
+}
+
+// MARK: - Push
+
+public struct PushConfig: Codable, Sendable {
+    public let create: EndpointConfig?
+    public let update: EndpointConfig?
+    public let delete: EndpointConfig?
+    public let type: String?
+    public let steps: [EndpointConfig]?
+
+    public init(create: EndpointConfig? = nil, update: EndpointConfig? = nil, delete: EndpointConfig? = nil, type: String? = nil, steps: [EndpointConfig]? = nil) {
+        self.create = create
+        self.update = update
+        self.delete = delete
+        self.type = type
+        self.steps = steps
+    }
+}
+
+public struct EndpointConfig: Codable, Sendable {
+    public let method: String?
+    public let url: String
+    public let type: APIType?
+    public let query: String?
+    public let mutation: String?
+    public let bodyWrapper: String?
+    public let bodyType: String?
+    public let contentTypeFromExtension: Bool?
+
+    public init(method: String? = nil, url: String, type: APIType? = nil, query: String? = nil, mutation: String? = nil, bodyWrapper: String? = nil, bodyType: String? = nil, contentTypeFromExtension: Bool? = nil) {
+        self.method = method
+        self.url = url
+        self.type = type
+        self.query = query
+        self.mutation = mutation
+        self.bodyWrapper = bodyWrapper
+        self.bodyType = bodyType
+        self.contentTypeFromExtension = contentTypeFromExtension
+    }
+}
+
+// MARK: - File Mapping
+
+public struct FileMappingConfig: Codable, Sendable {
+    public let strategy: MappingStrategy
+    public let directory: String
+    public let filename: String?
+    public let format: FileFormat
+    public let formatOptions: FormatOptions?
+    public let idField: String?
+    public let contentField: String?
+    public let readOnly: Bool?
+    public let preserveExtension: Bool?
+    public let transforms: TransformConfig?
+
+    public init(strategy: MappingStrategy, directory: String, filename: String? = nil, format: FileFormat = .json, formatOptions: FormatOptions? = nil, idField: String? = nil, contentField: String? = nil, readOnly: Bool? = nil, preserveExtension: Bool? = nil, transforms: TransformConfig? = nil) {
+        self.strategy = strategy
+        self.directory = directory
+        self.filename = filename
+        self.format = format
+        self.formatOptions = formatOptions
+        self.idField = idField
+        self.contentField = contentField
+        self.readOnly = readOnly
+        self.preserveExtension = preserveExtension
+        self.transforms = transforms
+    }
+}
+
+public enum MappingStrategy: String, Codable, Sendable {
+    case onePerRecord = "one-per-record"
+    case collection
+    case mirror
+}
+
+public enum FileFormat: String, Codable, Sendable {
+    case json
+    case csv
+    case html
+    case markdown = "md"
+    case yaml
+    case text = "txt"
+    case raw
+    // Phase 2
+    case ics
+    case vcf
+    case eml
+    case svg
+    case webloc
+    case xlsx
+    case docx
+}
+
+public struct FormatOptions: Codable, Sendable {
+    public let sheetMapping: String?
+    public let columnTypes: [String: String]?
+    public let fieldMapping: [String: String]?
+
+    public init(sheetMapping: String? = nil, columnTypes: [String: String]? = nil, fieldMapping: [String: String]? = nil) {
+        self.sheetMapping = sheetMapping
+        self.columnTypes = columnTypes
+        self.fieldMapping = fieldMapping
+    }
+}
+
+// MARK: - Transforms
+
+public struct TransformConfig: Codable, Sendable {
+    public let pull: [TransformOp]?
+    public let push: [TransformOp]?
+
+    public init(pull: [TransformOp]? = nil, push: [TransformOp]? = nil) {
+        self.pull = pull
+        self.push = push
+    }
+}
+
+public struct TransformOp: Codable, Sendable {
+    public let op: String
+    public let fields: [String]?
+    public let from: String?
+    public let to: String?
+    public let path: String?
+    public let select: String?
+    public let key: String?
+    public let value: String?
+    public let wrap: [String: String]?
+    public let field: String?
+    public let template: String?
+
+    public init(op: String, fields: [String]? = nil, from: String? = nil, to: String? = nil, path: String? = nil, select: String? = nil, key: String? = nil, value: String? = nil, wrap: [String: String]? = nil, field: String? = nil, template: String? = nil) {
+        self.op = op
+        self.fields = fields
+        self.from = from
+        self.to = to
+        self.path = path
+        self.select = select
+        self.key = key
+        self.value = value
+        self.wrap = wrap
+        self.field = field
+        self.template = template
+    }
+}
+
+// MARK: - Sync
+
+public struct SyncConfig: Codable, Sendable {
+    public let interval: Int?
+    public let debounceMs: Int?
+
+    public init(interval: Int? = nil, debounceMs: Int? = nil) {
+        self.interval = interval
+        self.debounceMs = debounceMs
+    }
+
+    public var intervalSeconds: TimeInterval {
+        TimeInterval(interval ?? 60)
+    }
+
+    public var debounceSeconds: TimeInterval {
+        TimeInterval(debounceMs ?? 500) / 1000.0
+    }
+}
+
+// MARK: - JSON Value (for arbitrary JSON in configs)
+
+public enum JSONValue: Codable, Sendable {
+    case string(String)
+    case number(Double)
+    case bool(Bool)
+    case object([String: JSONValue])
+    case array([JSONValue])
+    case null
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        if let s = try? container.decode(String.self) { self = .string(s) }
+        else if let n = try? container.decode(Double.self) { self = .number(n) }
+        else if let b = try? container.decode(Bool.self) { self = .bool(b) }
+        else if let o = try? container.decode([String: JSONValue].self) { self = .object(o) }
+        else if let a = try? container.decode([JSONValue].self) { self = .array(a) }
+        else if container.decodeNil() { self = .null }
+        else { throw DecodingError.dataCorruptedError(in: container, debugDescription: "Invalid JSON value") }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        switch self {
+        case .string(let s): try container.encode(s)
+        case .number(let n): try container.encode(n)
+        case .bool(let b): try container.encode(b)
+        case .object(let o): try container.encode(o)
+        case .array(let a): try container.encode(a)
+        case .null: try container.encodeNil()
+        }
+    }
+}
