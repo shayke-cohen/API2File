@@ -1,7 +1,7 @@
 # API2File — Design Specification
 
 **Date:** 2026-03-23
-**Status:** Draft
+**Status:** Implemented — Phase 2 Complete
 
 ## Overview
 
@@ -78,7 +78,7 @@ A native macOS menu bar app with a config-driven adapter system that maps any RE
 
 The core innovation: service adapters are JSON config files, not compiled code. A generic adapter engine interprets these configs to handle auth, API calls, pagination, data transformation, and file mapping.
 
-Each service's config lives at `~/API2File/{service}/.api2file/adapter.json`. Bundled adapter configs ship inside the app at `Resources/Adapters/{service}.adapter.json` and are copied to the service folder on first connection.
+Each service's config lives at `~/API2File-Data/{service}/.api2file/adapter.json`. Bundled adapter configs ship inside the app at `Resources/Adapters/{service}.adapter.json` and are copied to the service folder on first connection.
 
 ### Adapter Config Schema
 
@@ -172,36 +172,29 @@ Each service's config lives at `~/API2File/{service}/.api2file/adapter.json`. Bu
 | `collection` | All entities → one file (CSV, JSON array) | Monday board → `boards/marketing.csv` |
 | `mirror` | Preserve server file structure exactly | Web hosting files → `files/index.html` |
 
-### File Formats
+### File Formats — 15 Implemented
 
-The adapter chooses the most natural format per resource type. Users interact with familiar files that open in default macOS apps — double-click to edit, save to sync.
+All 15 format converters are implemented with bidirectional encode/decode. The `FormatConverterFactory` dispatches by the `FileFormat` enum.
 
-**Phase 1 — Text-based formats (no conversion libraries needed):**
-
-| Data Shape | Format | Opens Natively In | Example Use |
-| --- | --- | --- | --- |
-| Tabular data | `.csv` | Numbers, Excel, VS Code | Monday boards, form submissions |
-| Rich text | `.md` | Any editor, Marked.app | Blog posts, docs, descriptions |
-| Web content | `.html` | Safari, any browser | Site pages, email templates |
-| Structured objects | `.json` | VS Code, any editor | Products, orders, configs |
-| Config / settings | `.yaml` | Any editor | CI/CD pipelines, app config |
-| Plain text | `.txt` | TextEdit | Notes, logs, plain content |
-| Calendar events | `.ics` | **Calendar.app** | Bookings, schedules, meetings |
-| Contacts | `.vcf` | **Contacts.app** | CRM contacts, leads, customers |
-| Vector graphics | `.svg` | Preview, any browser | Logos, icons, design assets |
-| Email content | `.eml` | **Mail.app** | Email drafts, campaign templates |
-| Web bookmarks | `.webloc` | Finder → Safari | Links, saved URLs |
-| Translations | `.strings` | Xcode | i18n / localization files |
-| Tab-separated | `.tsv` | Numbers, Excel | Data exports, analytics |
-| Images / media | `.jpg`, `.png`, `.gif`, `.pdf` | Preview.app, Finder | Product photos, assets |
-
-**Phase 2 — Office formats (require Swift conversion libraries):**
-
-| Data Shape | Format | Opens Natively In | Example Use | Library |
+| # | Data Shape | Format | Opens Natively In | Example Use |
 | --- | --- | --- | --- | --- |
-| Rich spreadsheets | `.xlsx` | **Numbers, Excel** | Boards with types, colors, multiple sheets | CoreXLSX + custom writer |
-| Documents | `.docx` | **Pages, Word** | Proposals, contracts, wiki pages | Custom OOXML generator |
-| Presentations | `.pptx` | **Keynote, PowerPoint** | Pitch decks, reports | Custom OOXML generator |
+| 1 | Structured objects | `.json` | VS Code, any editor | Products, orders, configs |
+| 2 | Tabular data | `.csv` | Numbers, Excel, VS Code | Monday boards, form submissions |
+| 3 | Web content | `.html` | Safari, any browser | Site pages, email templates |
+| 4 | Rich text | `.md` | Any editor, Marked.app | Blog posts, docs, descriptions |
+| 5 | Config / settings | `.yaml` | Any editor | CI/CD pipelines, app config |
+| 6 | Plain text | `.txt` | TextEdit | Notes, logs, plain content |
+| 7 | Binary passthrough | `.raw` | Depends on content | Images, PDFs, any binary |
+| 8 | Calendar events | `.ics` | **Calendar.app** | Bookings, schedules, meetings |
+| 9 | Contacts | `.vcf` | **Contacts.app** | CRM contacts, leads, customers |
+| 10 | Email content | `.eml` | **Mail.app** | Email drafts, campaign templates |
+| 11 | Vector graphics | `.svg` | Preview, any browser | Logos, icons, design assets |
+| 12 | Web bookmarks | `.webloc` | Finder -> Safari | Links, saved URLs |
+| 13 | Rich spreadsheets | `.xlsx` | **Numbers, Excel** | Boards with types, colors (pure Swift OOXML via ZIPHelper) |
+| 14 | Documents | `.docx` | **Pages, Word** | Proposals, contracts (pure Swift OOXML via ZIPHelper) |
+| 15 | Presentations | `.pptx` | **Keynote, PowerPoint** | Pitch decks, reports (pure Swift OOXML via ZIPHelper) |
+
+**Not yet implemented:** `.strings`, `.tsv` — planned for Phase 3.
 
 **Format conversion architecture:** API data (JSON) flows through a **format layer** in the adapter engine that converts between the internal representation and the user-facing file format. The adapter config specifies format + options:
 
@@ -314,7 +307,7 @@ No internal metadata. Open in any editor, edit, save.
 
 ### Push Flow (Local → Server)
 
-1. FSEvents detects file modification in `~/API2File/{service}/`
+1. FSEvents detects file modification in `~/API2File-Data/{service}/`
 2. Debounce 500ms to batch rapid saves
 3. Validate file format (parse JSON, check required fields)
 4. Adapter engine reads file, applies push transforms, calls API
@@ -372,17 +365,29 @@ CSV files (used for tabular data like Monday.com boards) have special handling:
 - **Encoding:** Always UTF-8, LF line endings, RFC 4180 quoting. The app normalizes on read if the editor saved differently.
 - **Type coercion:** Values are strings. The adapter config can specify column types for validation, but the file is always plain CSV.
 
+### Collection Diffing
+
+When a collection-strategy file (CSV, JSON array, XLSX, YAML) is edited locally, the `CollectionDiffer` computes a precise diff between the previously synced version and the current version. This determines which individual records to create, update, or delete via the API — avoiding a full-collection overwrite.
+
+`CollectionDiffer.diff(old:new:idField:)` returns a `DiffResult` containing:
+
+- **created** — records with no matching ID in the old set (or missing ID entirely)
+- **updated** — records with the same ID but changed field values
+- **deleted** — IDs present in the old set but absent in the new set
+
+Field comparison normalizes types (Int vs String "1") and ignores the ID field itself. The `DiffResult.summary` provides a human-readable string like "2 created, 1 updated, 3 deleted".
+
 ### Git Initialization
 
 - Each service folder is an independent git repository
 - Initialized on first service connection
 - `.gitignore` contains: `.api2file/` (state and logs are not tracked)
-- The root `~/API2File/` is NOT a git repo — only service subdirectories are
+- The root `~/API2File-Data/` is NOT a git repo — only service subdirectories are
 - If a git repo already exists in the directory (user-created), the app reuses it rather than re-initializing
 
 ### State Tracking
 
-Internal state per file stored in `~/API2File/{service}/.api2file/state.json`:
+Internal state per file stored in `~/API2File-Data/{service}/.api2file/state.json`:
 
 ```json
 {
@@ -404,55 +409,109 @@ Status values: `synced`, `syncing`, `modified`, `conflict`, `error`
 
 ## Folder Structure
 
+The sync root defaults to `~/API2File-Data/` (configurable via global config or CLI `api2file init`).
+
 ```
-~/API2File/
+~/API2File-Data/
 ├── .api2file.json                     # Global config (hidden)
 ├── .api2file/                         # Global internals (hidden)
 │   └── logs/
 ├── CLAUDE.md                          # ← Root agent guide (auto-generated)
 │
-├── monday/
-│   ├── .api2file/                     #    (all dot-files hidden by default in Finder)
-│   │   ├── adapter.json               #    adapter config
-│   │   └── state.json                 #    sync state
+├── demo/                              # ← Local demo service (no cloud account needed)
+│   ├── .api2file/
+│   │   ├── adapter.json
+│   │   └── state.json
 │   ├── .git/
-│   ├── CLAUDE.md                      # ← Monday-specific agent guide (auto-generated)
+│   ├── CLAUDE.md
+│   └── tasks.csv                      # ← Opens in Numbers/Excel
+│
+├── monday/
+│   ├── .api2file/
+│   │   ├── adapter.json
+│   │   └── state.json
+│   ├── .git/
+│   ├── CLAUDE.md
 │   └── boards/
-│       ├── marketing-campaign.csv     # ← Opens in Numbers/Excel!
-│       ├── dev-sprint-42.csv
-│       └── hiring-pipeline.csv
+│       ├── marketing-campaign.csv
+│       └── dev-sprint-42.csv
 │
 ├── wix/
 │   ├── .api2file/
 │   │   ├── adapter.json
 │   │   └── state.json
 │   ├── .git/
-│   ├── CLAUDE.md                      # ← Wix-specific agent guide (auto-generated)
+│   ├── CLAUDE.md
 │   ├── products/
-│   │   ├── premium-dog-food.json      # ← Clean JSON, no internal metadata
-│   │   └── basic-cat-food.json
+│   │   └── premium-dog-food.json      # ← Clean JSON, no internal metadata
 │   ├── pages/
-│   │   ├── home.html                  # ← Opens in browser
-│   │   └── about.html
+│   │   └── home.html                  # ← Opens in browser
 │   └── orders/                        # ← Read-only
-│       ├── 1001-john.json
-│       └── 1002-jane.json
+│       └── 1001-john.json
 │
-└── netlify/
+├── github/
+│   ├── .api2file/
+│   │   ├── adapter.json
+│   │   └── state.json
+│   ├── .git/
+│   ├── repos.csv
+│   ├── issues.csv
+│   └── notifications.csv
+│
+└── airtable/
     ├── .api2file/
     │   ├── adapter.json
     │   └── state.json
     ├── .git/
-    ├── CLAUDE.md                      # ← Netlify-specific agent guide (auto-generated)
-    └── sites/
-        └── my-blog/
-            ├── index.html             # ← Edit locally → auto-deploys
-            ├── about.html
-            └── css/
-                └── style.css
+    ├── bases.json
+    └── records/
+        └── rec123.json
 ```
 
 Each service gets its own git repository for clean history.
+
+---
+
+## CLI Tool
+
+The `api2file` command-line tool (`API2FileCLI` target) provides headless access to all core operations. It uses `~/API2File-Data/` as the default sync folder.
+
+```text
+USAGE: api2file <command> [arguments]
+
+COMMANDS:
+  help              Show help message
+  init              Initialize ~/API2File-Data/ with global config
+  list              List available bundled adapters
+  status            Show all services and their sync status
+  add <service>     Set up a new service (demo/monday/wix/github/airtable)
+  sync [service]    Trigger immediate sync (all or specific service)
+  pull [service]    Pull from API to local files
+```
+
+### Bundled Adapters (via CLI `add`)
+
+| ID | Service | Description |
+| --- | --- | --- |
+| `demo` | Demo Tasks API | Local demo server — no account needed |
+| `monday` | Monday.com | Boards and items as CSV files |
+| `wix` | Wix | Contacts, products, blog posts, bookings |
+| `github` | GitHub | Repos, issues, gists, notifications |
+| `airtable` | Airtable | Records and bases as JSON files |
+
+The `add` command writes the adapter config to `.api2file/adapter.json`, saves the API key to macOS Keychain, and initializes a git repository in the service directory.
+
+---
+
+## Web Dashboard
+
+A single-page HTML dashboard is bundled at `Resources/Web/dashboard.html`. It provides a visual overview of all connected services and their sync status, with live-updating cards for each resource. The dashboard is served by the demo server and includes:
+
+- Real-time service status with color-coded indicators (green/yellow/red)
+- Per-resource cards showing record counts, formats, and last sync time
+- Search/filter across all resources
+- Sync-now buttons for individual resources
+- Dark theme matching macOS system appearance
 
 ---
 
@@ -466,7 +525,7 @@ Each service gets its own git repository for clean history.
   - Per-service status with last sync time and resource counts
   - "Add Service..." — walks through adapter setup
   - "Preferences..." — opens preferences window
-  - "Open ~/API2File" — opens Finder
+  - "Open ~/API2File-Data" — opens Finder
   - "Pause/Resume All Syncing"
   - "Sync Now" — force immediate sync cycle for all services
   - Quit
@@ -474,7 +533,7 @@ Each service gets its own git repository for clean history.
 ### Finder Sync Extension
 
 - Separate Xcode target using `FIFinderSyncProtocol`
-- Monitors `~/API2File/` directory
+- Monitors `~/API2File-Data/` directory
 - Badge overlays:
   - ✓ Green checkmark — synced
   - ↻ Blue arrows — syncing
@@ -522,7 +581,7 @@ The `CLAUDE.md` is generated from the adapter config and regenerated whenever th
 
 ### Root CLAUDE.md
 
-A root-level `~/API2File/CLAUDE.md` provides an overview of all connected services and how API2File works:
+A root-level `~/API2File-Data/CLAUDE.md` provides an overview of all connected services and how API2File works:
 
 ```markdown
 # API2File — Cloud Data as Local Files
@@ -549,7 +608,7 @@ Edit files here → changes push to the cloud automatically.
 
 ### Per-Service CLAUDE.md
 
-Each service folder (`~/API2File/monday/CLAUDE.md`, `~/API2File/wix/CLAUDE.md`) contains detailed instructions specific to that service's resources, fields, and file formats. See the adapter engine section for generation details.
+Each service folder (`~/API2File-Data/monday/CLAUDE.md`, `~/API2File-Data/wix/CLAUDE.md`) contains detailed instructions specific to that service's resources, fields, and file formats. See the adapter engine section for generation details.
 
 ### Keeping It Current
 
@@ -563,28 +622,32 @@ Each service folder (`~/API2File/monday/CLAUDE.md`, `~/API2File/wix/CLAUDE.md`) 
 
 API2File runs a lightweight local HTTP server (default port `21567`) with two roles:
 
-### Control API (for AI agents & scripts)
+### Control API (for AI agents & scripts) — Implemented
 
-Exposes sync state and operations programmatically. AI agents like Claude Code can query status, trigger syncs, and validate adapters without touching the UI.
+Exposes sync state and operations programmatically via `LocalServer` (NWListener on port 21567). AI agents like Claude Code can query status, trigger syncs, and validate adapters without touching the UI.
 
-```
+**Implemented endpoints:**
+
+```text
+GET  /api/health                           → Health check (returns {"status":"ok","version":"1.0"})
 GET  /api/services                         → List all connected services + sync status
 GET  /api/services/:id/status              → Detailed status for one service (files, last sync, errors)
 POST /api/services/:id/sync                → Trigger immediate sync (pull + push)
+POST /api/adapters/validate                → Validate an adapter config JSON (body) — returns valid/invalid + errors
+```
+
+**Not yet implemented (planned):**
+
+```text
 GET  /api/services/:id/conflicts           → List unresolved conflicts with diff
 POST /api/services/:id/conflicts/:file/resolve  → Resolve conflict (accept server or local)
-
 GET  /api/files                            → List all synced files across services with status
-GET  /api/files/:service/:path             → Status of a specific file
-
-GET  /api/logs                             → Recent sync log entries (filterable by service, level)
-GET  /api/health                           → Service health check
-
-POST /api/adapters/validate                → Validate an adapter config JSON (body) — returns errors/warnings
-POST /api/adapters/dry-run                 → Run a pull against real API but don't write files — preview what would sync
+GET  /api/logs                             → Recent sync log entries
+POST /api/adapters/dry-run                 → Preview what would sync without writing files
 ```
 
 Example AI agent workflow:
+
 ```bash
 # Check status before editing
 curl localhost:21567/api/services/monday/status
@@ -593,9 +656,6 @@ curl localhost:21567/api/services/monday/status
 
 # Trigger sync after changes
 curl -X POST localhost:21567/api/services/monday/sync
-
-# Verify no conflicts
-curl localhost:21567/api/services/monday/conflicts
 ```
 
 ### Mock API Server (for adapter development & testing)
@@ -639,126 +699,172 @@ The mock server auto-generates realistic sample data based on the adapter config
 | Adapter config invalid | Skip service, show error in menu bar |
 | Disk full | Detect before write, pause sync, notify |
 
-All errors logged to `~/API2File/.api2file/logs/api2file-{date}.log` with 7-day rotation.
+All errors logged to `~/API2File-Data/.api2file/logs/api2file-{date}.log` with 7-day rotation.
 
 ---
 
-## Xcode Project Structure
+## Swift Package Structure (Actual)
 
-```
+The project uses Swift Package Manager with five targets.
+
+```text
 API2File/
-├── API2File.xcodeproj
-├── API2File/                           # Main app target (menu bar app)
-│   ├── App/
-│   │   ├── API2FileApp.swift           # @main entry, MenuBarExtra
-│   │   └── AppDelegate.swift           # Lifecycle, launchd
-│   ├── UI/
-│   │   ├── MenuBarView.swift           # Menu bar dropdown
-│   │   ├── PreferencesView.swift       # Settings window
-│   │   ├── ServiceConfigView.swift     # Per-service setup
-│   │   ├── AddServiceView.swift        # New service wizard
-│   │   └── ConflictResolverView.swift  # Conflict diff viewer
-│   ├── Core/
-│   │   ├── SyncEngine.swift            # Top-level orchestrator
-│   │   ├── SyncCoordinator.swift       # Queue, scheduling, debounce
-│   │   ├── FileWatcher.swift           # FSEvents wrapper
-│   │   ├── GitManager.swift            # Git operations
-│   │   ├── ConflictResolver.swift      # Conflict detection + backup
-│   │   ├── KeychainManager.swift       # Credentials CRUD
-│   │   ├── NetworkMonitor.swift        # NWPathMonitor wrapper
-│   │   └── AgentGuideGenerator.swift  # Auto-generates CLAUDE.md from adapter config
-│   ├── Adapters/
-│   │   ├── AdapterEngine.swift         # Config interpreter
-│   │   ├── AdapterConfig.swift         # Codable config models
-│   │   ├── HTTPClient.swift            # URLSession wrapper
-│   │   ├── GraphQLClient.swift         # GraphQL support
-│   │   ├── OAuth2Handler.swift         # OAuth2 flow
-│   │   ├── TransformPipeline.swift     # Data transformation ops
-│   │   ├── PaginationHandler.swift     # Cursor/offset/page
-│   │   ├── FileMapper.swift            # File naming + directory mapping
-│   │   └── Formats/                    # File format converters
-│   │       ├── FormatConverter.swift    # Protocol + factory
-│   │       ├── CSVFormat.swift         # CSV read/write
-│   │       ├── ICSFormat.swift         # iCalendar read/write
-│   │       ├── VCFFormat.swift         # vCard read/write
-│   │       ├── EMLFormat.swift         # Email read/write
-│   │       ├── XLSXFormat.swift        # Excel (Phase 2)
-│   │       └── DOCXFormat.swift        # Word (Phase 2)
-│   ├── Server/                            # Local REST server
-│   │   ├── LocalServer.swift              # HTTP server (NWListener or SwiftNIO)
-│   │   ├── ControlAPI.swift               # /api/* routes — status, sync, conflicts
-│   │   ├── MockServer.swift               # Mock cloud API simulator
-│   │   ├── MockDataGenerator.swift        # Auto-generate sample data from adapter config
-│   │   └── ResponseRecorder.swift         # Record/replay real API responses
-│   ├── Models/
-│   │   ├── ServiceState.swift             # Per-service runtime state
-│   │   ├── SyncStatus.swift               # File sync status enum
-│   │   ├── SyncableFile.swift             # File + metadata model
-│   │   └── GlobalConfig.swift             # .api2file.json model
-│   └── Resources/
-│       └── Adapters/                      # Bundled adapter configs
-│           ├── monday.adapter.json
-│           ├── wix.adapter.json
-│           └── netlify.adapter.json
-├── FinderExtension/                       # Finder Sync Extension target
-│   ├── FinderSync.swift
-│   └── Info.plist
-├── Tests/
-│   ├── Core/
-│   │   ├── SyncEngineTests.swift
-│   │   ├── FileWatcherTests.swift
-│   │   ├── GitManagerTests.swift
-│   │   └── ConflictResolverTests.swift
-│   ├── Adapters/
-│   │   ├── AdapterEngineTests.swift
-│   │   ├── TransformPipelineTests.swift
-│   │   ├── PaginationHandlerTests.swift
-│   │   └── OAuth2HandlerTests.swift
-│   ├── Server/
-│   │   ├── ControlAPITests.swift
-│   │   └── MockServerTests.swift
-│   └── Integration/
-│       └── FullSyncCycleTests.swift       # Uses MockServer as test harness
-└── Package.swift
+├── Package.swift
+├── Sources/
+│   ├── API2FileApp/                        # macOS menu bar app target
+│   │   ├── App/
+│   │   │   └── API2FileApp.swift           # @main entry, MenuBarExtra
+│   │   └── UI/
+│   │       ├── MenuBarView.swift           # Menu bar dropdown
+│   │       ├── PreferencesView.swift       # Settings window (SwiftUI tabs)
+│   │       ├── ServiceDetailView.swift     # Per-service detail + actions
+│   │       └── AddServiceView.swift        # New service wizard
+│   │
+│   ├── API2FileCLI/                        # CLI tool target
+│   │   └── main.swift                      # help, init, list, status, add, sync, pull
+│   │
+│   ├── API2FileCore/                       # Shared library target
+│   │   ├── Core/
+│   │   │   ├── SyncEngine.swift            # Top-level orchestrator
+│   │   │   ├── SyncCoordinator.swift       # Queue, scheduling, debounce
+│   │   │   ├── CollectionDiffer.swift      # Diff old vs new records for push
+│   │   │   ├── FileWatcher.swift           # FSEvents wrapper
+│   │   │   ├── GitManager.swift            # Git operations via Process
+│   │   │   ├── KeychainManager.swift       # macOS Keychain CRUD
+│   │   │   ├── OAuth2Handler.swift         # OAuth2 authorization code flow
+│   │   │   ├── NotificationManager.swift   # UNUserNotificationCenter wrapper
+│   │   │   ├── NetworkMonitor.swift        # NWPathMonitor wrapper
+│   │   │   ├── ConfigWatcher.swift         # Watch adapter config for changes
+│   │   │   └── AgentGuideGenerator.swift   # Auto-generates CLAUDE.md
+│   │   ├── Adapters/
+│   │   │   ├── AdapterEngine.swift         # Config interpreter + pull/push pipeline
+│   │   │   ├── TransformPipeline.swift     # pick, omit, rename, flatten, expand, keyBy, template
+│   │   │   ├── FileMapper.swift            # File naming + directory mapping + slugify
+│   │   │   └── Formats/                    # 15 file format converters
+│   │   │       ├── FormatConverter.swift    # Protocol + FormatConverterFactory
+│   │   │       ├── JSONFormat.swift
+│   │   │       ├── CSVFormat.swift
+│   │   │       ├── HTMLFormat.swift
+│   │   │       ├── MarkdownFormat.swift
+│   │   │       ├── YAMLFormat.swift
+│   │   │       ├── TextFormat.swift
+│   │   │       ├── RawFormat.swift
+│   │   │       ├── ICSFormat.swift         # iCalendar (Calendar.app)
+│   │   │       ├── VCFFormat.swift         # vCard (Contacts.app)
+│   │   │       ├── EMLFormat.swift         # Email (Mail.app)
+│   │   │       ├── SVGFormat.swift         # Vector graphics
+│   │   │       ├── WeblocFormat.swift      # macOS web bookmarks
+│   │   │       ├── XLSXFormat.swift        # Excel via pure Swift OOXML
+│   │   │       ├── DOCXFormat.swift        # Word via pure Swift OOXML
+│   │   │       ├── PPTXFormat.swift        # PowerPoint via pure Swift OOXML
+│   │   │       └── ZIPHelper.swift         # ZIP archive builder for OOXML
+│   │   ├── Models/
+│   │   │   ├── AdapterConfig.swift         # Full Codable config (auth, resources, transforms, FileFormat enum)
+│   │   │   ├── SyncState.swift             # Per-file sync state persistence
+│   │   │   ├── SyncStatus.swift            # Status enum (synced, syncing, modified, conflict, error)
+│   │   │   ├── SyncableFile.swift          # File + metadata model
+│   │   │   └── GlobalConfig.swift          # .api2file.json model
+│   │   ├── Server/
+│   │   │   ├── LocalServer.swift           # HTTP control server (NWListener, port 21567)
+│   │   │   ├── MockServer.swift            # Mock cloud API simulator
+│   │   │   └── DemoAPIServer.swift         # Full REST API with 14 resource types + seed data
+│   │   └── Resources/
+│   │       ├── Web/
+│   │       │   └── dashboard.html          # Single-page web dashboard
+│   │       └── Adapters/                   # 12 bundled adapter configs
+│   │           ├── demo.adapter.json
+│   │           ├── monday.adapter.json
+│   │           ├── wix.adapter.json
+│   │           ├── wix-demo.adapter.json
+│   │           ├── github.adapter.json
+│   │           ├── airtable.adapter.json
+│   │           ├── teamboard.adapter.json
+│   │           ├── peoplehub.adapter.json
+│   │           ├── calsync.adapter.json
+│   │           ├── pagecraft.adapter.json
+│   │           ├── devops.adapter.json
+│   │           └── mediamanager.adapter.json
+│   │
+│   ├── API2FileDemo/                       # Standalone demo server target
+│   │   └── main.swift                      # Runs DemoAPIServer on port 8089
+│   │
+│   └── FinderExtension/                    # Finder Sync Extension target
+│       └── FinderSync.swift
+│
+└── Tests/
+    └── API2FileCoreTests/
+        ├── Models/
+        │   ├── AdapterConfigTests.swift
+        │   └── SyncStateTests.swift        # + GlobalConfigTests, SyncableFileTests, SyncStatusTests
+        ├── Core/
+        │   ├── HTTPClientTests.swift
+        │   ├── KeychainManagerTests.swift
+        │   ├── GitManagerTests.swift
+        │   ├── AgentGuideGeneratorTests.swift
+        │   ├── SyncCoordinatorTests.swift
+        │   ├── OAuth2HandlerTests.swift
+        │   ├── NotificationManagerTests.swift
+        │   └── CollectionDifferTests.swift
+        ├── Adapters/
+        │   ├── FormatConverterTests.swift  # All 15 formats
+        │   ├── TransformPipelineTests.swift # + TemplateEngineTests, JSONPathTests
+        │   ├── ICSVCFFormatTests.swift
+        │   └── EMLSVGWeblocFormatTests.swift
+        └── Integration/
+            ├── AdapterEngineIntegrationTests.swift
+            ├── FullSyncCycleTests.swift
+            ├── DemoAdapterConfigTests.swift
+            ├── DemoAdapterPipelineTests.swift
+            ├── DemoServerE2ETests.swift
+            ├── DemoServerAllResourcesE2ETests.swift
+            ├── BidirectionalSyncE2ETests.swift
+            ├── RealSyncE2ETests.swift
+            └── CollectionDiffE2ETests.swift
 ```
 
 ---
 
 ## Phasing
 
-### Phase 1 — MVP (Core Sync Engine)
+### Phase 1 — MVP (Core Sync Engine) -- COMPLETE
 
 - Sync engine: FSEvents (local changes) + polling (remote changes)
 - Generic adapter engine interpreting `.api2file/adapter.json` configs
-- One bundled adapter: Monday.com (simplest API, bearer auth)
+- Bundled demo adapter + Monday.com adapter
 - Git auto-commit after each sync cycle
 - Basic menu bar icon with service status
-- CLI for manual sync trigger and service setup
+- CLI tool (`api2file`) with help, init, list, status, add, sync, pull commands
 - macOS Keychain for credential storage
-- **Local REST server:** Control API (status, trigger sync, validate adapters) + mock server for testing
-- **Formats:** csv, json, html, md, txt, yaml, raw (binary passthrough)
+- Local REST control server (port 21567): health, services, sync, validate
+- Demo API server (port 8089): full CRUD with 14 resource types
+- Collection diffing for granular push (create/update/delete individual records)
+- **Formats:** json, csv, html, md, yaml, txt, raw (7 formats)
 
-### Phase 2 — Full macOS Experience + Rich Formats
+### Phase 2 — Full macOS Experience + Rich Formats -- COMPLETE
 
-- Finder Sync Extension (file badges)
-- Preferences window (SwiftUI)
-- OAuth2 flow handler (for Wix and similar)
-- Bundled Wix + Netlify adapters
-- macOS notifications with actions
-- Launch at login via SMAppService
-- Conflict resolution UI (diff viewer)
-- "Add Service" wizard
-- **Formats:** ics (Calendar.app), vcf (Contacts.app), eml (Mail.app), svg, webloc, strings, tsv
-- **Office formats:** xlsx (Numbers/Excel), docx (Pages/Word) — via OOXML generation
+- Finder Sync Extension (file badges via `FIFinderSyncProtocol`)
+- Preferences window (SwiftUI with General/Services/Advanced tabs)
+- Service detail view with Sync Now, Open Folder, Update Key, Disconnect
+- OAuth2 flow handler (`OAuth2Handler` with local callback server)
+- Bundled adapters: wix, wix-demo, github, airtable, teamboard, peoplehub, calsync, pagecraft, devops, mediamanager (12 total)
+- macOS notifications via `NotificationManager` (UNUserNotificationCenter)
+- "Add Service" wizard with per-service extra fields (Site ID, Base ID, etc.)
+- Config watcher for live adapter config reloading
+- Web dashboard (single-page HTML with live status)
+- **Formats:** ics, vcf, eml, svg, webloc (5 formats)
+- **Office formats:** xlsx, docx, pptx — pure Swift OOXML via ZIPHelper (3 formats)
+- **Total: 15 format converters implemented**
 
-### Phase 3 — Power Features
+### Phase 3 — Power Features (Future)
 
 - Webhook listener with ngrok/Cloudflare tunnel auto-config
 - Selective sync (choose which resources to sync per service)
-- Adapter validation tool (test config against live API)
+- Conflict resolution UI (diff viewer)
 - Community adapter repository
-- AI-assisted adapter generation ("paste API docs → get adapter config")
-- **Formats:** pptx (Keynote/PowerPoint), additional Office format polish
+- AI-assisted adapter generation ("paste API docs -> get adapter config")
+- Control API: conflicts endpoint, files listing, logs endpoint, dry-run
+- Launch at login via SMAppService
+- **Formats:** `.strings`, `.tsv`
 
 ---
 
@@ -774,6 +880,24 @@ API2File/
 | File watching | FSEvents | macOS native, efficient, battle-tested |
 | Git per service | Separate repo per service folder | Clean history, independent sync cycles |
 | Sync meta | Hidden `.api2file/state.json` per service | User files stay 100% clean; all sync mapping centralized |
-| File formats | Adapter decides per resource | 20+ formats: csv, xlsx, json, html, md, ics, vcf, docx, eml, svg, and more |
+| File formats | Adapter decides per resource | 15 formats: json, csv, html, md, yaml, txt, raw, ics, vcf, eml, svg, webloc, xlsx, docx, pptx |
+| OOXML approach | Pure Swift via ZIPHelper | Zero external dependencies for xlsx/docx/pptx; generates valid Office Open XML archives |
 | Distribution | Direct (notarized), not App Store | Non-sandboxed for full filesystem + Keychain + FSEvents access |
 | Git backend | Shell `git` via `Process` | More reliable than SwiftGit2; requires Xcode CLI Tools (standard on dev Macs) |
+| Sync folder | `~/API2File-Data/` | Avoids confusion with the source repo (`~/API2File/`); configurable via GlobalConfig |
+
+---
+
+## Known Limitations
+
+| Area | Limitation | Notes |
+| --- | --- | --- |
+| Control API | Only 5 of 10 planned endpoints implemented | Missing: conflicts, files listing, logs, dry-run |
+| Conflict resolution | No UI — server-wins with `.conflict` file backup only | Phase 3 will add a diff viewer |
+| Launch at login | `SMAppService` call not wired up yet | Manual launch only |
+| Finder Extension | Badge protocol implemented but IPC not connected | Extension exists as separate target but doesn't communicate with main app yet |
+| Webhook sync | Not implemented | Polling only; webhooks are Phase 3 |
+| Selective sync | Not implemented | All resources in an adapter sync — no per-resource toggle |
+| `.strings` / `.tsv` | Format converters not implemented | Planned for Phase 3 |
+| Offline queue | Designed but not persistence-tested at scale | Queue logic in SyncCoordinator; no `.api2file/queue.json` file written yet |
+| Demo server | In-memory only — data resets on restart | Intentional for testing; not a production limitation |

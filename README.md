@@ -1,23 +1,23 @@
 # API2File
 
-Bidirectional sync engine that bridges cloud APIs and local files. Edit a CSV in Numbers, save it, and it pushes to your API. Data changes on the server sync down to local files. Git auto-commits provide version history.
+Native macOS app that bidirectionally syncs cloud API data to local files. Like Dropbox but for APIs -- edit a CSV in Numbers and it pushes to Monday.com; change data on Wix and it appears as local files. Config-driven adapters mean no code is needed to add new cloud services.
 
-Think **Dropbox, but for APIs** — config-driven, format-aware, zero external dependencies.
+Zero external dependencies. Pure Swift, macOS native frameworks only.
 
-## Features
+## Key Features
 
-- **Config-driven adapters** — connect any REST/GraphQL API via JSON config, no code required
-- **Bundled adapters** — Monday.com, Wix, GitHub, Airtable out of the box, plus 6 demo adapters
-- **macOS menu bar app** — always-on sync with per-service controls, preferences, and service detail view
-- **Bidirectional sync** — pull (server to file) and push (file to server) with debouncing
-- **10+ file formats** — JSON, CSV, YAML, ICS (Calendar.app), VCF (Contacts.app), HTML, Markdown, SVG, Text, Raw, and more
-- **Transform pipeline** — declarative data transforms: pick, omit, rename, flatten, keyBy
-- **Git auto-commit** — every sync cycle is committed with descriptive messages
-- **Keychain auth** — secure credential storage via macOS Keychain
-- **Pagination** — cursor, offset, and page-based pagination out of the box
-- **Demo server** — built-in REST API for testing without external services
-- **180+ tests** — unit, integration, and end-to-end test coverage
-- **Zero dependencies** — pure Swift, macOS native frameworks only
+- **15 file format converters** -- CSV, JSON, HTML, Markdown, YAML, ICS, VCF, EML, SVG, WEBLOC, XLSX, DOCX, PPTX, Text, Raw
+- **Config-driven adapter system** -- connect any REST/GraphQL API via `.adapter.json`, no code required
+- **Bidirectional sync** with smart collection diffing -- pull from API, push local edits back
+- **macOS menu bar app** (MenuBarExtra) -- always-on sync with per-service controls
+- **Web dashboard** at `localhost:8089` -- visual overview served by the demo server
+- **CLI tool** (`api2file`) -- init, add, sync, pull, status, list
+- **Auto-generated CLAUDE.md** -- agent guide placed in the sync folder for AI tools
+- **Git auto-commit** -- every sync cycle committed with descriptive messages
+- **macOS Keychain** for secure credential storage
+- **Demo server** with 14 resource types (tasks, contacts, events, notes, pages, config, services, incidents, logos, photos, documents, spreadsheets, reports, presentations)
+- **5 bundled cloud adapters** -- Demo, Monday.com, Wix, GitHub, Airtable
+- **392 tests** -- unit, integration, and end-to-end coverage
 
 ## Quick Start
 
@@ -27,92 +27,194 @@ Think **Dropbox, but for APIs** — config-driven, format-aware, zero external d
 - Swift 5.9+
 - Xcode Command Line Tools
 
-### Build & Run
+### 1. Build
 
 ```bash
-# Build the app
 swift build
-
-# Build the .app bundle (release)
-swift build -c release
-# The .app bundle is at build/API2File.app — copy to /Applications/ to launch from Spotlight
 ```
 
-### Launch the App
+### 2. Start the demo server
 
 ```bash
-# Option 1: Run directly
-swift run API2FileApp
-
-# Option 2: Open the .app bundle
-open build/API2File.app
-
-# Option 3: If installed to Applications
-open /Applications/API2File.app
+swift run api2file-demo
 ```
 
-The app runs as a **menu bar icon** (cloud icon, top-right of screen). Click it to see connected services, sync controls, and add new services.
+The demo API runs on port 8089 with seed data for all 14 resource types.
 
-### Add a Service
+### 3. Open the web dashboard
 
-1. Click the cloud icon in the menu bar
-2. Click **"Add Service..."**
-3. Choose a service (Demo, Monday.com, Wix, GitHub, or Airtable)
-4. Enter your API key (and any extra fields like Wix Site ID or Airtable Base ID)
-5. Click **Connect** — data syncs to `~/API2File/{service}/`
+```bash
+open http://localhost:8089/
+```
 
-### Bundled Adapters
+### 4. Set up via CLI
 
-| Service | Auth | Resources | File Formats |
-|---|---|---|---|
-| **Demo** | None needed | tasks, contacts, events, notes, pages, etc. | CSV, VCF, ICS, MD, HTML, JSON, SVG, PNG, PDF |
+```bash
+swift run api2file init          # creates ~/API2File-Data/ with global config
+swift run api2file add demo      # configures the demo adapter, stores key in Keychain
+swift run api2file sync demo     # pulls data from the demo server to local files
+swift run api2file status        # shows all services and their sync state
+```
+
+### 5. Run the menu bar app
+
+```bash
+swift run API2FileApp
+```
+
+The app appears as a cloud icon in the menu bar. Click it to see connected services, trigger syncs, and open preferences.
+
+### 6. Run tests
+
+```bash
+swift test    # 392 tests
+```
+
+## Architecture
+
+```text
+Sources/
+  API2FileCore/           Core library (no UI)
+    Adapters/             AdapterEngine, FileMapper, TransformPipeline
+      Formats/            15 format converters (CSV, JSON, ICS, VCF, XLSX, DOCX, PPTX...)
+    Core/                 SyncEngine, SyncCoordinator, CollectionDiffer, HTTPClient,
+                          GraphQLClient, GitManager, KeychainManager, FileWatcher,
+                          ConfigWatcher, NetworkMonitor, OAuth2Handler,
+                          NotificationManager, AgentGuideGenerator
+    Models/               AdapterConfig, GlobalConfig, SyncState, FileFormat
+    Server/               DemoAPIServer, LocalServer (control API on port 21567), MockServer
+    Resources/
+      Adapters/           12 bundled .adapter.json files
+      Web/                dashboard.html
+  API2FileApp/            macOS menu bar app (SwiftUI)
+    App/                  API2FileApp.swift (entry point)
+    UI/                   MenuBarView, PreferencesView, ServiceDetailView, AddServiceView
+  API2FileCLI/            CLI tool (api2file)
+  API2FileDemo/           Demo server entry point (api2file-demo)
+
+Tests/
+  API2FileCoreTests/
+    Adapters/             FormatConverter, TransformPipeline, ICS/VCF, EML/SVG/WEBLOC tests
+    Core/                 HTTPClient, GitManager, KeychainManager, SyncCoordinator,
+                          CollectionDiffer, OAuth2Handler, NotificationManager, AgentGuide tests
+    Models/               AdapterConfig, SyncState parsing tests
+    Integration/          AdapterEngine, FullSyncCycle, DemoServer E2E,
+                          BidirectionalSync E2E, CollectionDiff E2E, RealSync E2E
+```
+
+## File Format Mapping
+
+| Format   | Extension | Opens In              | Use Case                     |
+|----------|-----------|-----------------------|------------------------------|
+| CSV      | `.csv`    | Numbers, Excel        | Tabular data                 |
+| JSON     | `.json`   | Any editor            | Structured objects           |
+| HTML     | `.html`   | Safari, browsers      | Web content                  |
+| Markdown | `.md`     | Any editor            | Documentation, blog posts    |
+| YAML     | `.yaml`   | Any editor            | Config, settings             |
+| ICS      | `.ics`    | Calendar.app          | Events, schedules            |
+| VCF      | `.vcf`    | Contacts.app          | Contacts, leads              |
+| EML      | `.eml`    | Mail.app              | Email messages               |
+| SVG      | `.svg`    | Preview, browsers     | Vector graphics              |
+| WEBLOC   | `.webloc` | Safari                | Web bookmarks                |
+| XLSX     | `.xlsx`   | Numbers, Excel        | Spreadsheets with formatting |
+| DOCX     | `.docx`   | Pages, Word           | Word documents               |
+| PPTX     | `.pptx`   | Keynote, PowerPoint   | Slide presentations          |
+| Text     | `.txt`    | TextEdit              | Plain content                |
+| Raw      | (any)     | Varies                | Binary passthrough (PNG, PDF)|
+
+## Bundled Adapters
+
+| Adapter | Auth | Resources | File Formats |
+| --- | --- | --- | --- |
+| **Demo** | None needed | tasks, contacts, events, notes, pages, config, services, incidents, logos, photos, documents, spreadsheets, reports, presentations | CSV, VCF, ICS, MD, HTML, JSON, SVG, XLSX, DOCX, PPTX, Raw |
 | **Monday.com** | Bearer token | boards with items | CSV |
-| **Wix** | API key + Site ID | contacts, products, blog posts, bookings, collections | CSV, Markdown, JSON |
-| **GitHub** | Personal access token | repos, issues, gists, notifications, starred | CSV, JSON |
+| **Wix** | API key + Site ID | contacts, products, blog posts | CSV, Markdown |
+| **GitHub** | Personal access token | repos, issues, notifications | CSV |
 | **Airtable** | Personal access token + Base/Table ID | records, bases | JSON |
 
-### Run the Demo (No Account Needed)
+## Sync Folder Structure
+
+Default sync folder: `~/API2File-Data/` (configurable in `GlobalConfig`).
+
+```text
+~/API2File-Data/
+  .api2file.json              Global config
+  CLAUDE.md                   Auto-generated agent guide
+  demo/
+    .api2file/
+      adapter.json            Service config
+      state.json              Sync state
+    .git/                     Auto-committed history
+    CLAUDE.md                 Service-specific agent guide
+    tasks.csv                 Tasks spreadsheet (Numbers)
+    incidents.csv             Incident log (Numbers)
+    config.json               Site config (editor)
+    inventory.xlsx            Product inventory (Numbers/Excel)
+    deck.pptx                 Slide deck (Keynote/PowerPoint)
+    contacts/
+      alice-smith.vcf         Contact card (Contacts.app)
+    events/
+      team-standup.ics        Calendar event (Calendar.app)
+    notes/
+      meeting-notes.md        Markdown note (editor)
+    pages/
+      home.html               Web page (Safari)
+    services/
+      auth-service.json       Microservice status (editor)
+    logos/
+      app-icon.svg            Vector logo (Preview)
+    photos/
+      red-swatch.png          Image (Preview)
+    documents/
+      q1-report.pdf           PDF document (Preview)
+    reports/
+      monthly-summary.docx    Word document (Pages/Word)
+```
+
+## CLI Reference
+
+```text
+api2file <command> [arguments]
+
+Commands:
+  init              Initialize ~/API2File-Data/ with global config
+  list              List available bundled adapters
+  add <service>     Set up a new service (demo/monday/wix/github/airtable)
+  status            Show all services and their sync status
+  sync [service]    Trigger immediate sync (all or specific service)
+  pull [service]    Pull from API to local files (all or specific service)
+  help              Show help message
+
+Examples:
+  api2file init
+  api2file add demo
+  api2file add github
+  api2file status
+  api2file sync
+  api2file sync github
+  api2file pull monday
+```
+
+## Testing
+
+392 tests across four categories:
+
+| Category | What it covers | Filter |
+| --- | --- | --- |
+| Unit | Format converters, transforms, HTTP client, config parsing, git, keychain, agent guide, sync coordinator, collection differ, OAuth2, notifications | `--filter "FormatConverter\|TransformPipeline\|HTTPClient\|AdapterConfig\|SyncState\|GitManager\|AgentGuide\|SyncCoordinator\|CollectionDiffer\|OAuth2\|Notification\|ICS\|VCF\|EML\|SVG\|Webloc"` |
+| Integration | AdapterEngine pipeline, full sync cycle | `--filter "AdapterEngineIntegration\|FullSyncCycle\|DemoAdapterPipeline"` |
+| E2E | Demo server all resources, bidirectional sync, collection diffing | `--filter "DemoServerE2E\|BidirectionalSync\|CollectionDiff\|DemoAdapterConfig"` |
+| Real sync | End-to-end with live demo server (requires `api2file-demo` running) | `--filter RealSyncE2E` |
 
 ```bash
-# Start the demo server (port 8089)
-swift run api2file-demo
-
-# In the app, add the "Demo Tasks API" service with any API key
-# Files appear at ~/API2File/demo/
+swift test                              # all 392 tests
+swift test --filter FormatConverter      # just format converters
+swift test --filter DemoServerE2E        # E2E with demo server
 ```
 
-### Manage Services
+## Adapter Config Format
 
-- **Preferences → Services tab** — click a service to see detail view with resources, last sync time, file count
-- **Service detail** — Sync Now, Open Folder, Update API Key, Disconnect
-- **Menu bar** — each service has a submenu with quick sync and folder access
-- **Per-service sync** — click the service submenu → Sync Now (or use Sync Now for all)
-
-## How It Works
-
-```
-┌──────────────┐     pull      ┌──────────────┐     write      ┌──────────────┐
-│  Cloud API   │ ────────────> │ Adapter      │ ─────────────> │ Local Files  │
-│  (REST/GQL)  │               │ Engine       │                │ (CSV, JSON…) │
-│              │ <──────────── │              │ <───────────── │              │
-└──────────────┘     push      └──────────────┘   file watch   └──────────────┘
-                                      │
-                                      ▼
-                               ┌──────────────┐
-                               │ Git Manager  │
-                               │ (auto-commit)│
-                               └──────────────┘
-```
-
-1. **Discovery** — SyncEngine scans `~/API2File/` for `.api2file/adapter.json` files
-2. **Pull** — HTTPClient fetches API data, TransformPipeline applies transforms, FormatConverter writes files
-3. **Watch** — FileWatcher detects local edits via FSEvents
-4. **Push** — FormatConverter reads files back to records, AdapterEngine pushes to API
-5. **Commit** — GitManager auto-commits each sync cycle
-
-## Adapter Config
-
-Connect any API by creating a JSON config file. No code changes needed.
+Connect any REST or GraphQL API by creating an `.adapter.json` file:
 
 ```json
 {
@@ -140,7 +242,6 @@ Connect any API by creating a JSON config file. No code changes needed.
       },
       "fileMapping": {
         "strategy": "collection",
-        "directory": ".",
         "filename": "items.csv",
         "format": "csv",
         "idField": "id"
@@ -151,125 +252,19 @@ Connect any API by creating a JSON config file. No code changes needed.
 }
 ```
 
-### File Mapping Strategies
+**File mapping strategies:** `collection` (all records in one file), `one-per-record` (each record its own file), `mirror` (preserve remote directory structure).
 
-| Strategy | Description | Example |
-|---|---|---|
-| `one-per-record` | Each record becomes its own file | `products/dog-food.json` |
-| `collection` | All records in one file | `tasks.csv` |
-| `mirror` | Preserve remote directory structure | `files/index.html` |
+**Auth types:** `bearer`, `apiKey`, `basic`, `oauth2`.
 
-### Supported Formats
+**Transform operations:** `pick`, `omit`, `rename`, `flatten`, `keyBy` -- applied via a declarative pipeline before writing files.
 
-| Format | Extension | Opens In | Use Case |
-|---|---|---|---|
-| CSV | `.csv` | Numbers, Excel | Tabular data |
-| JSON | `.json` | Any editor | Structured objects |
-| YAML | `.yaml` | Any editor | Config, settings |
-| ICS | `.ics` | Calendar.app | Events, schedules |
-| VCF | `.vcf` | Contacts.app | Contacts, leads |
-| HTML | `.html` | Safari, browsers | Web content |
-| Markdown | `.md` | Any editor | Documentation |
-| Text | `.txt` | TextEdit | Plain content |
-| Raw | (any) | Varies | Binary passthrough |
+## Known Limitations
 
-### Auth Types
-
-| Type | Header |
-|---|---|
-| `bearer` | `Authorization: Bearer <token>` |
-| `apiKey` | Custom header with API key |
-| `basic` | `Authorization: Basic <base64>` |
-| `oauth2` | OAuth2 flow with token refresh |
-
-### Transform Operations
-
-| Operation | Purpose |
-|---|---|
-| `pick` | Keep only specified fields |
-| `omit` | Remove specified fields |
-| `rename` | Rename fields (supports dot-path extraction) |
-| `flatten` | Flatten nested arrays to simple values |
-| `keyBy` | Convert key-value arrays to dictionaries |
-
-## Running Tests
-
-```bash
-# All tests
-swift test
-
-# Unit tests only
-swift test --filter "FormatConverter|TransformPipeline|HTTPClient|AdapterConfig|SyncState"
-
-# Integration tests
-swift test --filter "AdapterEngineIntegration|FullSyncCycle"
-
-# E2E tests (requires demo server)
-swift test --filter DemoServerE2E
-```
-
-## Project Structure
-
-```
-Sources/
-├── API2FileCore/          # Core library
-│   ├── Adapters/          # Adapter engine, file mapper, transforms
-│   │   └── Formats/       # Format converters (CSV, JSON, ICS, VCF…)
-│   ├── Core/              # Sync engine, HTTP client, git, keychain
-│   ├── Models/            # Config, state, and file models
-│   ├── Server/            # Demo API server, local control server
-│   └── Resources/         # Bundled adapter configs
-├── API2FileApp/           # macOS menu bar app (SwiftUI)
-└── API2FileDemo/          # CLI demo server entry point
-
-Tests/
-└── API2FileCoreTests/
-    ├── Adapters/          # Format converter & transform tests
-    ├── Core/              # HTTP client, git, sync coordinator tests
-    ├── Models/            # Config & state parsing tests
-    └── Integration/       # E2E and full sync cycle tests
-```
-
-## macOS App
-
-API2File runs as a **menu bar app** — no dock icon, always accessible from the system tray.
-
-### Menu Bar
-
-- Cloud icon shows sync status (synced, syncing, error, paused)
-- Per-service submenus with Sync Now, Open Folder, last sync time, file count
-- Global controls: Sync Now (all), Pause/Resume, Add Service
-
-### Preferences (two tabs)
-
-- **General** — sync folder, git auto-commit, sync interval, notifications, server port
-- **Services** — sidebar/detail view with NavigationSplitView
-  - Click a service to see: status, last sync time, file count, resource list, error details
-  - Actions: Sync Now, Open Folder, Update API Key, Disconnect
-
-### Add Service Wizard
-
-- 5 bundled services with guided setup
-- Service-specific extra fields (Wix Site ID, Airtable Base ID + Table Name)
-- API key stored securely in macOS Keychain
-
-## Folder Layout at Runtime
-
-```
-~/API2File/
-├── CLAUDE.md              # Auto-generated agent guide
-├── demo/
-│   ├── .api2file/
-│   │   ├── adapter.json   # Service config
-│   │   └── state.json     # Sync state
-│   ├── .git/
-│   ├── CLAUDE.md          # Service-specific agent guide
-│   └── tasks.csv          # Synced data file
-├── github/                # GitHub repos, issues, gists
-├── wix/                   # Wix contacts, products, blog
-├── airtable/              # Airtable records
-└── {other-services}/
-```
+- **OAuth2** flow is implemented but not tested with a real browser redirect
+- **Real cloud APIs** (Monday.com, Wix, GitHub, Airtable) are not integration-tested -- they require live API keys
+- **Finder extension** is scaffold only -- badges and context menus are not functional
+- **Notifications** are implemented in NotificationManager but not wired into SyncEngine events
+- **CLI target** (`API2FileCLI`) exists as source but is not declared in `Package.swift` -- build it manually or use the menu bar app
 
 ## License
 
