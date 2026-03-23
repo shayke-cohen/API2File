@@ -450,6 +450,112 @@
       },
 
       "sync": { "interval": 10, "debounceMs": 500 }
+    },
+    {
+      "name": "emails",
+      "description": "Email messages (EML format)",
+
+      "pull": {
+        "method": "GET",
+        "url": "http://localhost:8089/api/emails",
+        "dataPath": "$"
+      },
+
+      "push": {
+        "create": { "method": "POST", "url": "http://localhost:8089/api/emails" },
+        "update": { "method": "PUT", "url": "http://localhost:8089/api/emails/{id}" },
+        "delete": { "method": "DELETE", "url": "http://localhost:8089/api/emails/{id}" }
+      },
+
+      "fileMapping": {
+        "strategy": "one-per-record",
+        "directory": "emails",
+        "filename": "{subject|slugify}.eml",
+        "format": "eml",
+        "idField": "id"
+      },
+
+      "sync": { "interval": 10, "debounceMs": 500 }
+    },
+    {
+      "name": "bookmarks",
+      "description": "Web bookmarks (WEBLOC format)",
+
+      "pull": {
+        "method": "GET",
+        "url": "http://localhost:8089/api/bookmarks",
+        "dataPath": "$"
+      },
+
+      "push": {
+        "create": { "method": "POST", "url": "http://localhost:8089/api/bookmarks" },
+        "update": { "method": "PUT", "url": "http://localhost:8089/api/bookmarks/{id}" },
+        "delete": { "method": "DELETE", "url": "http://localhost:8089/api/bookmarks/{id}" }
+      },
+
+      "fileMapping": {
+        "strategy": "one-per-record",
+        "directory": "bookmarks",
+        "filename": "{name|slugify}.webloc",
+        "format": "webloc",
+        "idField": "id"
+      },
+
+      "sync": { "interval": 10, "debounceMs": 500 }
+    },
+    {
+      "name": "settings",
+      "description": "Application settings (YAML format, single object)",
+
+      "pull": {
+        "method": "GET",
+        "url": "http://localhost:8089/api/settings",
+        "dataPath": "$"
+      },
+
+      "push": {
+        "update": {
+          "method": "PUT",
+          "url": "http://localhost:8089/api/settings"
+        }
+      },
+
+      "fileMapping": {
+        "strategy": "collection",
+        "directory": ".",
+        "filename": "settings.yaml",
+        "format": "yaml",
+        "idField": "id"
+      },
+
+      "sync": { "interval": 10, "debounceMs": 500 }
+    },
+    {
+      "name": "snippets",
+      "description": "Plain text snippets (TXT format)",
+
+      "pull": {
+        "method": "GET",
+        "url": "http://localhost:8089/api/snippets",
+        "dataPath": "$"
+      },
+
+      "push": {
+        "create": { "method": "POST", "url": "http://localhost:8089/api/snippets" },
+        "update": { "method": "PUT", "url": "http://localhost:8089/api/snippets/{id}" },
+        "delete": { "method": "DELETE", "url": "http://localhost:8089/api/snippets/{id}" }
+      },
+
+      "fileMapping": {
+        "strategy": "one-per-record",
+        "directory": "snippets",
+        "filename": "{title|slugify}.txt",
+        "format": "txt",
+        "idField": "id",
+        "contentField": "content"
+      },
+
+      "sync": { "interval": 10, "debounceMs": 500 }
     }
   ]
 }

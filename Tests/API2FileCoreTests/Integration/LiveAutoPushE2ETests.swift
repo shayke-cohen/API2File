@@ -182,8 +182,6 @@ final class LiveAutoPushE2ETests: XCTestCase {
         let targetPath = serviceDir.appendingPathComponent("tasks.csv")
         let data = content.data(using: .utf8)!
 
-        print("[TEST] Writing \(data.count) bytes to \(targetPath.path)")
-
         // Strategy: truncate and rewrite in place using FileHandle.
         // This avoids atomic-write / rename which may not trigger FSEvents reliably
         // in all environments.
@@ -191,8 +189,6 @@ final class LiveAutoPushE2ETests: XCTestCase {
         handle.truncateFile(atOffset: 0)
         handle.write(data)
         handle.closeFile()
-
-        print("[TEST] Write complete")
     }
 
     /// Post a new task to the API directly.

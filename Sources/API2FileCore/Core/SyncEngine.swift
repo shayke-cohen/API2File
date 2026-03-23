@@ -278,13 +278,12 @@ public actor SyncEngine {
     }
 
     private func performPush(serviceId: String, filePath: String) async throws {
-        print("[SyncEngine] performPush called: service=\(serviceId), file=\(filePath)")
-        guard let engine = adapterEngines[serviceId] else { print("[SyncEngine]   -> no engine"); return }
+        guard let engine = adapterEngines[serviceId] else { return }
         let serviceDir = syncFolder.appendingPathComponent(serviceId)
         let fullPath = serviceDir.appendingPathComponent(filePath)
 
         // Find which resource this file belongs to
-        guard let resource = findResource(for: filePath, in: engine.config) else { print("[SyncEngine]   -> no resource match for '\(filePath)'"); return }
+        guard let resource = findResource(for: filePath, in: engine.config) else { return }
 
         // Skip read-only resources
         if resource.fileMapping.readOnly == true { return }
@@ -333,15 +332,10 @@ public actor SyncEngine {
     // MARK: - File Change Handling
 
     private func handleFileChanges(_ changes: [FileWatcher.FileChange]) {
-        print("[SyncEngine] handleFileChanges called with \(changes.count) change(s)")
         for change in changes {
             // Extract service ID and relative path from the full path
             let path = change.path
-            print("[SyncEngine]   change path: \(path)")
-            guard let relativeParts = extractServiceAndPath(from: path) else {
-                print("[SyncEngine]   -> skipped (could not extract service/path, syncFolder=\(syncFolder.path))")
-                continue
-            }
+            guard let relativeParts = extractServiceAndPath(from: path) else { continue }
             let (serviceId, filePath) = relativeParts
 
             // Skip internal and temp files
@@ -350,7 +344,6 @@ public actor SyncEngine {
             if filePath.hasPrefix(".") { continue } // .DS_Store, .dat.nosync*, etc.
             if filePath.contains("~$") { continue } // Office temp files
 
-            print("[SyncEngine]   -> queuing push: service=\(serviceId), file=\(filePath)")
             Task {
                 await coordinator.queuePush(serviceId: serviceId, filePath: filePath)
             }

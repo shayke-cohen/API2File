@@ -24,6 +24,10 @@ public actor DemoAPIServer {
     private var spreadsheets: [DemoSpreadsheet] = []
     private var reports: [DemoReport] = []
     private var presentations: [DemoPresentation] = []
+    private var emails: [DemoEmail] = []
+    private var bookmarks: [DemoBookmark] = []
+    private var settings: DemoSettings = DemoSettings.seed
+    private var snippets: [DemoSnippet] = []
 
     // Wix-like resource stores (string IDs, wrapped responses)
     private var wixContacts: [DemoWixContact] = []
@@ -46,6 +50,9 @@ public actor DemoAPIServer {
     private var nextSpreadsheetId: Int = 1
     private var nextReportId: Int = 1
     private var nextPresentationId: Int = 1
+    private var nextEmailId: Int = 1
+    private var nextBookmarkId: Int = 1
+    private var nextSnippetId: Int = 1
 
     public init(port: UInt16 = 8089) {
         self.port = port
@@ -77,6 +84,13 @@ public actor DemoAPIServer {
         self.nextReportId = 3
         self.presentations = DemoPresentation.seedData
         self.nextPresentationId = 4
+        self.emails = DemoEmail.seedData
+        self.nextEmailId = 3
+        self.bookmarks = DemoBookmark.seedData
+        self.nextBookmarkId = 4
+        self.settings = DemoSettings.seed
+        self.snippets = DemoSnippet.seedData
+        self.nextSnippetId = 3
         self.wixContacts = DemoWixContact.seedData
         self.wixBlogPosts = DemoWixBlogPost.seedData
         self.wixProducts = DemoWixProduct.seedData
@@ -125,6 +139,17 @@ public actor DemoAPIServer {
 
         presentations = DemoPresentation.seedData
         nextPresentationId = (presentations.map(\.id).max() ?? 0) + 1
+
+        emails = DemoEmail.seedData
+        nextEmailId = (emails.map(\.id).max() ?? 0) + 1
+
+        bookmarks = DemoBookmark.seedData
+        nextBookmarkId = (bookmarks.map(\.id).max() ?? 0) + 1
+
+        settings = DemoSettings.seed
+
+        snippets = DemoSnippet.seedData
+        nextSnippetId = (snippets.map(\.id).max() ?? 0) + 1
 
         wixContacts = DemoWixContact.seedData
         wixBlogPosts = DemoWixBlogPost.seedData
@@ -176,6 +201,13 @@ public actor DemoAPIServer {
                 print("[DemoAPI]   GET/PUT/DELETE  /api/reports/:id")
                 print("[DemoAPI]   GET/POST       /api/presentations — presentations (PPTX)")
                 print("[DemoAPI]   GET/PUT/DELETE  /api/presentations/:id")
+                print("[DemoAPI]   GET/POST       /api/emails        — emails (EML)")
+                print("[DemoAPI]   GET/PUT/DELETE  /api/emails/:id")
+                print("[DemoAPI]   GET/POST       /api/bookmarks     — bookmarks (WEBLOC)")
+                print("[DemoAPI]   GET/PUT/DELETE  /api/bookmarks/:id")
+                print("[DemoAPI]   GET/PUT         /api/settings      — settings (YAML)")
+                print("[DemoAPI]   GET/POST       /api/snippets      — snippets (Text)")
+                print("[DemoAPI]   GET/PUT/DELETE  /api/snippets/:id")
                 print("[DemoAPI]   --- Wix-like endpoints (wrapped JSON) ---")
                 print("[DemoAPI]   GET            /api/wix/contacts   — Wix CRM contacts")
                 print("[DemoAPI]   GET            /api/wix/posts      — Wix blog posts")
@@ -262,6 +294,26 @@ public actor DemoAPIServer {
     /// Get current presentations (for testing assertions)
     public func getPresentations() -> [DemoPresentation] {
         presentations
+    }
+
+    /// Get current emails (for testing assertions)
+    public func getEmails() -> [DemoEmail] {
+        emails
+    }
+
+    /// Get current bookmarks (for testing assertions)
+    public func getBookmarks() -> [DemoBookmark] {
+        bookmarks
+    }
+
+    /// Get current settings (for testing assertions)
+    public func getSettings() -> DemoSettings {
+        settings
+    }
+
+    /// Get current snippets (for testing assertions)
+    public func getSnippets() -> [DemoSnippet] {
+        snippets
     }
 
     /// Get current Wix contacts (for testing assertions)
@@ -370,6 +422,14 @@ public actor DemoAPIServer {
             routeReports(method: method, path: path, body: body, connection: connection)
         } else if path == "/api/presentations" || path.hasPrefix("/api/presentations/") {
             routePresentations(method: method, path: path, body: body, connection: connection)
+        } else if path == "/api/emails" || path.hasPrefix("/api/emails/") {
+            routeEmails(method: method, path: path, body: body, connection: connection)
+        } else if path == "/api/bookmarks" || path.hasPrefix("/api/bookmarks/") {
+            routeBookmarks(method: method, path: path, body: body, connection: connection)
+        } else if path == "/api/settings" {
+            routeSettings(method: method, body: body, connection: connection)
+        } else if path == "/api/snippets" || path.hasPrefix("/api/snippets/") {
+            routeSnippets(method: method, path: path, body: body, connection: connection)
         } else if path.hasPrefix("/api/wix/") {
             routeWix(method: method, path: path, body: body, connection: connection)
         } else if path == "/" || path == "/dashboard" {
@@ -434,7 +494,11 @@ public actor DemoAPIServer {
         <li><a href="/api/documents">/api/documents</a></li>
         <li><a href="/api/spreadsheets">/api/spreadsheets</a></li>
         <li><a href="/api/reports">/api/reports</a></li>
-        <li><a href="/api/presentations">/api/presentations</a></li></ul>
+        <li><a href="/api/presentations">/api/presentations</a></li>
+        <li><a href="/api/emails">/api/emails</a></li>
+        <li><a href="/api/bookmarks">/api/bookmarks</a></li>
+        <li><a href="/api/settings">/api/settings</a></li>
+        <li><a href="/api/snippets">/api/snippets</a></li></ul>
         <h2>Wix-like Endpoints (wrapped JSON)</h2>
         <ul><li><a href="/api/wix/contacts">/api/wix/contacts</a></li>
         <li><a href="/api/wix/posts">/api/wix/posts</a></li>
@@ -1221,6 +1285,189 @@ public actor DemoAPIServer {
         }
     }
 
+    // MARK: - Emails Routes
+
+    private func routeEmails(method: String, path: String, body: Data?, connection: NWConnection) {
+        switch (method, path) {
+        case ("GET", "/api/emails"):
+            let items = emails.map { $0.toDict() }
+            sendJSONArray(statusCode: 200, body: items, connection: connection)
+        case ("GET", _):
+            let idStr = String(path.dropFirst("/api/emails/".count))
+            if let id = Int(idStr), let item = emails.first(where: { $0.id == id }) {
+                sendJSONDict(statusCode: 200, body: item.toDict(), connection: connection)
+            } else {
+                sendJSON(statusCode: 404, body: ["error": "Email not found"], connection: connection)
+            }
+        case ("POST", "/api/emails"):
+            if let body, let dict = try? JSONSerialization.jsonObject(with: body) as? [String: Any] {
+                let item = DemoEmail(
+                    id: nextEmailId,
+                    from: dict["from"] as? String ?? "",
+                    to: dict["to"] as? String ?? "",
+                    subject: dict["subject"] as? String ?? "No Subject",
+                    date: dict["date"] as? String ?? "",
+                    body: dict["body"] as? String ?? ""
+                )
+                nextEmailId += 1
+                emails.append(item)
+                sendJSONDict(statusCode: 201, body: item.toDict(), connection: connection)
+            } else {
+                sendJSON(statusCode: 400, body: ["error": "Invalid JSON body"], connection: connection)
+            }
+        case ("PUT", _):
+            let idStr = String(path.dropFirst("/api/emails/".count))
+            if let id = Int(idStr), let idx = emails.firstIndex(where: { $0.id == id }), let body, let dict = try? JSONSerialization.jsonObject(with: body) as? [String: Any] {
+                var item = emails[idx]
+                if let v = dict["from"] as? String { item.from = v }
+                if let v = dict["to"] as? String { item.to = v }
+                if let v = dict["subject"] as? String { item.subject = v }
+                if let v = dict["date"] as? String { item.date = v }
+                if let v = dict["body"] as? String { item.body = v }
+                emails[idx] = item
+                sendJSONDict(statusCode: 200, body: item.toDict(), connection: connection)
+            } else {
+                sendJSON(statusCode: 404, body: ["error": "Email not found"], connection: connection)
+            }
+        case ("DELETE", _):
+            let idStr = String(path.dropFirst("/api/emails/".count))
+            if let id = Int(idStr), let idx = emails.firstIndex(where: { $0.id == id }) {
+                emails.remove(at: idx)
+                sendJSON(statusCode: 200, body: ["deleted": "\(id)"], connection: connection)
+            } else {
+                sendJSON(statusCode: 404, body: ["error": "Email not found"], connection: connection)
+            }
+        default:
+            sendJSON(statusCode: 404, body: ["error": "Not Found"], connection: connection)
+        }
+    }
+
+    // MARK: - Bookmarks Routes
+
+    private func routeBookmarks(method: String, path: String, body: Data?, connection: NWConnection) {
+        switch (method, path) {
+        case ("GET", "/api/bookmarks"):
+            let items = bookmarks.map { $0.toDict() }
+            sendJSONArray(statusCode: 200, body: items, connection: connection)
+        case ("GET", _):
+            let idStr = String(path.dropFirst("/api/bookmarks/".count))
+            if let id = Int(idStr), let item = bookmarks.first(where: { $0.id == id }) {
+                sendJSONDict(statusCode: 200, body: item.toDict(), connection: connection)
+            } else {
+                sendJSON(statusCode: 404, body: ["error": "Bookmark not found"], connection: connection)
+            }
+        case ("POST", "/api/bookmarks"):
+            if let body, let dict = try? JSONSerialization.jsonObject(with: body) as? [String: Any] {
+                let item = DemoBookmark(
+                    id: nextBookmarkId,
+                    name: dict["name"] as? String ?? "Untitled",
+                    url: dict["url"] as? String ?? ""
+                )
+                nextBookmarkId += 1
+                bookmarks.append(item)
+                sendJSONDict(statusCode: 201, body: item.toDict(), connection: connection)
+            } else {
+                sendJSON(statusCode: 400, body: ["error": "Invalid JSON body"], connection: connection)
+            }
+        case ("PUT", _):
+            let idStr = String(path.dropFirst("/api/bookmarks/".count))
+            if let id = Int(idStr), let idx = bookmarks.firstIndex(where: { $0.id == id }), let body, let dict = try? JSONSerialization.jsonObject(with: body) as? [String: Any] {
+                var item = bookmarks[idx]
+                if let v = dict["name"] as? String { item.name = v }
+                if let v = dict["url"] as? String { item.url = v }
+                bookmarks[idx] = item
+                sendJSONDict(statusCode: 200, body: item.toDict(), connection: connection)
+            } else {
+                sendJSON(statusCode: 404, body: ["error": "Bookmark not found"], connection: connection)
+            }
+        case ("DELETE", _):
+            let idStr = String(path.dropFirst("/api/bookmarks/".count))
+            if let id = Int(idStr), let idx = bookmarks.firstIndex(where: { $0.id == id }) {
+                bookmarks.remove(at: idx)
+                sendJSON(statusCode: 200, body: ["deleted": "\(id)"], connection: connection)
+            } else {
+                sendJSON(statusCode: 404, body: ["error": "Bookmark not found"], connection: connection)
+            }
+        default:
+            sendJSON(statusCode: 404, body: ["error": "Not Found"], connection: connection)
+        }
+    }
+
+    // MARK: - Settings Routes
+
+    private func routeSettings(method: String, body: Data?, connection: NWConnection) {
+        switch method {
+        case "GET":
+            sendJSONDict(statusCode: 200, body: settings.toDict(), connection: connection)
+
+        case "PUT":
+            if let body, let dict = try? JSONSerialization.jsonObject(with: body) as? [String: Any] {
+                if let v = dict["appName"] as? String { settings.appName = v }
+                if let v = dict["version"] as? String { settings.version = v }
+                if let v = dict["debug"] as? Bool { settings.debug = v }
+                if let v = dict["maxRetries"] as? Int { settings.maxRetries = v }
+                if let v = dict["apiEndpoint"] as? String { settings.apiEndpoint = v }
+                sendJSONDict(statusCode: 200, body: settings.toDict(), connection: connection)
+            } else {
+                sendJSON(statusCode: 400, body: ["error": "Invalid JSON body"], connection: connection)
+            }
+
+        default:
+            sendJSON(statusCode: 404, body: ["error": "Not Found"], connection: connection)
+        }
+    }
+
+    // MARK: - Snippets Routes
+
+    private func routeSnippets(method: String, path: String, body: Data?, connection: NWConnection) {
+        switch (method, path) {
+        case ("GET", "/api/snippets"):
+            let items = snippets.map { $0.toDict() }
+            sendJSONArray(statusCode: 200, body: items, connection: connection)
+        case ("GET", _):
+            let idStr = String(path.dropFirst("/api/snippets/".count))
+            if let id = Int(idStr), let item = snippets.first(where: { $0.id == id }) {
+                sendJSONDict(statusCode: 200, body: item.toDict(), connection: connection)
+            } else {
+                sendJSON(statusCode: 404, body: ["error": "Snippet not found"], connection: connection)
+            }
+        case ("POST", "/api/snippets"):
+            if let body, let dict = try? JSONSerialization.jsonObject(with: body) as? [String: Any] {
+                let item = DemoSnippet(
+                    id: nextSnippetId,
+                    title: dict["title"] as? String ?? "Untitled",
+                    content: dict["content"] as? String ?? ""
+                )
+                nextSnippetId += 1
+                snippets.append(item)
+                sendJSONDict(statusCode: 201, body: item.toDict(), connection: connection)
+            } else {
+                sendJSON(statusCode: 400, body: ["error": "Invalid JSON body"], connection: connection)
+            }
+        case ("PUT", _):
+            let idStr = String(path.dropFirst("/api/snippets/".count))
+            if let id = Int(idStr), let idx = snippets.firstIndex(where: { $0.id == id }), let body, let dict = try? JSONSerialization.jsonObject(with: body) as? [String: Any] {
+                var item = snippets[idx]
+                if let v = dict["title"] as? String { item.title = v }
+                if let v = dict["content"] as? String { item.content = v }
+                snippets[idx] = item
+                sendJSONDict(statusCode: 200, body: item.toDict(), connection: connection)
+            } else {
+                sendJSON(statusCode: 404, body: ["error": "Snippet not found"], connection: connection)
+            }
+        case ("DELETE", _):
+            let idStr = String(path.dropFirst("/api/snippets/".count))
+            if let id = Int(idStr), let idx = snippets.firstIndex(where: { $0.id == id }) {
+                snippets.remove(at: idx)
+                sendJSON(statusCode: 200, body: ["deleted": "\(id)"], connection: connection)
+            } else {
+                sendJSON(statusCode: 404, body: ["error": "Snippet not found"], connection: connection)
+            }
+        default:
+            sendJSON(statusCode: 404, body: ["error": "Not Found"], connection: connection)
+        }
+    }
+
     // MARK: - Wix Routes (wrapped JSON responses)
 
     private func routeWix(method: String, path: String, body: Data?, connection: NWConnection) {
@@ -1614,6 +1861,83 @@ public struct DemoPresentation: Codable, Sendable {
         DemoPresentation(id: 1, title: "API2File Overview", content: "Sync cloud API data to local files\nConfig-driven — no code needed\nBidirectional — edit files, push to API"),
         DemoPresentation(id: 2, title: "Key Features", content: "15+ file formats (CSV, XLSX, DOCX, ICS, VCF...)\nGit auto-commit for version history\nNative macOS integration"),
         DemoPresentation(id: 3, title: "Roadmap", content: "Phase 1: Core sync engine (DONE)\nPhase 2: Office formats (IN PROGRESS)\nPhase 3: Webhooks and community adapters"),
+    ]
+}
+
+// MARK: - Demo Email Model (EML)
+
+public struct DemoEmail: Codable, Sendable {
+    public var id: Int
+    public var from: String
+    public var to: String
+    public var subject: String
+    public var date: String
+    public var body: String
+
+    public func toDict() -> [String: Any] {
+        ["id": id, "from": from, "to": to, "subject": subject, "date": date, "body": body]
+    }
+
+    static let seedData: [DemoEmail] = [
+        DemoEmail(id: 1, from: "alice@example.com", to: "bob@example.com", subject: "Project Update", date: "Mon, 23 Mar 2026 10:00:00 +0000", body: "Hi Bob,\n\nThe project is on track for Q2 delivery.\n\nBest,\nAlice"),
+        DemoEmail(id: 2, from: "bob@example.com", to: "alice@example.com", subject: "Re: Project Update", date: "Mon, 23 Mar 2026 11:30:00 +0000", body: "Thanks Alice!\n\nI'll prepare the demo for next week.\n\nBob"),
+    ]
+}
+
+// MARK: - Demo Bookmark Model (WEBLOC)
+
+public struct DemoBookmark: Codable, Sendable {
+    public var id: Int
+    public var name: String
+    public var url: String
+
+    public func toDict() -> [String: Any] {
+        ["id": id, "name": name, "url": url]
+    }
+
+    static let seedData: [DemoBookmark] = [
+        DemoBookmark(id: 1, name: "GitHub", url: "https://github.com"),
+        DemoBookmark(id: 2, name: "Swift Documentation", url: "https://docs.swift.org"),
+        DemoBookmark(id: 3, name: "API2File Docs", url: "https://api2file.dev/docs"),
+    ]
+}
+
+// MARK: - Demo Settings Model (YAML)
+
+public struct DemoSettings: Codable, Sendable {
+    public var appName: String
+    public var version: String
+    public var debug: Bool
+    public var maxRetries: Int
+    public var apiEndpoint: String
+
+    public func toDict() -> [String: Any] {
+        ["appName": appName, "version": version, "debug": debug, "maxRetries": maxRetries, "apiEndpoint": apiEndpoint]
+    }
+
+    static let seed = DemoSettings(
+        appName: "API2File",
+        version: "2.0.0",
+        debug: false,
+        maxRetries: 3,
+        apiEndpoint: "https://api.example.com/v2"
+    )
+}
+
+// MARK: - Demo Snippet Model (Text)
+
+public struct DemoSnippet: Codable, Sendable {
+    public var id: Int
+    public var title: String
+    public var content: String
+
+    public func toDict() -> [String: Any] {
+        ["id": id, "title": title, "content": content]
+    }
+
+    static let seedData: [DemoSnippet] = [
+        DemoSnippet(id: 1, title: "Hello World", content: "Hello, World!\nThis is a plain text snippet.\nIt demonstrates the text format."),
+        DemoSnippet(id: 2, title: "Config Template", content: "# Configuration\nHOST=localhost\nPORT=8080\nDEBUG=true"),
     ]
 }
 
