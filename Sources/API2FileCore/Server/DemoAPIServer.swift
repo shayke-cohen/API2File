@@ -18,6 +18,9 @@ public actor DemoAPIServer {
     private var config: DemoConfig = DemoConfig.seed
     private var services: [DemoService] = []
     private var incidents: [DemoIncident] = []
+    private var logos: [DemoLogo] = []
+    private var photos: [DemoPhoto] = []
+    private var documents: [DemoDocument] = []
 
     // Auto-increment counters
     private var nextTaskId: Int = 1
@@ -27,6 +30,9 @@ public actor DemoAPIServer {
     private var nextPageId: Int = 1
     private var nextServiceId: Int = 1
     private var nextIncidentId: Int = 1
+    private var nextLogoId: Int = 1
+    private var nextPhotoId: Int = 1
+    private var nextDocumentId: Int = 1
 
     public init(port: UInt16 = 8089) {
         self.port = port
@@ -46,6 +52,12 @@ public actor DemoAPIServer {
         self.nextServiceId = 4
         self.incidents = DemoIncident.seedData
         self.nextIncidentId = 5
+        self.logos = DemoLogo.seedData
+        self.nextLogoId = 4
+        self.photos = DemoPhoto.seedData
+        self.nextPhotoId = 4
+        self.documents = DemoDocument.seedData
+        self.nextDocumentId = 3
     }
 
     private func seedAll() {
@@ -71,6 +83,15 @@ public actor DemoAPIServer {
 
         incidents = DemoIncident.seedData
         nextIncidentId = (incidents.map(\.id).max() ?? 0) + 1
+
+        logos = DemoLogo.seedData
+        nextLogoId = (logos.map(\.id).max() ?? 0) + 1
+
+        photos = DemoPhoto.seedData
+        nextPhotoId = (photos.map(\.id).max() ?? 0) + 1
+
+        documents = DemoDocument.seedData
+        nextDocumentId = (documents.map(\.id).max() ?? 0) + 1
     }
 
     // MARK: - Lifecycle
@@ -104,6 +125,12 @@ public actor DemoAPIServer {
                 print("[DemoAPI]   GET/PUT/DELETE  /api/services/:id")
                 print("[DemoAPI]   GET/POST       /api/incidents     — incidents (CSV)")
                 print("[DemoAPI]   GET/PUT/DELETE  /api/incidents/:id")
+                print("[DemoAPI]   GET/POST       /api/logos         — SVG logos")
+                print("[DemoAPI]   GET/PUT/DELETE  /api/logos/:id")
+                print("[DemoAPI]   GET/POST       /api/photos        — PNG photos (base64)")
+                print("[DemoAPI]   GET/PUT/DELETE  /api/photos/:id")
+                print("[DemoAPI]   GET/POST       /api/documents     — PDF documents (base64)")
+                print("[DemoAPI]   GET/PUT/DELETE  /api/documents/:id")
             }
         }
 
@@ -154,6 +181,21 @@ public actor DemoAPIServer {
     /// Get current incidents (for testing assertions)
     public func getIncidents() -> [DemoIncident] {
         incidents
+    }
+
+    /// Get current logos (for testing assertions)
+    public func getLogos() -> [DemoLogo] {
+        logos
+    }
+
+    /// Get current photos (for testing assertions)
+    public func getPhotos() -> [DemoPhoto] {
+        photos
+    }
+
+    /// Get current documents (for testing assertions)
+    public func getDocuments() -> [DemoDocument] {
+        documents
     }
 
     /// Reset to seed data (for testing)
@@ -225,6 +267,12 @@ public actor DemoAPIServer {
             routeServices(method: method, path: path, body: body, connection: connection)
         } else if path == "/api/incidents" || path.hasPrefix("/api/incidents/") {
             routeIncidents(method: method, path: path, body: body, connection: connection)
+        } else if path == "/api/logos" || path.hasPrefix("/api/logos/") {
+            routeLogos(method: method, path: path, body: body, connection: connection)
+        } else if path == "/api/photos" || path.hasPrefix("/api/photos/") {
+            routePhotos(method: method, path: path, body: body, connection: connection)
+        } else if path == "/api/documents" || path.hasPrefix("/api/documents/") {
+            routeDocuments(method: method, path: path, body: body, connection: connection)
         } else if path == "/" || path == "/dashboard" {
             serveDashboard(connection: connection)
         } else {
@@ -245,10 +293,28 @@ public actor DemoAPIServer {
     }
 
     private static let dashboardHTML: String = {
-        // Try to load from bundle first, fall back to embedded
-        if let url = Bundle.module.url(forResource: "dashboard", withExtension: "html", subdirectory: "Web"),
-           let html = try? String(contentsOf: url) {
-            return html
+        // Try SPM bundle first, then framework bundle
+        let bundles: [Bundle] = {
+            #if SWIFT_PACKAGE
+            return [Bundle.module]
+            #else
+            return [Bundle(for: BundleToken.self), Bundle.main]
+            #endif
+        }()
+        for bundle in bundles {
+            if let url = bundle.url(forResource: "dashboard", withExtension: "html", subdirectory: "Web"),
+               let html = try? String(contentsOf: url) {
+                return html
+            }
+            if let url = bundle.url(forResource: "dashboard", withExtension: "html", subdirectory: "Resources/Web"),
+               let html = try? String(contentsOf: url) {
+                return html
+            }
+            // Flat lookup
+            if let url = bundle.url(forResource: "dashboard", withExtension: "html"),
+               let html = try? String(contentsOf: url) {
+                return html
+            }
         }
         // Fallback: minimal dashboard
         return """
@@ -739,6 +805,149 @@ public actor DemoAPIServer {
         }
     }
 
+    // MARK: - Logos Routes
+
+    private func routeLogos(method: String, path: String, body: Data?, connection: NWConnection) {
+        switch (method, path) {
+        case ("GET", "/api/logos"):
+            let items = logos.map { $0.toDict() }
+            sendJSONArray(statusCode: 200, body: items, connection: connection)
+        case ("GET", _):
+            let idStr = String(path.dropFirst("/api/logos/".count))
+            if let id = Int(idStr), let item = logos.first(where: { $0.id == id }) {
+                sendJSONDict(statusCode: 200, body: item.toDict(), connection: connection)
+            } else {
+                sendJSON(statusCode: 404, body: ["error": "Logo not found"], connection: connection)
+            }
+        case ("POST", "/api/logos"):
+            if let body, let dict = try? JSONSerialization.jsonObject(with: body) as? [String: Any] {
+                let item = DemoLogo(id: nextLogoId, name: dict["name"] as? String ?? "untitled", content: dict["content"] as? String ?? "")
+                nextLogoId += 1
+                logos.append(item)
+                sendJSONDict(statusCode: 201, body: item.toDict(), connection: connection)
+            } else {
+                sendJSON(statusCode: 400, body: ["error": "Invalid JSON body"], connection: connection)
+            }
+        case ("PUT", _):
+            let idStr = String(path.dropFirst("/api/logos/".count))
+            if let id = Int(idStr), let idx = logos.firstIndex(where: { $0.id == id }), let body, let dict = try? JSONSerialization.jsonObject(with: body) as? [String: Any] {
+                var item = logos[idx]
+                if let v = dict["name"] as? String { item.name = v }
+                if let v = dict["content"] as? String { item.content = v }
+                logos[idx] = item
+                sendJSONDict(statusCode: 200, body: item.toDict(), connection: connection)
+            } else {
+                sendJSON(statusCode: 404, body: ["error": "Logo not found"], connection: connection)
+            }
+        case ("DELETE", _):
+            let idStr = String(path.dropFirst("/api/logos/".count))
+            if let id = Int(idStr), let idx = logos.firstIndex(where: { $0.id == id }) {
+                logos.remove(at: idx)
+                sendJSON(statusCode: 200, body: ["deleted": "\(id)"], connection: connection)
+            } else {
+                sendJSON(statusCode: 404, body: ["error": "Logo not found"], connection: connection)
+            }
+        default:
+            sendJSON(statusCode: 404, body: ["error": "Not Found"], connection: connection)
+        }
+    }
+
+    // MARK: - Photos Routes
+
+    private func routePhotos(method: String, path: String, body: Data?, connection: NWConnection) {
+        switch (method, path) {
+        case ("GET", "/api/photos"):
+            let items = photos.map { $0.toDict() }
+            sendJSONArray(statusCode: 200, body: items, connection: connection)
+        case ("GET", _):
+            let idStr = String(path.dropFirst("/api/photos/".count))
+            if let id = Int(idStr), let item = photos.first(where: { $0.id == id }) {
+                sendJSONDict(statusCode: 200, body: item.toDict(), connection: connection)
+            } else {
+                sendJSON(statusCode: 404, body: ["error": "Photo not found"], connection: connection)
+            }
+        case ("POST", "/api/photos"):
+            if let body, let dict = try? JSONSerialization.jsonObject(with: body) as? [String: Any] {
+                let item = DemoPhoto(id: nextPhotoId, name: dict["name"] as? String ?? "untitled", width: dict["width"] as? Int ?? 0, height: dict["height"] as? Int ?? 0, data: dict["data"] as? String ?? "")
+                nextPhotoId += 1
+                photos.append(item)
+                sendJSONDict(statusCode: 201, body: item.toDict(), connection: connection)
+            } else {
+                sendJSON(statusCode: 400, body: ["error": "Invalid JSON body"], connection: connection)
+            }
+        case ("PUT", _):
+            let idStr = String(path.dropFirst("/api/photos/".count))
+            if let id = Int(idStr), let idx = photos.firstIndex(where: { $0.id == id }), let body, let dict = try? JSONSerialization.jsonObject(with: body) as? [String: Any] {
+                var item = photos[idx]
+                if let v = dict["name"] as? String { item.name = v }
+                if let v = dict["width"] as? Int { item.width = v }
+                if let v = dict["height"] as? Int { item.height = v }
+                if let v = dict["data"] as? String { item.data = v }
+                photos[idx] = item
+                sendJSONDict(statusCode: 200, body: item.toDict(), connection: connection)
+            } else {
+                sendJSON(statusCode: 404, body: ["error": "Photo not found"], connection: connection)
+            }
+        case ("DELETE", _):
+            let idStr = String(path.dropFirst("/api/photos/".count))
+            if let id = Int(idStr), let idx = photos.firstIndex(where: { $0.id == id }) {
+                photos.remove(at: idx)
+                sendJSON(statusCode: 200, body: ["deleted": "\(id)"], connection: connection)
+            } else {
+                sendJSON(statusCode: 404, body: ["error": "Photo not found"], connection: connection)
+            }
+        default:
+            sendJSON(statusCode: 404, body: ["error": "Not Found"], connection: connection)
+        }
+    }
+
+    // MARK: - Documents Routes
+
+    private func routeDocuments(method: String, path: String, body: Data?, connection: NWConnection) {
+        switch (method, path) {
+        case ("GET", "/api/documents"):
+            let items = documents.map { $0.toDict() }
+            sendJSONArray(statusCode: 200, body: items, connection: connection)
+        case ("GET", _):
+            let idStr = String(path.dropFirst("/api/documents/".count))
+            if let id = Int(idStr), let item = documents.first(where: { $0.id == id }) {
+                sendJSONDict(statusCode: 200, body: item.toDict(), connection: connection)
+            } else {
+                sendJSON(statusCode: 404, body: ["error": "Document not found"], connection: connection)
+            }
+        case ("POST", "/api/documents"):
+            if let body, let dict = try? JSONSerialization.jsonObject(with: body) as? [String: Any] {
+                let item = DemoDocument(id: nextDocumentId, name: dict["name"] as? String ?? "untitled", data: dict["data"] as? String ?? "")
+                nextDocumentId += 1
+                documents.append(item)
+                sendJSONDict(statusCode: 201, body: item.toDict(), connection: connection)
+            } else {
+                sendJSON(statusCode: 400, body: ["error": "Invalid JSON body"], connection: connection)
+            }
+        case ("PUT", _):
+            let idStr = String(path.dropFirst("/api/documents/".count))
+            if let id = Int(idStr), let idx = documents.firstIndex(where: { $0.id == id }), let body, let dict = try? JSONSerialization.jsonObject(with: body) as? [String: Any] {
+                var item = documents[idx]
+                if let v = dict["name"] as? String { item.name = v }
+                if let v = dict["data"] as? String { item.data = v }
+                documents[idx] = item
+                sendJSONDict(statusCode: 200, body: item.toDict(), connection: connection)
+            } else {
+                sendJSON(statusCode: 404, body: ["error": "Document not found"], connection: connection)
+            }
+        case ("DELETE", _):
+            let idStr = String(path.dropFirst("/api/documents/".count))
+            if let id = Int(idStr), let idx = documents.firstIndex(where: { $0.id == id }) {
+                documents.remove(at: idx)
+                sendJSON(statusCode: 200, body: ["deleted": "\(id)"], connection: connection)
+            } else {
+                sendJSON(statusCode: 404, body: ["error": "Document not found"], connection: connection)
+            }
+        default:
+            sendJSON(statusCode: 404, body: ["error": "Not Found"], connection: connection)
+        }
+    }
+
     // MARK: - HTTP Helpers
 
     private func parseHTTPRequest(_ data: Data) -> (method: String, path: String, body: Data?)? {
@@ -969,6 +1178,83 @@ public struct DemoIncident: Codable, Sendable {
     ]
 }
 
+// MARK: - Demo Logo Model (SVG)
+
+public struct DemoLogo: Codable, Sendable {
+    public var id: Int
+    public var name: String
+    public var content: String     // SVG markup
+
+    public func toDict() -> [String: Any] {
+        ["id": id, "name": name, "content": content]
+    }
+
+    static let seedData: [DemoLogo] = [
+        DemoLogo(id: 1, name: "app-icon", content: """
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+              <rect width="100" height="100" rx="20" fill="#4A90D9"/>
+              <text x="50" y="62" font-family="Helvetica" font-size="40" fill="white" text-anchor="middle" font-weight="bold">A2F</text>
+            </svg>
+            """),
+        DemoLogo(id: 2, name: "badge", content: """
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120">
+              <circle cx="60" cy="60" r="55" fill="none" stroke="#E74C3C" stroke-width="6"/>
+              <polygon points="60,25 70,50 95,50 75,65 82,90 60,75 38,90 45,65 25,50 50,50" fill="#E74C3C"/>
+            </svg>
+            """),
+        DemoLogo(id: 3, name: "chart-icon", content: """
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+              <rect x="10" y="60" width="15" height="30" fill="#2ECC71"/>
+              <rect x="30" y="40" width="15" height="50" fill="#3498DB"/>
+              <rect x="50" y="20" width="15" height="70" fill="#E67E22"/>
+              <rect x="70" y="10" width="15" height="80" fill="#9B59B6"/>
+            </svg>
+            """),
+    ]
+}
+
+// MARK: - Demo Photo Model (PNG, base64)
+
+public struct DemoPhoto: Codable, Sendable {
+    public var id: Int
+    public var name: String
+    public var width: Int
+    public var height: Int
+    public var data: String        // base64-encoded PNG
+
+    public func toDict() -> [String: Any] {
+        ["id": id, "name": name, "width": width, "height": height, "data": data]
+    }
+
+    static let seedData: [DemoPhoto] = [
+        DemoPhoto(id: 1, name: "red-swatch", width: 8, height: 8,
+                  data: "iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAEUlEQVR4nGO4Y2SEFTEMLQkAbRlQAcgCOpkAAAAASUVORK5CYII="),
+        DemoPhoto(id: 2, name: "blue-swatch", width: 8, height: 8,
+                  data: "iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAEUlEQVR4nGMwSrmDFTEMLQkA+lVcgb/xykQAAAAASUVORK5CYII="),
+        DemoPhoto(id: 3, name: "green-swatch", width: 8, height: 8,
+                  data: "iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAEUlEQVR4nGMw2hKAFTEMLQkAQQpNgcVQvJgAAAAASUVORK5CYII="),
+    ]
+}
+
+// MARK: - Demo Document Model (PDF, base64)
+
+public struct DemoDocument: Codable, Sendable {
+    public var id: Int
+    public var name: String
+    public var data: String        // base64-encoded PDF
+
+    public func toDict() -> [String: Any] {
+        ["id": id, "name": name, "data": data]
+    }
+
+    static let seedData: [DemoDocument] = [
+        DemoDocument(id: 1, name: "q1-report",
+                     data: "JVBERi0xLjQKMSAwIG9iajw8L1R5cGUvQ2F0YWxvZy9QYWdlcyAyIDAgUj4+ZW5kb2JqCjIgMCBvYmo8PC9UeXBlL1BhZ2VzL0tpZHNbMyAwIFJdL0NvdW50IDE+PmVuZG9iagozIDAgb2JqPDwvVHlwZS9QYWdlL01lZGlhQm94WzAgMCA2MTIgNzkyXS9QYXJlbnQgMiAwIFIvUmVzb3VyY2VzPDwvRm9udDw8L0YxIDQgMCBSPj4+Pi9Db250ZW50cyA1IDAgUj4+ZW5kb2JqCjQgMCBvYmo8PC9UeXBlL0ZvbnQvU3VidHlwZS9UeXBlMS9CYXNlRm9udC9IZWx2ZXRpY2E+PmVuZG9iago1IDAgb2JqPDwvTGVuZ3RoIDExNj4+CnN0cmVhbQpCVCAvRjEgMTggVGYgNzIgNzAwIFRkIChRMSBSZXBvcnQpIFRqIDAgLTMwIFRkIC9GMSAxMiBUZiAoUmV2ZW51ZSB1cCAyMyBwZXJjZW50LiBBY3RpdmUgdXNlcnMgcmVhY2hlZCA1MCwwMDAuKSBUaiBFVAplbmRzdHJlYW0KZW5kb2JqCnhyZWYKMCA2CjAwMDAwMDAwMDAgNjU1MzUgZiAKMDAwMDAwMDAwOSAwMDAwMCBuIAowMDAwMDAwMDU4IDAwMDAwIG4gCjAwMDAwMDAxMTUgMDAwMDAgbiAKMDAwMDAwMDI2NiAwMDAwMCBuIAowMDAwMDAwMzQwIDAwMDAwIG4gCnRyYWlsZXI8PC9TaXplIDYvUm9vdCAxIDAgUj4+CnN0YXJ0eHJlZgo1MTYKJSVFT0Y="),
+        DemoDocument(id: 2, name: "invoice-1042",
+                     data: "JVBERi0xLjQKMSAwIG9iajw8L1R5cGUvQ2F0YWxvZy9QYWdlcyAyIDAgUj4+ZW5kb2JqCjIgMCBvYmo8PC9UeXBlL1BhZ2VzL0tpZHNbMyAwIFJdL0NvdW50IDE+PmVuZG9iagozIDAgb2JqPDwvVHlwZS9QYWdlL01lZGlhQm94WzAgMCA2MTIgNzkyXS9QYXJlbnQgMiAwIFIvUmVzb3VyY2VzPDwvRm9udDw8L0YxIDQgMCBSPj4+Pi9Db250ZW50cyA1IDAgUj4+ZW5kb2JqCjQgMCBvYmo8PC9UeXBlL0ZvbnQvU3VidHlwZS9UeXBlMS9CYXNlRm9udC9IZWx2ZXRpY2E+PmVuZG9iago1IDAgb2JqPDwvTGVuZ3RoIDExNj4+CnN0cmVhbQpCVCAvRjEgMTggVGYgNzIgNzAwIFRkIChJbnZvaWNlIDEwNDIpIFRqIDAgLTMwIFRkIC9GMSAxMiBUZiAoQW1vdW50IGR1ZTogVVNEIDIsNDUwLjAwIOKAlCBQYXltZW50IHRlcm1zOiBOZXQgMzApIFRqIEVUCmVuZHN0cmVhbQplbmRvYmoKeHJlZgowIDYKMDAwMDAwMDAwMCA2NTUzNSBmIAowMDAwMDAwMDA5IDAwMDAwIG4gCjAwMDAwMDAwNTggMDAwMDAgbiAKMDAwMDAwMDExNSAwMDAwMCBuIAowMDAwMDAwMjY2IDAwMDAwIG4gCjAwMDAwMDAzNDAgMDAwMDAgbiAKdHJhaWxlcjw8L1NpemUgNi9Sb290IDEgMCBSPj4Kc3RhcnR4cmVmCjUxNgolJUVPRg=="),
+    ]
+}
+
 // MARK: - Data Extension
 
 private extension Data {
@@ -986,3 +1272,8 @@ private extension Data {
         return nil
     }
 }
+
+// Token class for Xcode bundle lookup (not needed for SPM)
+#if !SWIFT_PACKAGE
+private final class BundleToken {}
+#endif

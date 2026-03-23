@@ -5,7 +5,7 @@
 set -e
 
 API2FILE_DIR="$HOME/API2File"
-SERVICES=("teamboard" "peoplehub" "calsync" "pagecraft" "devops")
+SERVICES=("teamboard" "peoplehub" "calsync" "pagecraft" "devops" "mediamanager")
 
 echo "=== API2File Demo Showcase Setup ==="
 echo ""
@@ -204,6 +204,63 @@ ADAPTER_EOF
 ADAPTER_EOF
       ;;
 
+    mediamanager)
+      cat > "$SERVICE_DIR/.api2file/adapter.json" << 'ADAPTER_EOF'
+{
+  "service": "mediamanager",
+  "displayName": "MediaManager — Digital Asset Manager",
+  "version": "1.0",
+  "auth": {
+    "type": "bearer",
+    "keychainKey": "api2file.mediamanager.key",
+    "setup": { "instructions": "Demo adapter — no real auth needed." }
+  },
+  "globals": {
+    "baseUrl": "http://localhost:8089",
+    "headers": { "Content-Type": "application/json" }
+  },
+  "resources": [
+    {
+      "name": "logos",
+      "description": "SVG vector logos",
+      "pull": { "method": "GET", "url": "http://localhost:8089/api/logos", "dataPath": "$" },
+      "push": {
+        "create": { "method": "POST", "url": "http://localhost:8089/api/logos" },
+        "update": { "method": "PUT", "url": "http://localhost:8089/api/logos/{id}" },
+        "delete": { "method": "DELETE", "url": "http://localhost:8089/api/logos/{id}" }
+      },
+      "fileMapping": { "strategy": "one-per-record", "directory": "logos", "filename": "{name|slugify}.svg", "format": "svg", "idField": "id", "contentField": "content" },
+      "sync": { "interval": 15, "debounceMs": 500 }
+    },
+    {
+      "name": "photos",
+      "description": "PNG images (base64)",
+      "pull": { "method": "GET", "url": "http://localhost:8089/api/photos", "dataPath": "$" },
+      "push": {
+        "create": { "method": "POST", "url": "http://localhost:8089/api/photos" },
+        "update": { "method": "PUT", "url": "http://localhost:8089/api/photos/{id}" },
+        "delete": { "method": "DELETE", "url": "http://localhost:8089/api/photos/{id}" }
+      },
+      "fileMapping": { "strategy": "one-per-record", "directory": "photos", "filename": "{name|slugify}.png", "format": "raw", "idField": "id" },
+      "sync": { "interval": 15, "debounceMs": 500 }
+    },
+    {
+      "name": "documents",
+      "description": "PDF documents (base64)",
+      "pull": { "method": "GET", "url": "http://localhost:8089/api/documents", "dataPath": "$" },
+      "push": {
+        "create": { "method": "POST", "url": "http://localhost:8089/api/documents" },
+        "update": { "method": "PUT", "url": "http://localhost:8089/api/documents/{id}" },
+        "delete": { "method": "DELETE", "url": "http://localhost:8089/api/documents/{id}" }
+      },
+      "fileMapping": { "strategy": "one-per-record", "directory": "documents", "filename": "{name|slugify}.pdf", "format": "raw", "idField": "id" },
+      "sync": { "interval": 15, "debounceMs": 500 }
+    }
+  ]
+}
+ADAPTER_EOF
+      ;;
+
     devops)
       cat > "$SERVICE_DIR/.api2file/adapter.json" << 'ADAPTER_EOF'
 {
@@ -268,19 +325,22 @@ done
 echo ""
 echo "=== Setup Complete ==="
 echo ""
-echo "5 demo adapters configured under ~/API2File/:"
-echo "  teamboard/   — Project management (CSV + YAML)"
-echo "  peoplehub/   — CRM & contacts (VCF + Markdown)"
-echo "  calsync/     — Calendar (ICS + CSV)"
-echo "  pagecraft/   — Website builder (HTML + Markdown + JSON)"
-echo "  devops/      — Infrastructure (JSON + CSV)"
+echo "6 demo adapters configured under ~/API2File/:"
+echo "  teamboard/      — Project management (CSV + YAML)"
+echo "  peoplehub/      — CRM & contacts (VCF + Markdown)"
+echo "  calsync/        — Calendar (ICS + CSV)"
+echo "  pagecraft/      — Website builder (HTML + Markdown + JSON)"
+echo "  devops/         — Infrastructure (JSON + CSV)"
+echo "  mediamanager/   — Digital assets (SVG + PNG + PDF)"
 echo ""
 echo "Start the demo server:"
 echo "  swift run api2file-demo"
 echo ""
 echo "Try these commands after a sync:"
-echo "  open ~/API2File/calsync/calendar.ics         # Opens in Calendar.app"
-echo "  open ~/API2File/peoplehub/contacts/           # VCF files → Contacts.app"
-echo "  open ~/API2File/teamboard/tasks.csv           # Opens in Numbers"
-echo "  open ~/API2File/pagecraft/pages/home.html     # Opens in Safari"
-echo "  cat ~/API2File/devops/services/auth-service.json"
+echo "  open ~/API2File/calsync/calendar.ics              # Opens in Calendar.app"
+echo "  open ~/API2File/peoplehub/contacts/                # VCF files → Contacts.app"
+echo "  open ~/API2File/teamboard/tasks.csv                # Opens in Numbers"
+echo "  open ~/API2File/pagecraft/pages/home.html          # Opens in Safari"
+echo "  open ~/API2File/mediamanager/logos/app-icon.svg     # Opens in Preview"
+echo "  open ~/API2File/mediamanager/photos/red-swatch.png  # Opens in Preview"
+echo "  open ~/API2File/mediamanager/documents/q1-report.pdf # Opens in Preview"

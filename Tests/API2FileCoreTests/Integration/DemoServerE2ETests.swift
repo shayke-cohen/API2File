@@ -589,6 +589,81 @@ final class DemoServerE2ETests: XCTestCase {
         XCTAssertEqual(all?.count, 3)
     }
 
+    // MARK: - Test: Logos CRUD (MediaManager adapter)
+
+    func testPullLogosFromDemoServer() async throws {
+        let client = makeClient()
+        let request = APIRequest(method: .GET, url: "\(baseURL)/api/logos")
+        let response = try await client.request(request)
+        XCTAssertEqual(response.statusCode, 200)
+
+        let json = try JSONSerialization.jsonObject(with: response.body)
+        guard let logos = json as? [[String: Any]] else { XCTFail("Expected array"); return }
+        XCTAssertEqual(logos.count, 3, "Should have 3 seed logos")
+
+        let appIcon = logos.first(where: { ($0["name"] as? String) == "app-icon" })
+        XCTAssertNotNil(appIcon)
+        let content = appIcon?["content"] as? String ?? ""
+        XCTAssertTrue(content.contains("<svg"), "Logo content should be SVG")
+    }
+
+    func testCreateLogoViaAPI() async throws {
+        let client = makeClient()
+        let newLogo: [String: Any] = ["name": "test-logo", "content": "<svg><circle r=\"10\"/></svg>"]
+        let body = try JSONSerialization.data(withJSONObject: newLogo)
+        let request = APIRequest(method: .POST, url: "\(baseURL)/api/logos", headers: ["Content-Type": "application/json"], body: body)
+        let response = try await client.request(request)
+        XCTAssertEqual(response.statusCode, 201)
+
+        let listRequest = APIRequest(method: .GET, url: "\(baseURL)/api/logos")
+        let listResponse = try await client.request(listRequest)
+        let all = try JSONSerialization.jsonObject(with: listResponse.body) as? [[String: Any]]
+        XCTAssertEqual(all?.count, 4)
+    }
+
+    // MARK: - Test: Photos CRUD (MediaManager adapter)
+
+    func testPullPhotosFromDemoServer() async throws {
+        let client = makeClient()
+        let request = APIRequest(method: .GET, url: "\(baseURL)/api/photos")
+        let response = try await client.request(request)
+        XCTAssertEqual(response.statusCode, 200)
+
+        let json = try JSONSerialization.jsonObject(with: response.body)
+        guard let photos = json as? [[String: Any]] else { XCTFail("Expected array"); return }
+        XCTAssertEqual(photos.count, 3, "Should have 3 seed photos")
+
+        let red = photos.first(where: { ($0["name"] as? String) == "red-swatch" })
+        XCTAssertNotNil(red)
+        XCTAssertEqual(red?["width"] as? Int, 8)
+        XCTAssertEqual(red?["height"] as? Int, 8)
+        // Verify base64 data is valid PNG
+        let data = red?["data"] as? String ?? ""
+        XCTAssertNotNil(Data(base64Encoded: data), "Photo data should be valid base64")
+    }
+
+    // MARK: - Test: Documents CRUD (MediaManager adapter)
+
+    func testPullDocumentsFromDemoServer() async throws {
+        let client = makeClient()
+        let request = APIRequest(method: .GET, url: "\(baseURL)/api/documents")
+        let response = try await client.request(request)
+        XCTAssertEqual(response.statusCode, 200)
+
+        let json = try JSONSerialization.jsonObject(with: response.body)
+        guard let docs = json as? [[String: Any]] else { XCTFail("Expected array"); return }
+        XCTAssertEqual(docs.count, 2, "Should have 2 seed documents")
+
+        let report = docs.first(where: { ($0["name"] as? String) == "q1-report" })
+        XCTAssertNotNil(report)
+        // Verify base64 data decodes to valid PDF
+        let data = report?["data"] as? String ?? ""
+        let pdfData = Data(base64Encoded: data)
+        XCTAssertNotNil(pdfData, "Document data should be valid base64")
+        let pdfString = String(data: pdfData!, encoding: .utf8)
+        XCTAssertTrue(pdfString?.hasPrefix("%PDF") ?? false, "Decoded data should be a valid PDF")
+    }
+
     // MARK: - Test: Server reset
 
     func testServerReset() async throws {

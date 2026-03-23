@@ -410,4 +410,111 @@ final class DemoAdapterPipelineTests: XCTestCase {
         XCTAssertEqual(critical?["service"] as? String, "payment-api")
         XCTAssertEqual(critical?["message"] as? String, "Database connection pool exhausted")
     }
+
+    // MARK: - MediaManager: Logos → SVG (one-per-record)
+
+    func testPullPipeline_LogosToSVG() async throws {
+        let records = try await fetchRecords(endpoint: "/api/logos")
+        XCTAssertEqual(records.count, 3, "Should have 3 seed logos")
+
+        let logosDir = tempDir.appendingPathComponent("logos")
+        try FileManager.default.createDirectory(at: logosDir, withIntermediateDirectories: true)
+
+        for record in records {
+            let name = record["name"] as? String ?? "untitled"
+            let filename = "\(name).svg"
+
+            let svgData = try SVGFormat.encode(records: [record], options: nil)
+            let svgFile = logosDir.appendingPathComponent(filename)
+            try svgData.write(to: svgFile)
+
+            // Read back and verify SVG content
+            let readData = try Data(contentsOf: svgFile)
+            let svgString = String(data: readData, encoding: .utf8)!
+            XCTAssertTrue(svgString.contains("<svg"), "File should contain SVG markup")
+            XCTAssertTrue(svgString.contains("</svg>"), "File should have closing SVG tag")
+
+            // Decode back
+            let decoded = try SVGFormat.decode(data: readData, options: nil)
+            XCTAssertEqual(decoded.count, 1)
+            XCTAssertTrue((decoded[0]["content"] as? String ?? "").contains("<svg"))
+        }
+
+        // Verify files
+        let files = try FileManager.default.contentsOfDirectory(at: logosDir, includingPropertiesForKeys: nil)
+        let filenames = files.map { $0.lastPathComponent }.sorted()
+        XCTAssertEqual(filenames, ["app-icon.svg", "badge.svg", "chart-icon.svg"])
+    }
+
+    // MARK: - MediaManager: Photos → PNG via Raw/base64 (one-per-record)
+
+    func testPullPipeline_PhotosToPNG() async throws {
+        let records = try await fetchRecords(endpoint: "/api/photos")
+        XCTAssertEqual(records.count, 3, "Should have 3 seed photos")
+
+        let photosDir = tempDir.appendingPathComponent("photos")
+        try FileManager.default.createDirectory(at: photosDir, withIntermediateDirectories: true)
+
+        for record in records {
+            let name = record["name"] as? String ?? "untitled"
+            let filename = "\(name).png"
+
+            // RawFormat expects a "data" field with base64 — which our photos have
+            let pngData = try RawFormat.encode(records: [record], options: nil)
+            let pngFile = photosDir.appendingPathComponent(filename)
+            try pngData.write(to: pngFile)
+
+            // Verify the file is a valid PNG (starts with PNG magic bytes)
+            let readData = try Data(contentsOf: pngFile)
+            XCTAssertGreaterThan(readData.count, 8, "PNG should have at least 8 bytes")
+            let pngSignature: [UInt8] = [0x89, 0x50, 0x4E, 0x47] // \x89PNG
+            let fileHeader = [UInt8](readData.prefix(4))
+            XCTAssertEqual(fileHeader, pngSignature, "\(name).png should start with PNG magic bytes")
+
+            // Decode back to base64
+            let decoded = try RawFormat.decode(data: readData, options: nil)
+            XCTAssertEqual(decoded.count, 1)
+            let roundTripBase64 = decoded[0]["data"] as? String ?? ""
+            XCTAssertNotNil(Data(base64Encoded: roundTripBase64), "Round-trip base64 should be valid")
+        }
+
+        // Verify files
+        let files = try FileManager.default.contentsOfDirectory(at: photosDir, includingPropertiesForKeys: nil)
+        let filenames = files.map { $0.lastPathComponent }.sorted()
+        XCTAssertEqual(filenames, ["blue-swatch.png", "green-swatch.png", "red-swatch.png"])
+    }
+
+    // MARK: - MediaManager: Documents → PDF via Raw/base64 (one-per-record)
+
+    func testPullPipeline_DocumentsToPDF() async throws {
+        let records = try await fetchRecords(endpoint: "/api/documents")
+        XCTAssertEqual(records.count, 2, "Should have 2 seed documents")
+
+        let docsDir = tempDir.appendingPathComponent("documents")
+        try FileManager.default.createDirectory(at: docsDir, withIntermediateDirectories: true)
+
+        for record in records {
+            let name = record["name"] as? String ?? "untitled"
+            let filename = "\(name).pdf"
+
+            // RawFormat expects a "data" field with base64
+            let pdfData = try RawFormat.encode(records: [record], options: nil)
+            let pdfFile = docsDir.appendingPathComponent(filename)
+            try pdfData.write(to: pdfFile)
+
+            // Verify the file is a valid PDF (starts with %PDF)
+            let readData = try Data(contentsOf: pdfFile)
+            let pdfHeader = String(data: readData.prefix(5), encoding: .utf8)
+            XCTAssertEqual(pdfHeader, "%PDF-", "\(name).pdf should start with %PDF- header")
+
+            // Decode back
+            let decoded = try RawFormat.decode(data: readData, options: nil)
+            XCTAssertEqual(decoded.count, 1)
+        }
+
+        // Verify files
+        let files = try FileManager.default.contentsOfDirectory(at: docsDir, includingPropertiesForKeys: nil)
+        let filenames = files.map { $0.lastPathComponent }.sorted()
+        XCTAssertEqual(filenames, ["invoice-1042.pdf", "q1-report.pdf"])
+    }
 }

@@ -137,10 +137,40 @@ final class DemoAdapterConfigTests: XCTestCase {
         XCTAssertEqual(incidents.fileMapping.filename, "incidents.csv")
     }
 
+    // MARK: - MediaManager
+
+    func testMediaManagerAdapterParses() throws {
+        let config = try loadBundledAdapter(named: "mediamanager.adapter")
+        XCTAssertEqual(config.service, "mediamanager")
+        XCTAssertEqual(config.resources.count, 3)
+
+        // Logos resource (SVG)
+        let logos = config.resources[0]
+        XCTAssertEqual(logos.name, "logos")
+        XCTAssertEqual(logos.fileMapping.strategy, .onePerRecord)
+        XCTAssertEqual(logos.fileMapping.format, .svg)
+        XCTAssertEqual(logos.fileMapping.filename, "{name|slugify}.svg")
+        XCTAssertEqual(logos.fileMapping.directory, "logos")
+
+        // Photos resource (PNG via raw/base64)
+        let photos = config.resources[1]
+        XCTAssertEqual(photos.name, "photos")
+        XCTAssertEqual(photos.fileMapping.strategy, .onePerRecord)
+        XCTAssertEqual(photos.fileMapping.format, .raw)
+        XCTAssertEqual(photos.fileMapping.filename, "{name|slugify}.png")
+
+        // Documents resource (PDF via raw/base64)
+        let docs = config.resources[2]
+        XCTAssertEqual(docs.name, "documents")
+        XCTAssertEqual(docs.fileMapping.strategy, .onePerRecord)
+        XCTAssertEqual(docs.fileMapping.format, .raw)
+        XCTAssertEqual(docs.fileMapping.filename, "{name|slugify}.pdf")
+    }
+
     // MARK: - All adapters share same base URL
 
     func testAllAdaptersPointToLocalDemoServer() throws {
-        let adapterNames = ["teamboard.adapter", "peoplehub.adapter", "calsync.adapter", "pagecraft.adapter", "devops.adapter"]
+        let adapterNames = ["teamboard.adapter", "peoplehub.adapter", "calsync.adapter", "pagecraft.adapter", "devops.adapter", "mediamanager.adapter"]
         for name in adapterNames {
             let config = try loadBundledAdapter(named: name)
             XCTAssertEqual(config.globals?.baseUrl, "http://localhost:8089", "\(config.service) should point to localhost:8089")

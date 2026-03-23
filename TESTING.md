@@ -97,7 +97,7 @@ cat ~/API2File/demo/CLAUDE.md
 
 ## Full Showcase (5 Demo Adapters)
 
-The showcase sets up 5 themed adapters, each simulating a real-world service with different file formats.
+The showcase sets up 6 themed adapters, each simulating a real-world service with different file formats.
 
 ### 1. Build and start the demo server
 
@@ -106,14 +106,14 @@ swift build
 swift run api2file-demo
 ```
 
-### 2. Set up all 5 adapters
+### 2. Set up all 6 adapters
 
 In another terminal:
 ```bash
 ./scripts/demo-all-setup.sh
 ```
 
-This creates 5 service directories under `~/API2File/`:
+This creates 6 service directories under `~/API2File/`:
 
 | Service | Simulates | Formats |
 |---|---|---|
@@ -122,6 +122,7 @@ This creates 5 service directories under `~/API2File/`:
 | `calsync/` | Calendar | ICS + CSV |
 | `pagecraft/` | CMS / website | HTML + Markdown + JSON |
 | `devops/` | Infrastructure | JSON + CSV |
+| `mediamanager/` | Digital assets | SVG + PNG + PDF |
 
 ### 3. Test each adapter
 
@@ -158,21 +159,36 @@ curl -s http://localhost:8089/api/services | jq .
 curl -s http://localhost:8089/api/incidents | jq .
 ```
 
+**MediaManager** (SVG + PNG + PDF):
+```bash
+# SVG logos — vector graphics
+curl -s http://localhost:8089/api/logos | jq '.[].name'
+
+# PNG photos — base64-encoded images
+curl -s http://localhost:8089/api/photos | jq '.[].name'
+
+# PDF documents — base64-encoded PDFs
+curl -s http://localhost:8089/api/documents | jq '.[].name'
+```
+
 ### 4. Native app integration
 
 After a sync cycle, try opening files in their native macOS apps:
 ```bash
-open ~/API2File/calsync/calendar.ics           # Calendar.app
-open ~/API2File/peoplehub/contacts/             # VCF files → Contacts.app
-open ~/API2File/teamboard/tasks.csv             # Numbers
-open ~/API2File/pagecraft/pages/home.html       # Safari
-open ~/API2File/devops/incidents.csv            # Numbers
+open ~/API2File/calsync/calendar.ics                # Calendar.app
+open ~/API2File/peoplehub/contacts/                  # VCF files → Contacts.app
+open ~/API2File/teamboard/tasks.csv                  # Numbers
+open ~/API2File/pagecraft/pages/home.html            # Safari
+open ~/API2File/devops/incidents.csv                 # Numbers
+open ~/API2File/mediamanager/logos/app-icon.svg       # Preview (SVG)
+open ~/API2File/mediamanager/photos/red-swatch.png    # Preview (PNG)
+open ~/API2File/mediamanager/documents/q1-report.pdf  # Preview (PDF)
 ```
 
 ### 5. Clean up
 
 ```bash
-rm -rf ~/API2File/teamboard ~/API2File/peoplehub ~/API2File/calsync ~/API2File/pagecraft ~/API2File/devops
+rm -rf ~/API2File/teamboard ~/API2File/peoplehub ~/API2File/calsync ~/API2File/pagecraft ~/API2File/devops ~/API2File/mediamanager
 ```
 
 ---
