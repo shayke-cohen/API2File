@@ -1,0 +1,10 @@
+{
+  "syncFolder": "~/API2File",
+  "gitAutoCommit": true,
+  "commitMessageFormat": "sync: {service} — {summary}",
+  "defaultSyncInterval": 60,
+  "showNotifications": true,
+  "finderBadges": true,
+  "serverPort": 21567,
+  "launchAtLogin": false
+}

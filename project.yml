@@ -1,0 +1,75 @@
+name: API2File
+options:
+  bundleIdPrefix: com.api2file
+  deploymentTarget:
+    macOS: "13.0"
+  xcodeVersion: "15.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    MACOSX_DEPLOYMENT_TARGET: "13.0"
+
+targets:
+  API2FileCore:
+    type: framework
+    platform: macOS
+    sources:
+      - path: Sources/API2FileCore
+    resources:
+      - path: Sources/API2FileCore/Resources
+        type: folder
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.api2file.core
+        PRODUCT_NAME: API2FileCore
+        DEFINES_MODULE: YES
+        GENERATE_INFOPLIST_FILE: YES
+
+  API2File:
+    type: application
+    platform: macOS
+    sources:
+      - path: Sources/API2FileApp
+    dependencies:
+      - target: API2FileCore
+        embed: true
+    info:
+      path: Sources/API2FileApp/Info.plist
+    entitlements:
+      path: Sources/API2FileApp/API2File.entitlements
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.api2file.app
+        PRODUCT_NAME: API2File
+        INFOPLIST_FILE: Sources/API2FileApp/Info.plist
+        CODE_SIGN_ENTITLEMENTS: Sources/API2FileApp/API2File.entitlements
+        ENABLE_HARDENED_RUNTIME: YES
+        LD_RUNPATH_SEARCH_PATHS: "@executable_path/../Frameworks"
+        COMBINE_HIDPI_IMAGES: YES
+    scheme:
+      testTargets:
+        - API2FileTests
+
+  API2FileDemo:
+    type: tool
+    platform: macOS
+    sources:
+      - path: Sources/API2FileDemo
+    dependencies:
+      - target: API2FileCore
+    settings:
+      base:
+        PRODUCT_NAME: api2file-demo
+
+  API2FileTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: Tests/API2FileCoreTests
+    dependencies:
+      - target: API2FileCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.api2file.tests
