@@ -327,7 +327,12 @@ public actor DemoAPIServer {
         <li><a href="/api/events">/api/events</a></li>
         <li><a href="/api/notes">/api/notes</a></li>
         <li><a href="/api/pages">/api/pages</a></li>
-        <li><a href="/api/config">/api/config</a></li></ul>
+        <li><a href="/api/config">/api/config</a></li>
+        <li><a href="/api/services">/api/services</a></li>
+        <li><a href="/api/incidents">/api/incidents</a></li>
+        <li><a href="/api/logos">/api/logos</a></li>
+        <li><a href="/api/photos">/api/photos</a></li>
+        <li><a href="/api/documents">/api/documents</a></li></ul>
         </body></html>
         """
     }()

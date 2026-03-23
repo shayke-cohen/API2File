@@ -39,6 +39,16 @@
   .format-md { background: rgba(210,153,34,0.15); color: var(--yellow); }
   .format-html { background: rgba(248,81,73,0.15); color: var(--red); }
   .format-json { background: rgba(88,166,255,0.15); color: var(--accent); }
+  .format-yaml { background: rgba(210,153,34,0.15); color: var(--yellow); }
+  .format-svg { background: rgba(188,140,255,0.15); color: var(--purple); }
+  .format-png { background: rgba(63,185,80,0.15); color: var(--green); }
+  .format-pdf { background: rgba(248,81,73,0.15); color: var(--red); }
+  .pill-info { background: rgba(88,166,255,0.15); color: var(--accent); }
+  .pill-warning { background: rgba(210,153,34,0.15); color: var(--yellow); }
+  .pill-critical { background: rgba(248,81,73,0.15); color: var(--red); }
+  .pill-true { background: rgba(63,185,80,0.15); color: var(--green); }
+  .pill-false { background: rgba(248,81,73,0.15); color: var(--red); }
+  .media-thumb { width: 32px; height: 32px; border-radius: 4px; border: 1px solid var(--border); object-fit: cover; vertical-align: middle; }
   .card-body { padding: 0; max-height: 320px; overflow-y: auto; }
   .card-footer { padding: 12px 16px; border-top: 1px solid var(--border); display: flex; gap: 8px; }
 
@@ -201,6 +211,56 @@
       <div class="card-body"><div class="config-grid" id="config-grid"></div></div>
       <div class="card-footer"><button class="btn btn-sm" onclick="showEditConfig()">Edit Config</button></div>
     </div>
+
+    <!-- Services -->
+    <div class="card" id="services-card">
+      <div class="card-header">
+        <h2>&#9881; Services</h2>
+        <span class="format-tag format-json">JSON</span>
+      </div>
+      <div class="file-hint">&#128196; <code>services/*.json</code> &mdash; DevOps health status</div>
+      <div class="card-body"><table><thead><tr><th>Name</th><th>Status</th><th>Uptime</th><th>Response</th><th>Version</th></tr></thead><tbody id="services-tbody"></tbody></table></div>
+    </div>
+
+    <!-- Incidents -->
+    <div class="card" id="incidents-card">
+      <div class="card-header">
+        <h2>&#9888; Incidents</h2>
+        <span class="format-tag format-csv">CSV</span>
+      </div>
+      <div class="file-hint">&#128196; <code>incidents.csv</code> &mdash; Ops log in Numbers</div>
+      <div class="card-body"><table><thead><tr><th>Time</th><th>Severity</th><th>Service</th><th>Message</th><th>Resolved</th></tr></thead><tbody id="incidents-tbody"></tbody></table></div>
+    </div>
+
+    <!-- Logos -->
+    <div class="card" id="logos-card">
+      <div class="card-header">
+        <h2>&#127912; Logos</h2>
+        <span class="format-tag format-svg">SVG</span>
+      </div>
+      <div class="file-hint">&#128196; <code>logos/*.svg</code> &mdash; Opens in Preview</div>
+      <div class="card-body"><table><thead><tr><th>Preview</th><th>Name</th><th></th></tr></thead><tbody id="logos-tbody"></tbody></table></div>
+    </div>
+
+    <!-- Photos -->
+    <div class="card" id="photos-card">
+      <div class="card-header">
+        <h2>&#128247; Photos</h2>
+        <span class="format-tag format-png">PNG</span>
+      </div>
+      <div class="file-hint">&#128196; <code>photos/*.png</code> &mdash; Opens in Preview</div>
+      <div class="card-body"><table><thead><tr><th>Preview</th><th>Name</th><th>Size</th></tr></thead><tbody id="photos-tbody"></tbody></table></div>
+    </div>
+
+    <!-- Documents -->
+    <div class="card" id="documents-card">
+      <div class="card-header">
+        <h2>&#128196; Documents</h2>
+        <span class="format-tag format-pdf">PDF</span>
+      </div>
+      <div class="file-hint">&#128196; <code>documents/*.pdf</code> &mdash; Opens in Preview</div>
+      <div class="card-body"><table><thead><tr><th>Name</th><th>Size</th></tr></thead><tbody id="documents-tbody"></tbody></table></div>
+    </div>
   </div>
 </div>
 
@@ -218,6 +278,7 @@ const API = '';
 
 // State
 let tasks = [], contacts = [], events = [], notes = [], pages = [], config = {};
+let services = [], incidents = [], logos = [], photos = [], documents = [];
 
 // Fetch helpers
 async function fetchJSON(path) {
@@ -292,14 +353,51 @@ function renderConfig() {
   ).join('');
 }
 
+function renderServices() {
+  document.getElementById('services-tbody').innerHTML = services.map(s =>
+    '<tr><td>' + escHtml(s.name) + '</td><td>' + pill(s.status) + '</td><td>' + s.uptime + '%</td><td>' + s.responseTimeMs + 'ms</td><td><code>' + escHtml(s.version) + '</code></td></tr>'
+  ).join('');
+}
+
+function renderIncidents() {
+  document.getElementById('incidents-tbody').innerHTML = incidents.map(i =>
+    '<tr><td>' + shortDate(i.timestamp) + '</td><td>' + pill(i.severity) + '</td><td>' + escHtml(i.service) + '</td><td>' + escHtml(truncate(i.message, 40)) + '</td><td>' + pill(String(i.resolved)) + '</td></tr>'
+  ).join('');
+}
+
+function renderLogos() {
+  document.getElementById('logos-tbody').innerHTML = logos.map(l => {
+    const svgDataUri = 'data:image/svg+xml;base64,' + btoa(l.content || '');
+    return '<tr><td><img class="media-thumb" src="' + svgDataUri + '"></td><td>' + escHtml(l.name) + '</td><td><button class="btn btn-sm btn-danger" onclick="deleteItem(\'logos\',' + l.id + ')">&#128465;</button></td></tr>';
+  }).join('');
+}
+
+function renderPhotos() {
+  document.getElementById('photos-tbody').innerHTML = photos.map(p => {
+    const pngDataUri = 'data:image/png;base64,' + (p.data || '');
+    return '<tr><td><img class="media-thumb" src="' + pngDataUri + '"></td><td>' + escHtml(p.name) + '</td><td>' + (p.width||0) + 'x' + (p.height||0) + '</td></tr>';
+  }).join('');
+}
+
+function renderDocuments() {
+  document.getElementById('documents-tbody').innerHTML = documents.map(d => {
+    const sizeKB = d.data ? Math.round(atob(d.data).length / 1024 * 10) / 10 : 0;
+    return '<tr><td>' + escHtml(d.name) + '</td><td>' + sizeKB + ' KB</td></tr>';
+  }).join('');
+}
+
 // Refresh all
 async function refreshAll() {
   try {
-    [tasks, contacts, events, notes, pages, config] = await Promise.all([
+    [tasks, contacts, events, notes, pages, config, services, incidents, logos, photos, documents] = await Promise.all([
       fetchJSON('/api/tasks'), fetchJSON('/api/contacts'), fetchJSON('/api/events'),
-      fetchJSON('/api/notes'), fetchJSON('/api/pages'), fetchJSON('/api/config')
+      fetchJSON('/api/notes'), fetchJSON('/api/pages'), fetchJSON('/api/config'),
+      fetchJSON('/api/services'), fetchJSON('/api/incidents'), fetchJSON('/api/logos'),
+      fetchJSON('/api/photos'), fetchJSON('/api/documents')
     ]);
     renderTasks(); renderContacts(); renderEvents(); renderNotes(); renderPages(); renderConfig();
+    renderServices(); renderIncidents(); renderLogos(); renderPhotos(); renderDocuments();
+    document.getElementById('resource-count').textContent = '11';
     document.getElementById('last-refresh').textContent = new Date().toLocaleTimeString();
   } catch(e) { toast('Failed to refresh: ' + e.message, 'error'); }
 }
