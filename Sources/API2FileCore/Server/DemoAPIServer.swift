@@ -21,6 +21,9 @@ public actor DemoAPIServer {
     private var logos: [DemoLogo] = []
     private var photos: [DemoPhoto] = []
     private var documents: [DemoDocument] = []
+    private var spreadsheets: [DemoSpreadsheet] = []
+    private var reports: [DemoReport] = []
+    private var presentations: [DemoPresentation] = []
 
     // Auto-increment counters
     private var nextTaskId: Int = 1
@@ -33,6 +36,9 @@ public actor DemoAPIServer {
     private var nextLogoId: Int = 1
     private var nextPhotoId: Int = 1
     private var nextDocumentId: Int = 1
+    private var nextSpreadsheetId: Int = 1
+    private var nextReportId: Int = 1
+    private var nextPresentationId: Int = 1
 
     public init(port: UInt16 = 8089) {
         self.port = port
@@ -58,6 +64,12 @@ public actor DemoAPIServer {
         self.nextPhotoId = 4
         self.documents = DemoDocument.seedData
         self.nextDocumentId = 3
+        self.spreadsheets = DemoSpreadsheet.seedData
+        self.nextSpreadsheetId = 4
+        self.reports = DemoReport.seedData
+        self.nextReportId = 3
+        self.presentations = DemoPresentation.seedData
+        self.nextPresentationId = 4
     }
 
     private func seedAll() {
@@ -92,6 +104,15 @@ public actor DemoAPIServer {
 
         documents = DemoDocument.seedData
         nextDocumentId = (documents.map(\.id).max() ?? 0) + 1
+
+        spreadsheets = DemoSpreadsheet.seedData
+        nextSpreadsheetId = (spreadsheets.map(\.id).max() ?? 0) + 1
+
+        reports = DemoReport.seedData
+        nextReportId = (reports.map(\.id).max() ?? 0) + 1
+
+        presentations = DemoPresentation.seedData
+        nextPresentationId = (presentations.map(\.id).max() ?? 0) + 1
     }
 
     // MARK: - Lifecycle
@@ -131,6 +152,12 @@ public actor DemoAPIServer {
                 print("[DemoAPI]   GET/PUT/DELETE  /api/photos/:id")
                 print("[DemoAPI]   GET/POST       /api/documents     — PDF documents (base64)")
                 print("[DemoAPI]   GET/PUT/DELETE  /api/documents/:id")
+                print("[DemoAPI]   GET/POST       /api/spreadsheets  — spreadsheets (XLSX)")
+                print("[DemoAPI]   GET/PUT/DELETE  /api/spreadsheets/:id")
+                print("[DemoAPI]   GET/POST       /api/reports       — reports (DOCX)")
+                print("[DemoAPI]   GET/PUT/DELETE  /api/reports/:id")
+                print("[DemoAPI]   GET/POST       /api/presentations — presentations (PPTX)")
+                print("[DemoAPI]   GET/PUT/DELETE  /api/presentations/:id")
             }
         }
 
@@ -196,6 +223,21 @@ public actor DemoAPIServer {
     /// Get current documents (for testing assertions)
     public func getDocuments() -> [DemoDocument] {
         documents
+    }
+
+    /// Get current spreadsheets (for testing assertions)
+    public func getSpreadsheets() -> [DemoSpreadsheet] {
+        spreadsheets
+    }
+
+    /// Get current reports (for testing assertions)
+    public func getReports() -> [DemoReport] {
+        reports
+    }
+
+    /// Get current presentations (for testing assertions)
+    public func getPresentations() -> [DemoPresentation] {
+        presentations
     }
 
     /// Reset to seed data (for testing)
@@ -273,6 +315,12 @@ public actor DemoAPIServer {
             routePhotos(method: method, path: path, body: body, connection: connection)
         } else if path == "/api/documents" || path.hasPrefix("/api/documents/") {
             routeDocuments(method: method, path: path, body: body, connection: connection)
+        } else if path == "/api/spreadsheets" || path.hasPrefix("/api/spreadsheets/") {
+            routeSpreadsheets(method: method, path: path, body: body, connection: connection)
+        } else if path == "/api/reports" || path.hasPrefix("/api/reports/") {
+            routeReports(method: method, path: path, body: body, connection: connection)
+        } else if path == "/api/presentations" || path.hasPrefix("/api/presentations/") {
+            routePresentations(method: method, path: path, body: body, connection: connection)
         } else if path == "/" || path == "/dashboard" {
             serveDashboard(connection: connection)
         } else {
@@ -332,7 +380,10 @@ public actor DemoAPIServer {
         <li><a href="/api/incidents">/api/incidents</a></li>
         <li><a href="/api/logos">/api/logos</a></li>
         <li><a href="/api/photos">/api/photos</a></li>
-        <li><a href="/api/documents">/api/documents</a></li></ul>
+        <li><a href="/api/documents">/api/documents</a></li>
+        <li><a href="/api/spreadsheets">/api/spreadsheets</a></li>
+        <li><a href="/api/reports">/api/reports</a></li>
+        <li><a href="/api/presentations">/api/presentations</a></li></ul>
         </body></html>
         """
     }()
@@ -953,6 +1004,166 @@ public actor DemoAPIServer {
         }
     }
 
+
+    // MARK: - Spreadsheets Routes
+
+    private func routeSpreadsheets(method: String, path: String, body: Data?, connection: NWConnection) {
+        switch (method, path) {
+        case ("GET", "/api/spreadsheets"):
+            let items = spreadsheets.map { $0.toDict() }
+            sendJSONArray(statusCode: 200, body: items, connection: connection)
+        case ("GET", _):
+            let idStr = String(path.dropFirst("/api/spreadsheets/".count))
+            if let id = Int(idStr), let item = spreadsheets.first(where: { $0.id == id }) {
+                sendJSONDict(statusCode: 200, body: item.toDict(), connection: connection)
+            } else {
+                sendJSON(statusCode: 404, body: ["error": "Spreadsheet not found"], connection: connection)
+            }
+        case ("POST", "/api/spreadsheets"):
+            if let body, let dict = try? JSONSerialization.jsonObject(with: body) as? [String: Any] {
+                let item = DemoSpreadsheet(
+                    id: nextSpreadsheetId,
+                    name: dict["name"] as? String ?? "Untitled",
+                    category: dict["category"] as? String ?? "",
+                    quantity: dict["quantity"] as? Int ?? 0,
+                    price: dict["price"] as? Double ?? 0.0,
+                    inStock: dict["inStock"] as? Bool ?? true
+                )
+                nextSpreadsheetId += 1
+                spreadsheets.append(item)
+                sendJSONDict(statusCode: 201, body: item.toDict(), connection: connection)
+            } else {
+                sendJSON(statusCode: 400, body: ["error": "Invalid JSON body"], connection: connection)
+            }
+        case ("PUT", _):
+            let idStr = String(path.dropFirst("/api/spreadsheets/".count))
+            if let id = Int(idStr), let idx = spreadsheets.firstIndex(where: { $0.id == id }), let body, let dict = try? JSONSerialization.jsonObject(with: body) as? [String: Any] {
+                var item = spreadsheets[idx]
+                if let v = dict["name"] as? String { item.name = v }
+                if let v = dict["category"] as? String { item.category = v }
+                if let v = dict["quantity"] as? Int { item.quantity = v }
+                if let v = dict["price"] as? Double { item.price = v }
+                if let v = dict["inStock"] as? Bool { item.inStock = v }
+                spreadsheets[idx] = item
+                sendJSONDict(statusCode: 200, body: item.toDict(), connection: connection)
+            } else {
+                sendJSON(statusCode: 404, body: ["error": "Spreadsheet not found"], connection: connection)
+            }
+        case ("DELETE", _):
+            let idStr = String(path.dropFirst("/api/spreadsheets/".count))
+            if let id = Int(idStr), let idx = spreadsheets.firstIndex(where: { $0.id == id }) {
+                spreadsheets.remove(at: idx)
+                sendJSON(statusCode: 200, body: ["deleted": "\(id)"], connection: connection)
+            } else {
+                sendJSON(statusCode: 404, body: ["error": "Spreadsheet not found"], connection: connection)
+            }
+        default:
+            sendJSON(statusCode: 404, body: ["error": "Not Found"], connection: connection)
+        }
+    }
+
+    // MARK: - Reports Routes
+
+    private func routeReports(method: String, path: String, body: Data?, connection: NWConnection) {
+        switch (method, path) {
+        case ("GET", "/api/reports"):
+            let items = reports.map { $0.toDict() }
+            sendJSONArray(statusCode: 200, body: items, connection: connection)
+        case ("GET", _):
+            let idStr = String(path.dropFirst("/api/reports/".count))
+            if let id = Int(idStr), let item = reports.first(where: { $0.id == id }) {
+                sendJSONDict(statusCode: 200, body: item.toDict(), connection: connection)
+            } else {
+                sendJSON(statusCode: 404, body: ["error": "Report not found"], connection: connection)
+            }
+        case ("POST", "/api/reports"):
+            if let body, let dict = try? JSONSerialization.jsonObject(with: body) as? [String: Any] {
+                let item = DemoReport(
+                    id: nextReportId,
+                    title: dict["title"] as? String ?? "Untitled Report",
+                    content: dict["content"] as? String ?? ""
+                )
+                nextReportId += 1
+                reports.append(item)
+                sendJSONDict(statusCode: 201, body: item.toDict(), connection: connection)
+            } else {
+                sendJSON(statusCode: 400, body: ["error": "Invalid JSON body"], connection: connection)
+            }
+        case ("PUT", _):
+            let idStr = String(path.dropFirst("/api/reports/".count))
+            if let id = Int(idStr), let idx = reports.firstIndex(where: { $0.id == id }), let body, let dict = try? JSONSerialization.jsonObject(with: body) as? [String: Any] {
+                var item = reports[idx]
+                if let v = dict["title"] as? String { item.title = v }
+                if let v = dict["content"] as? String { item.content = v }
+                reports[idx] = item
+                sendJSONDict(statusCode: 200, body: item.toDict(), connection: connection)
+            } else {
+                sendJSON(statusCode: 404, body: ["error": "Report not found"], connection: connection)
+            }
+        case ("DELETE", _):
+            let idStr = String(path.dropFirst("/api/reports/".count))
+            if let id = Int(idStr), let idx = reports.firstIndex(where: { $0.id == id }) {
+                reports.remove(at: idx)
+                sendJSON(statusCode: 200, body: ["deleted": "\(id)"], connection: connection)
+            } else {
+                sendJSON(statusCode: 404, body: ["error": "Report not found"], connection: connection)
+            }
+        default:
+            sendJSON(statusCode: 404, body: ["error": "Not Found"], connection: connection)
+        }
+    }
+
+    // MARK: - Presentations Routes
+
+    private func routePresentations(method: String, path: String, body: Data?, connection: NWConnection) {
+        switch (method, path) {
+        case ("GET", "/api/presentations"):
+            let items = presentations.map { $0.toDict() }
+            sendJSONArray(statusCode: 200, body: items, connection: connection)
+        case ("GET", _):
+            let idStr = String(path.dropFirst("/api/presentations/".count))
+            if let id = Int(idStr), let item = presentations.first(where: { $0.id == id }) {
+                sendJSONDict(statusCode: 200, body: item.toDict(), connection: connection)
+            } else {
+                sendJSON(statusCode: 404, body: ["error": "Presentation not found"], connection: connection)
+            }
+        case ("POST", "/api/presentations"):
+            if let body, let dict = try? JSONSerialization.jsonObject(with: body) as? [String: Any] {
+                let item = DemoPresentation(
+                    id: nextPresentationId,
+                    title: dict["title"] as? String ?? "Untitled Slide",
+                    content: dict["content"] as? String ?? ""
+                )
+                nextPresentationId += 1
+                presentations.append(item)
+                sendJSONDict(statusCode: 201, body: item.toDict(), connection: connection)
+            } else {
+                sendJSON(statusCode: 400, body: ["error": "Invalid JSON body"], connection: connection)
+            }
+        case ("PUT", _):
+            let idStr = String(path.dropFirst("/api/presentations/".count))
+            if let id = Int(idStr), let idx = presentations.firstIndex(where: { $0.id == id }), let body, let dict = try? JSONSerialization.jsonObject(with: body) as? [String: Any] {
+                var item = presentations[idx]
+                if let v = dict["title"] as? String { item.title = v }
+                if let v = dict["content"] as? String { item.content = v }
+                presentations[idx] = item
+                sendJSONDict(statusCode: 200, body: item.toDict(), connection: connection)
+            } else {
+                sendJSON(statusCode: 404, body: ["error": "Presentation not found"], connection: connection)
+            }
+        case ("DELETE", _):
+            let idStr = String(path.dropFirst("/api/presentations/".count))
+            if let id = Int(idStr), let idx = presentations.firstIndex(where: { $0.id == id }) {
+                presentations.remove(at: idx)
+                sendJSON(statusCode: 200, body: ["deleted": "\(id)"], connection: connection)
+            } else {
+                sendJSON(statusCode: 404, body: ["error": "Presentation not found"], connection: connection)
+            }
+        default:
+            sendJSON(statusCode: 404, body: ["error": "Not Found"], connection: connection)
+        }
+    }
+
     // MARK: - HTTP Helpers
 
     private func parseHTTPRequest(_ data: Data) -> (method: String, path: String, body: Data?)? {
@@ -1257,6 +1468,62 @@ public struct DemoDocument: Codable, Sendable {
                      data: "JVBERi0xLjQKMSAwIG9iajw8L1R5cGUvQ2F0YWxvZy9QYWdlcyAyIDAgUj4+ZW5kb2JqCjIgMCBvYmo8PC9UeXBlL1BhZ2VzL0tpZHNbMyAwIFJdL0NvdW50IDE+PmVuZG9iagozIDAgb2JqPDwvVHlwZS9QYWdlL01lZGlhQm94WzAgMCA2MTIgNzkyXS9QYXJlbnQgMiAwIFIvUmVzb3VyY2VzPDwvRm9udDw8L0YxIDQgMCBSPj4+Pi9Db250ZW50cyA1IDAgUj4+ZW5kb2JqCjQgMCBvYmo8PC9UeXBlL0ZvbnQvU3VidHlwZS9UeXBlMS9CYXNlRm9udC9IZWx2ZXRpY2E+PmVuZG9iago1IDAgb2JqPDwvTGVuZ3RoIDExNj4+CnN0cmVhbQpCVCAvRjEgMTggVGYgNzIgNzAwIFRkIChRMSBSZXBvcnQpIFRqIDAgLTMwIFRkIC9GMSAxMiBUZiAoUmV2ZW51ZSB1cCAyMyBwZXJjZW50LiBBY3RpdmUgdXNlcnMgcmVhY2hlZCA1MCwwMDAuKSBUaiBFVAplbmRzdHJlYW0KZW5kb2JqCnhyZWYKMCA2CjAwMDAwMDAwMDAgNjU1MzUgZiAKMDAwMDAwMDAwOSAwMDAwMCBuIAowMDAwMDAwMDU4IDAwMDAwIG4gCjAwMDAwMDAxMTUgMDAwMDAgbiAKMDAwMDAwMDI2NiAwMDAwMCBuIAowMDAwMDAwMzQwIDAwMDAwIG4gCnRyYWlsZXI8PC9TaXplIDYvUm9vdCAxIDAgUj4+CnN0YXJ0eHJlZgo1MTYKJSVFT0Y="),
         DemoDocument(id: 2, name: "invoice-1042",
                      data: "JVBERi0xLjQKMSAwIG9iajw8L1R5cGUvQ2F0YWxvZy9QYWdlcyAyIDAgUj4+ZW5kb2JqCjIgMCBvYmo8PC9UeXBlL1BhZ2VzL0tpZHNbMyAwIFJdL0NvdW50IDE+PmVuZG9iagozIDAgb2JqPDwvVHlwZS9QYWdlL01lZGlhQm94WzAgMCA2MTIgNzkyXS9QYXJlbnQgMiAwIFIvUmVzb3VyY2VzPDwvRm9udDw8L0YxIDQgMCBSPj4+Pi9Db250ZW50cyA1IDAgUj4+ZW5kb2JqCjQgMCBvYmo8PC9UeXBlL0ZvbnQvU3VidHlwZS9UeXBlMS9CYXNlRm9udC9IZWx2ZXRpY2E+PmVuZG9iago1IDAgb2JqPDwvTGVuZ3RoIDExNj4+CnN0cmVhbQpCVCAvRjEgMTggVGYgNzIgNzAwIFRkIChJbnZvaWNlIDEwNDIpIFRqIDAgLTMwIFRkIC9GMSAxMiBUZiAoQW1vdW50IGR1ZTogVVNEIDIsNDUwLjAwIOKAlCBQYXltZW50IHRlcm1zOiBOZXQgMzApIFRqIEVUCmVuZHN0cmVhbQplbmRvYmoKeHJlZgowIDYKMDAwMDAwMDAwMCA2NTUzNSBmIAowMDAwMDAwMDA5IDAwMDAwIG4gCjAwMDAwMDAwNTggMDAwMDAgbiAKMDAwMDAwMDExNSAwMDAwMCBuIAowMDAwMDAwMjY2IDAwMDAwIG4gCjAwMDAwMDAzNDAgMDAwMDAgbiAKdHJhaWxlcjw8L1NpemUgNi9Sb290IDEgMCBSPj4Kc3RhcnR4cmVmCjUxNgolJUVPRg=="),
+    ]
+}
+
+// MARK: - Demo Spreadsheet Model (XLSX)
+
+public struct DemoSpreadsheet: Codable, Sendable {
+    public var id: Int
+    public var name: String
+    public var category: String
+    public var quantity: Int
+    public var price: Double
+    public var inStock: Bool
+
+    public func toDict() -> [String: Any] {
+        ["id": id, "name": name, "category": category, "quantity": quantity, "price": price, "inStock": inStock]
+    }
+
+    static let seedData: [DemoSpreadsheet] = [
+        DemoSpreadsheet(id: 1, name: "Wireless Mouse", category: "Electronics", quantity: 150, price: 29.99, inStock: true),
+        DemoSpreadsheet(id: 2, name: "USB-C Cable", category: "Accessories", quantity: 500, price: 12.99, inStock: true),
+        DemoSpreadsheet(id: 3, name: "Mechanical Keyboard", category: "Electronics", quantity: 0, price: 89.99, inStock: false),
+    ]
+}
+
+// MARK: - Demo Report Model (DOCX)
+
+public struct DemoReport: Codable, Sendable {
+    public var id: Int
+    public var title: String
+    public var content: String  // Multi-paragraph text
+
+    public func toDict() -> [String: Any] {
+        ["id": id, "title": title, "content": content]
+    }
+
+    static let seedData: [DemoReport] = [
+        DemoReport(id: 1, title: "Quarterly Review", content: "Q1 2026 Performance Summary\n\nRevenue increased by 23% compared to Q4 2025.\n\nKey highlights:\n- Active users reached 50,000\n- Customer satisfaction score: 4.7/5\n- Three new enterprise contracts signed\n\nLooking ahead, we plan to expand into two new markets."),
+        DemoReport(id: 2, title: "Project Proposal", content: "API2File Integration Platform\n\nObjective: Build a bidirectional sync engine for cloud APIs.\n\nPhase 1: Core sync engine with config-driven adapters.\nPhase 2: Office format support (XLSX, DOCX, PPTX).\nPhase 3: Real-time webhooks and community adapters.\n\nEstimated timeline: 6 months."),
+    ]
+}
+
+// MARK: - Demo Presentation Model (PPTX)
+
+public struct DemoPresentation: Codable, Sendable {
+    public var id: Int
+    public var title: String
+    public var content: String  // Slide body text
+
+    public func toDict() -> [String: Any] {
+        ["id": id, "title": title, "content": content]
+    }
+
+    static let seedData: [DemoPresentation] = [
+        DemoPresentation(id: 1, title: "API2File Overview", content: "Sync cloud API data to local files\nConfig-driven — no code needed\nBidirectional — edit files, push to API"),
+        DemoPresentation(id: 2, title: "Key Features", content: "15+ file formats (CSV, XLSX, DOCX, ICS, VCF...)\nGit auto-commit for version history\nNative macOS integration"),
+        DemoPresentation(id: 3, title: "Roadmap", content: "Phase 1: Core sync engine (DONE)\nPhase 2: Office formats (IN PROGRESS)\nPhase 3: Webhooks and community adapters"),
     ]
 }
 

@@ -664,6 +664,79 @@ final class DemoServerE2ETests: XCTestCase {
         XCTAssertTrue(pdfString?.hasPrefix("%PDF") ?? false, "Decoded data should be a valid PDF")
     }
 
+    // MARK: - Test: Spreadsheets CRUD (Office adapter)
+
+    func testPullSpreadsheetsFromDemoServer() async throws {
+        let client = makeClient()
+        let request = APIRequest(method: .GET, url: "\(baseURL)/api/spreadsheets")
+        let response = try await client.request(request)
+        XCTAssertEqual(response.statusCode, 200)
+
+        let json = try JSONSerialization.jsonObject(with: response.body)
+        guard let spreadsheets = json as? [[String: Any]] else {
+            XCTFail("Expected array of spreadsheets"); return
+        }
+        XCTAssertEqual(spreadsheets.count, 3, "Should have 3 seed spreadsheets")
+
+        let mouse = spreadsheets.first(where: { ($0["name"] as? String) == "Wireless Mouse" })
+        XCTAssertNotNil(mouse)
+        XCTAssertEqual(mouse?["category"] as? String, "Electronics")
+        XCTAssertEqual(mouse?["quantity"] as? Int, 150)
+        XCTAssertEqual(mouse?["price"] as? Double, 29.99)
+        XCTAssertEqual(mouse?["inStock"] as? Bool, true)
+
+        let keyboard = spreadsheets.first(where: { ($0["name"] as? String) == "Mechanical Keyboard" })
+        XCTAssertNotNil(keyboard)
+        XCTAssertEqual(keyboard?["inStock"] as? Bool, false)
+        XCTAssertEqual(keyboard?["quantity"] as? Int, 0)
+    }
+
+    // MARK: - Test: Reports CRUD (Office adapter)
+
+    func testPullReportsFromDemoServer() async throws {
+        let client = makeClient()
+        let request = APIRequest(method: .GET, url: "\(baseURL)/api/reports")
+        let response = try await client.request(request)
+        XCTAssertEqual(response.statusCode, 200)
+
+        let json = try JSONSerialization.jsonObject(with: response.body)
+        guard let reports = json as? [[String: Any]] else {
+            XCTFail("Expected array of reports"); return
+        }
+        XCTAssertEqual(reports.count, 2, "Should have 2 seed reports")
+
+        let quarterly = reports.first(where: { ($0["title"] as? String) == "Quarterly Review" })
+        XCTAssertNotNil(quarterly)
+        let content = quarterly?["content"] as? String ?? ""
+        XCTAssertTrue(content.contains("Q1 2026"))
+        XCTAssertTrue(content.contains("Revenue increased"))
+    }
+
+    // MARK: - Test: Presentations CRUD (Office adapter)
+
+    func testPullPresentationsFromDemoServer() async throws {
+        let client = makeClient()
+        let request = APIRequest(method: .GET, url: "\(baseURL)/api/presentations")
+        let response = try await client.request(request)
+        XCTAssertEqual(response.statusCode, 200)
+
+        let json = try JSONSerialization.jsonObject(with: response.body)
+        guard let presentations = json as? [[String: Any]] else {
+            XCTFail("Expected array of presentations"); return
+        }
+        XCTAssertEqual(presentations.count, 3, "Should have 3 seed presentations")
+
+        let overview = presentations.first(where: { ($0["title"] as? String) == "API2File Overview" })
+        XCTAssertNotNil(overview)
+        let content = overview?["content"] as? String ?? ""
+        XCTAssertTrue(content.contains("Sync cloud API data"))
+
+        let roadmap = presentations.first(where: { ($0["title"] as? String) == "Roadmap" })
+        XCTAssertNotNil(roadmap)
+        let roadmapContent = roadmap?["content"] as? String ?? ""
+        XCTAssertTrue(roadmapContent.contains("Phase 1"))
+    }
+
     // MARK: - Test: Server reset
 
     func testServerReset() async throws {

@@ -15,21 +15,35 @@
   body { font-family: -apple-system, BlinkMacSystemFont, 'SF Pro', system-ui, sans-serif; background: var(--bg); color: var(--text); line-height: 1.5; }
 
   /* Header */
-  header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 16px 24px; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 10; }
+  header { background: linear-gradient(135deg, var(--surface) 0%, #1a2233 50%, var(--surface) 100%); border-bottom: 1px solid var(--border); padding: 16px 24px; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 10; }
   header h1 { font-size: 20px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
   header h1 .icon { font-size: 24px; }
+  .header-right { display: flex; align-items: center; gap: 12px; }
   .status-badge { display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 500; }
   .status-badge.online { background: rgba(63,185,80,0.15); color: var(--green); }
+  .status-badge.error { background: rgba(248,81,73,0.15); color: var(--red); }
   .status-badge .dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; animation: pulse 2s infinite; }
+  .status-badge.error .dot { animation: none; }
   @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
+
+  /* Sync spinner */
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .sync-spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; vertical-align: middle; margin-right: 4px; }
+  .sync-indicator { font-size: 12px; color: var(--text2); display: flex; align-items: center; gap: 4px; }
+
+  /* Search */
+  .search-box { padding: 8px 14px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font-size: 13px; font-family: inherit; width: 260px; transition: border-color 0.2s, width 0.3s; }
+  .search-box:focus { outline: none; border-color: var(--accent); width: 320px; }
+  .search-box::placeholder { color: var(--text2); }
 
   /* Layout */
   .container { max-width: 1200px; margin: 0 auto; padding: 24px; }
   .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 16px; margin-bottom: 24px; }
 
   /* Cards */
-  .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; transition: border-color 0.2s; }
-  .card:hover { border-color: var(--accent); }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; transition: border-color 0.2s, transform 0.2s, box-shadow 0.2s; }
+  .card:hover { border-color: var(--accent); transform: translateY(-2px); box-shadow: 0 4px 20px rgba(0,0,0,0.3); }
+  .card.hidden { display: none; }
   .card-header { padding: 16px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border); }
   .card-header h2 { font-size: 15px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
   .card-header .format-tag { padding: 2px 8px; border-radius: 6px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
@@ -52,14 +66,23 @@
   .pill-true { background: rgba(63,185,80,0.15); color: var(--green); }
   .pill-false { background: rgba(248,81,73,0.15); color: var(--red); }
   .media-thumb { width: 32px; height: 32px; border-radius: 4px; border: 1px solid var(--border); object-fit: cover; vertical-align: middle; }
-  .card-body { padding: 0; max-height: 320px; overflow-y: auto; }
+  .card-body { padding: 0; max-height: 320px; overflow-y: auto; overflow-x: auto; -webkit-overflow-scrolling: touch; }
   .card-footer { padding: 12px 16px; border-top: 1px solid var(--border); display: flex; gap: 8px; }
 
   /* Tables */
-  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 300px; }
   th { text-align: left; padding: 8px 16px; color: var(--text2); font-weight: 500; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; background: rgba(0,0,0,0.2); position: sticky; top: 0; }
-  td { padding: 8px 16px; border-top: 1px solid var(--border); }
-  tr:hover td { background: rgba(88,166,255,0.04); }
+  td { padding: 8px 16px; border-top: 1px solid var(--border); transition: background 0.15s; }
+  tr:hover td { background: rgba(88,166,255,0.06); }
+  tr.no-match { display: none; }
+
+  /* Inline editing */
+  td.editable { cursor: pointer; position: relative; }
+  td.editable:hover { background: rgba(88,166,255,0.08); }
+  td.editable:hover::after { content: ''; position: absolute; right: 6px; top: 50%; transform: translateY(-50%); font-size: 10px; color: var(--text2); }
+  .inline-input { width: 100%; padding: 4px 8px; border-radius: 4px; border: 1px solid var(--accent); background: var(--bg); color: var(--text); font-size: 13px; font-family: inherit; outline: none; }
+  @keyframes flashGreen { 0% { background: rgba(63,185,80,0.25); } 100% { background: transparent; } }
+  td.save-flash { animation: flashGreen 0.8s ease-out; }
 
   /* Status pills */
   .pill { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 500; }
@@ -83,6 +106,8 @@
   .btn-danger { color: var(--red); }
   .btn-danger:hover { border-color: var(--red); background: rgba(248,81,73,0.1); }
   .btn-sm { padding: 3px 8px; font-size: 11px; }
+  .btn-preview { color: var(--purple); }
+  .btn-preview:hover { border-color: var(--purple); background: rgba(188,140,255,0.1); }
 
   /* Config card */
   .config-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--border); }
@@ -95,22 +120,26 @@
   .file-hint code { background: rgba(0,0,0,0.3); padding: 1px 6px; border-radius: 4px; font-family: 'SF Mono', monospace; font-size: 11px; }
 
   /* Modal */
-  .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 100; align-items: center; justify-content: center; }
+  .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); backdrop-filter: blur(4px); z-index: 100; align-items: center; justify-content: center; }
   .modal-overlay.active { display: flex; }
-  .modal { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); width: 420px; max-width: 90vw; }
-  .modal-header { padding: 16px; border-bottom: 1px solid var(--border); font-weight: 600; display: flex; justify-content: space-between; align-items: center; }
-  .modal-body { padding: 16px; }
-  .modal-footer { padding: 12px 16px; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 8px; }
-  .form-group { margin-bottom: 12px; }
-  .form-group label { display: block; font-size: 12px; color: var(--text2); margin-bottom: 4px; }
-  .form-group input, .form-group textarea, .form-group select { width: 100%; padding: 8px 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font-size: 13px; font-family: inherit; }
-  .form-group textarea { resize: vertical; min-height: 80px; }
-  .form-group input:focus, .form-group textarea:focus { outline: none; border-color: var(--accent); }
+  .modal { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); width: 480px; max-width: 90vw; max-height: 90vh; overflow-y: auto; }
+  .modal-header { padding: 20px 24px 16px; border-bottom: 1px solid var(--border); font-weight: 600; display: flex; justify-content: space-between; align-items: center; }
+  .modal-body { padding: 20px 24px; }
+  .modal-footer { padding: 16px 24px; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 8px; }
+  .form-group { margin-bottom: 16px; }
+  .form-group label { display: block; font-size: 12px; color: var(--text2); margin-bottom: 6px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.3px; }
+  .form-group input, .form-group textarea, .form-group select { width: 100%; padding: 10px 14px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font-size: 13px; font-family: inherit; transition: border-color 0.2s; }
+  .form-group textarea { resize: vertical; min-height: 100px; }
+  .form-group input:focus, .form-group textarea:focus, .form-group select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(88,166,255,0.15); }
 
   /* Markdown preview */
-  .md-preview { font-size: 13px; padding: 12px 16px; white-space: pre-wrap; font-family: inherit; }
+  .md-preview { font-size: 13px; padding: 12px 16px; white-space: pre-wrap; font-family: inherit; border-top: 1px solid var(--border); background: rgba(0,0,0,0.15); }
   .md-preview h1 { font-size: 16px; margin: 8px 0 4px; }
   .md-preview h2 { font-size: 14px; margin: 8px 0 4px; color: var(--text2); }
+  .md-preview-label { font-size: 11px; color: var(--text2); padding: 8px 16px 0; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 500; }
+
+  /* Page preview iframe */
+  .page-preview-frame { width: 100%; height: 200px; border: none; border-top: 1px solid var(--border); background: #fff; border-radius: 0 0 var(--radius) var(--radius); }
 
   /* Toast */
   .toast { position: fixed; bottom: 24px; right: 24px; padding: 12px 20px; border-radius: 8px; font-size: 13px; z-index: 200; animation: slideIn 0.3s ease; }
@@ -119,20 +148,42 @@
   @keyframes slideIn { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
 
   /* Sync banner */
-  .sync-banner { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 24px; margin-bottom: 24px; display: flex; align-items: center; justify-content: space-between; }
-  .sync-info { display: flex; align-items: center; gap: 16px; }
+  .sync-banner { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 24px; margin-bottom: 24px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+  .sync-info { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
   .sync-info .label { font-size: 13px; color: var(--text2); }
   .sync-info .value { font-size: 13px; font-weight: 500; font-family: 'SF Mono', monospace; }
 
+  /* Keyboard shortcut hints */
+  .kbd { display: inline-block; padding: 1px 5px; border-radius: 3px; border: 1px solid var(--border); background: rgba(0,0,0,0.3); font-family: 'SF Mono', monospace; font-size: 10px; color: var(--text2); margin-left: 4px; }
+
   /* Responsive */
-  @media (max-width: 768px) { .grid { grid-template-columns: 1fr; } .config-grid { grid-template-columns: 1fr; } }
+  @media (max-width: 768px) {
+    .grid { grid-template-columns: 1fr; }
+    .config-grid { grid-template-columns: 1fr; }
+    .modal { width: 100%; max-width: 100vw; border-radius: 12px 12px 0 0; margin-top: auto; }
+    .modal-overlay.active { align-items: flex-end; }
+    .search-box { width: 160px; }
+    .search-box:focus { width: 200px; }
+    .sync-banner { flex-direction: column; align-items: flex-start; }
+    .sync-info { flex-direction: column; gap: 8px; }
+    header { padding: 12px 16px; flex-wrap: wrap; gap: 8px; }
+    .header-right { flex-wrap: wrap; }
+    .card-body { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    table { min-width: 400px; }
+  }
 </style>
 </head>
 <body>
 
 <header>
   <h1><span class="icon">&#9729;</span> API2File <span style="color:var(--text2);font-weight:400;font-size:14px">Demo Dashboard</span></h1>
-  <span class="status-badge online"><span class="dot"></span> Server Running</span>
+  <div class="header-right">
+    <input type="text" class="search-box" id="search-input" placeholder="Search all cards... (&#47;)" autocomplete="off">
+    <div class="sync-indicator" id="sync-indicator">
+      <span id="sync-status-text">Ready</span>
+    </div>
+    <span class="status-badge online" id="connection-badge"><span class="dot"></span> Server Running</span>
+  </div>
 </header>
 
 <div class="container">
@@ -140,17 +191,17 @@
     <div class="sync-info">
       <div><span class="label">Sync folder</span><br><span class="value">~/API2File/demo/</span></div>
       <div><span class="label">Resources</span><br><span class="value" id="resource-count">6</span></div>
-      <div><span class="label">Last refresh</span><br><span class="value" id="last-refresh">—</span></div>
+      <div><span class="label">Last synced</span><br><span class="value" id="last-refresh">—</span></div>
     </div>
-    <div style="display:flex;gap:8px">
-      <button class="btn" onclick="refreshAll()">&#8635; Refresh</button>
-      <button class="btn btn-primary" onclick="showAddModal('task')">+ Add</button>
+    <div style="display:flex;gap:8px;align-items:center">
+      <button class="btn" onclick="refreshAll()" title="Refresh (R)">&#8635; Refresh <span class="kbd">R</span></button>
+      <button class="btn btn-primary" onclick="showAddModal('task')" title="Add (N)">+ Add <span class="kbd">N</span></button>
     </div>
   </div>
 
-  <div class="grid">
+  <div class="grid" id="cards-grid">
     <!-- Tasks -->
-    <div class="card" id="tasks-card">
+    <div class="card" id="tasks-card" data-card-type="task">
       <div class="card-header">
         <h2>&#9745; Tasks</h2>
         <span class="format-tag format-csv">CSV</span>
@@ -161,7 +212,7 @@
     </div>
 
     <!-- Contacts -->
-    <div class="card" id="contacts-card">
+    <div class="card" id="contacts-card" data-card-type="contact">
       <div class="card-header">
         <h2>&#128101; Contacts</h2>
         <span class="format-tag format-vcf">VCF</span>
@@ -172,7 +223,7 @@
     </div>
 
     <!-- Events -->
-    <div class="card" id="events-card">
+    <div class="card" id="events-card" data-card-type="event">
       <div class="card-header">
         <h2>&#128197; Events</h2>
         <span class="format-tag format-ics">ICS</span>
@@ -183,24 +234,26 @@
     </div>
 
     <!-- Notes -->
-    <div class="card" id="notes-card">
+    <div class="card" id="notes-card" data-card-type="note">
       <div class="card-header">
         <h2>&#128221; Notes</h2>
         <span class="format-tag format-md">MD</span>
       </div>
       <div class="file-hint">&#128196; <code>notes/*.md</code> &mdash; Opens in any editor</div>
-      <div class="card-body"><table><thead><tr><th>Title</th><th>Preview</th><th></th></tr></thead><tbody id="notes-tbody"></tbody></table></div>
+      <div class="card-body"><table><thead><tr><th>Name</th><th>Preview</th><th></th></tr></thead><tbody id="notes-tbody"></tbody></table></div>
+      <div id="notes-preview-area"></div>
       <div class="card-footer"><button class="btn btn-sm" onclick="showAddModal('note')">+ Add Note</button></div>
     </div>
 
     <!-- Pages -->
-    <div class="card" id="pages-card">
+    <div class="card" id="pages-card" data-card-type="page">
       <div class="card-header">
         <h2>&#127760; Pages</h2>
         <span class="format-tag format-html">HTML</span>
       </div>
       <div class="file-hint">&#128196; <code>pages/*.html</code> &mdash; Opens in Safari</div>
       <div class="card-body"><table><thead><tr><th>Title</th><th>Slug</th><th>Preview</th><th></th></tr></thead><tbody id="pages-tbody"></tbody></table></div>
+      <div id="pages-preview-area"></div>
       <div class="card-footer"><button class="btn btn-sm" onclick="showAddModal('page')">+ Add Page</button></div>
     </div>
 
@@ -300,7 +353,7 @@
 <!-- Modal -->
 <div class="modal-overlay" id="modal-overlay" onclick="if(event.target===this)closeModal()">
   <div class="modal">
-    <div class="modal-header"><span id="modal-title">Add Item</span><button class="btn btn-sm" onclick="closeModal()">&times;</button></div>
+    <div class="modal-header"><span id="modal-title">Add Item</span><button class="btn btn-sm" onclick="closeModal()" title="Close (Esc)">&times;</button></div>
     <div class="modal-body" id="modal-body"></div>
     <div class="modal-footer" id="modal-footer"></div>
   </div>
@@ -313,10 +366,14 @@ const API = '';
 let tasks = [], contacts = [], events = [], notes = [], pages = [], config = {};
 let services = [], incidents = [], logos = [], photos = [], documents = [];
 let spreadsheets = [], reports = [], presentations = [];
+let isFetching = false;
+let connectionOk = true;
+let focusedCardType = null;
 
 // Fetch helpers
 async function fetchJSON(path) {
   const r = await fetch(API + path);
+  if (!r.ok) throw new Error('HTTP ' + r.status);
   return r.json();
 }
 async function postJSON(path, data) {
@@ -349,34 +406,132 @@ function truncate(s, n) { return s && s.length > n ? s.substring(0, n) + '...' :
 function shortDate(s) { if (!s) return ''; try { return new Date(s).toLocaleDateString('en-US', {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}); } catch { return s; } }
 function escHtml(s) { const d=document.createElement('div'); d.textContent=s; return d.innerHTML; }
 
-// Render functions
+// --- Sync status indicator ---
+function setSyncStatus(state) {
+  const el = document.getElementById('sync-status-text');
+  const badge = document.getElementById('connection-badge');
+  if (state === 'fetching') {
+    el.innerHTML = '<span class="sync-spinner"></span> Syncing...';
+    isFetching = true;
+  } else if (state === 'done') {
+    el.textContent = 'Synced ' + new Date().toLocaleTimeString();
+    isFetching = false;
+    connectionOk = true;
+    badge.className = 'status-badge online';
+    badge.innerHTML = '<span class="dot"></span> Server Running';
+  } else if (state === 'error') {
+    el.textContent = 'Connection error';
+    el.style.color = 'var(--red)';
+    isFetching = false;
+    connectionOk = false;
+    badge.className = 'status-badge error';
+    badge.innerHTML = '<span class="dot"></span> Disconnected';
+    setTimeout(() => { el.style.color = ''; }, 3000);
+  }
+}
+
+// --- Inline editing ---
+function makeEditable(value, resource, id, field, isPill) {
+  const displayValue = isPill ? pill(value) : escHtml(value || '');
+  return '<td class="editable" data-resource="' + resource + '" data-id="' + id + '" data-field="' + field + '" data-value="' + escHtml(value || '') + '" onclick="startInlineEdit(this)">' + displayValue + '</td>';
+}
+
+function startInlineEdit(td) {
+  if (td.querySelector('.inline-input')) return;
+  const oldValue = td.getAttribute('data-value');
+  const resource = td.getAttribute('data-resource');
+  const id = td.getAttribute('data-id');
+  const field = td.getAttribute('data-field');
+  td.innerHTML = '<input class="inline-input" type="text" value="' + escHtml(oldValue) + '">';
+  const input = td.querySelector('.inline-input');
+  input.focus();
+  input.select();
+  input.addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
+    if (e.key === 'Escape') { e.preventDefault(); cancelInlineEdit(td, oldValue, resource, field); }
+  });
+  input.addEventListener('blur', function() {
+    finishInlineEdit(td, input.value, oldValue, resource, id, field);
+  });
+}
+
+function cancelInlineEdit(td, oldValue, resource, field) {
+  const isPillField = ['status','priority'].includes(field);
+  td.innerHTML = isPillField ? pill(oldValue) : escHtml(oldValue || '');
+}
+
+async function finishInlineEdit(td, newValue, oldValue, resource, id, field) {
+  if (newValue === oldValue) {
+    cancelInlineEdit(td, oldValue, resource, field);
+    return;
+  }
+  try {
+    const data = {};
+    data[field] = newValue;
+    await putJSON('/api/' + resource + '/' + id, data);
+    td.setAttribute('data-value', newValue);
+    const isPillField = ['status','priority'].includes(field);
+    td.innerHTML = isPillField ? pill(newValue) : escHtml(newValue || '');
+    td.classList.add('save-flash');
+    setTimeout(() => td.classList.remove('save-flash'), 800);
+    // Refresh data silently
+    refreshAll(true);
+  } catch(e) {
+    toast('Save failed: ' + e.message, 'error');
+    cancelInlineEdit(td, oldValue, resource, field);
+  }
+}
+
+// --- Simple Markdown renderer ---
+function renderMarkdown(md) {
+  if (!md) return '';
+  let html = escHtml(md);
+  // Headers
+  html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
+  html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
+  html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
+  // Bold and italic
+  html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
+  // Lists
+  html = html.replace(/^- (.+)$/gm, '<li>$1</li>');
+  // Line breaks
+  html = html.replace(/\n/g, '<br>');
+  return html;
+}
+
+// --- Render functions ---
 function renderTasks() {
   document.getElementById('tasks-tbody').innerHTML = tasks.map(t =>
-    '<tr><td>' + escHtml(t.name) + '</td><td>' + pill(t.status) + '</td><td>' + pill(t.priority) + '</td><td>' + escHtml(t.assignee) + '</td><td><button class="btn btn-sm btn-danger" onclick="deleteItem(\'tasks\',' + t.id + ')">&#128465;</button></td></tr>'
+    '<tr>' + makeEditable(t.name, 'tasks', t.id, 'name', false) + '<td>' + pill(t.status) + '</td><td>' + pill(t.priority) + '</td>' + makeEditable(t.assignee, 'tasks', t.id, 'assignee', false) + '<td><button class="btn btn-sm btn-danger" onclick="deleteItem(\'tasks\',' + t.id + ')">&#128465;</button></td></tr>'
   ).join('');
 }
 
 function renderContacts() {
   document.getElementById('contacts-tbody').innerHTML = contacts.map(c =>
-    '<tr><td>' + escHtml(c.firstName + ' ' + c.lastName) + '</td><td>' + escHtml(c.email) + '</td><td>' + escHtml(c.company) + '</td><td><button class="btn btn-sm btn-danger" onclick="deleteItem(\'contacts\',' + c.id + ')">&#128465;</button></td></tr>'
+    '<tr>' + makeEditable(c.firstName + ' ' + c.lastName, 'contacts', c.id, 'firstName', false) + makeEditable(c.email, 'contacts', c.id, 'email', false) + makeEditable(c.company, 'contacts', c.id, 'company', false) + '<td><button class="btn btn-sm btn-danger" onclick="deleteItem(\'contacts\',' + c.id + ')">&#128465;</button></td></tr>'
   ).join('');
 }
 
 function renderEvents() {
   document.getElementById('events-tbody').innerHTML = events.map(e =>
-    '<tr><td>' + escHtml(e.title) + '</td><td>' + shortDate(e.startDate) + '</td><td>' + escHtml(e.location) + '</td><td>' + pill(e.status) + '</td><td><button class="btn btn-sm btn-danger" onclick="deleteItem(\'events\',' + e.id + ')">&#128465;</button></td></tr>'
+    '<tr>' + makeEditable(e.title, 'events', e.id, 'title', false) + '<td>' + shortDate(e.startDate) + '</td>' + makeEditable(e.location, 'events', e.id, 'location', false) + '<td>' + pill(e.status) + '</td><td><button class="btn btn-sm btn-danger" onclick="deleteItem(\'events\',' + e.id + ')">&#128465;</button></td></tr>'
   ).join('');
 }
 
 function renderNotes() {
   document.getElementById('notes-tbody').innerHTML = notes.map(n =>
-    '<tr><td>' + escHtml(n.title) + '</td><td style="color:var(--text2)">' + escHtml(truncate(n.content, 50)) + '</td><td><button class="btn btn-sm btn-danger" onclick="deleteItem(\'notes\',' + n.id + ')">&#128465;</button></td></tr>'
+    '<tr>' + makeEditable(n.title, 'notes', n.id, 'title', false) + '<td style="color:var(--text2)">' + escHtml(truncate(n.content, 50)) + '</td><td><button class="btn btn-sm btn-preview" onclick="previewNote(' + n.id + ')" title="Preview Markdown">&#128065;</button> <button class="btn btn-sm btn-danger" onclick="deleteItem(\'notes\',' + n.id + ')">&#128465;</button></td></tr>'
   ).join('');
+  // Show preview for first note by default if any exist
+  if (notes.length > 0 && !document.getElementById('notes-preview-area').innerHTML) {
+    previewNote(notes[0].id);
+  }
 }
 
 function renderPages() {
   document.getElementById('pages-tbody').innerHTML = pages.map(p =>
-    '<tr><td>' + escHtml(p.title) + '</td><td><code>' + escHtml(p.slug) + '</code></td><td style="color:var(--text2)">' + escHtml(truncate(p.content.replace(/<[^>]*>/g,''), 40)) + '</td><td><button class="btn btn-sm btn-danger" onclick="deleteItem(\'pages\',' + p.id + ')">&#128465;</button></td></tr>'
+    '<tr>' + makeEditable(p.title, 'pages', p.id, 'title', false) + '<td><code>' + escHtml(p.slug) + '</code></td><td style="color:var(--text2)">' + escHtml(truncate(p.content.replace(/<[^>]*>/g,''), 40)) + '</td><td><button class="btn btn-sm btn-preview" onclick="previewPage(' + p.id + ')" title="Preview HTML">&#128065;</button> <button class="btn btn-sm btn-danger" onclick="deleteItem(\'pages\',' + p.id + ')">&#128465;</button></td></tr>'
   ).join('');
 }
 
@@ -422,24 +577,94 @@ function renderDocuments() {
 
 function renderSpreadsheets() {
   document.getElementById('spreadsheets-tbody').innerHTML = spreadsheets.map(s =>
-    '<tr><td>' + escHtml(s.name) + '</td><td>' + escHtml(s.category) + '</td><td>' + s.quantity + '</td><td>$' + (s.price||0).toFixed(2) + '</td><td>' + pill(String(s.inStock)) + '</td></tr>'
+    '<tr>' + makeEditable(s.name, 'spreadsheets', s.id, 'name', false) + makeEditable(s.category, 'spreadsheets', s.id, 'category', false) + '<td>' + s.quantity + '</td><td>$' + (s.price||0).toFixed(2) + '</td><td>' + pill(String(s.inStock)) + '</td></tr>'
   ).join('');
 }
 
 function renderReports() {
   document.getElementById('reports-tbody').innerHTML = reports.map(r =>
-    '<tr><td>' + escHtml(r.title) + '</td><td style="color:var(--text2)">' + escHtml(truncate(r.content, 60)) + '</td></tr>'
+    '<tr>' + makeEditable(r.title, 'reports', r.id, 'title', false) + '<td style="color:var(--text2)">' + escHtml(truncate(r.content, 60)) + '</td></tr>'
   ).join('');
 }
 
 function renderPresentations() {
   document.getElementById('presentations-tbody').innerHTML = presentations.map(p =>
-    '<tr><td>' + escHtml(p.title) + '</td><td style="color:var(--text2)">' + escHtml(truncate(p.content, 60)) + '</td></tr>'
+    '<tr>' + makeEditable(p.title, 'presentations', p.id, 'title', false) + '<td style="color:var(--text2)">' + escHtml(truncate(p.content, 60)) + '</td></tr>'
   ).join('');
 }
 
-// Refresh all
-async function refreshAll() {
+// --- File preview: Notes (Markdown) ---
+function previewNote(id) {
+  const note = notes.find(n => n.id === id);
+  if (!note) return;
+  const area = document.getElementById('notes-preview-area');
+  area.innerHTML = '<div class="md-preview-label">Preview: ' + escHtml(note.title) + '</div><div class="md-preview">' + renderMarkdown(note.content) + '</div>';
+}
+
+// --- File preview: Pages (HTML iframe) ---
+function previewPage(id) {
+  const page = pages.find(p => p.id === id);
+  if (!page) return;
+  const area = document.getElementById('pages-preview-area');
+  const existing = area.querySelector('iframe');
+  if (existing && existing.getAttribute('data-page-id') == id) {
+    area.innerHTML = '';
+    return;
+  }
+  area.innerHTML = '<div class="md-preview-label">Preview: ' + escHtml(page.title) + '</div><iframe class="page-preview-frame" data-page-id="' + id + '" sandbox="allow-same-origin"></iframe>';
+  const iframe = area.querySelector('iframe');
+  const doc = iframe.contentDocument;
+  doc.open();
+  doc.write(page.content);
+  doc.close();
+}
+
+// --- Search / Filter ---
+function applySearch() {
+  const query = document.getElementById('search-input').value.toLowerCase().trim();
+  const cards = document.querySelectorAll('#cards-grid .card');
+  cards.forEach(card => {
+    if (!query) {
+      card.classList.remove('hidden');
+      card.querySelectorAll('tr.no-match').forEach(r => r.classList.remove('no-match'));
+      return;
+    }
+    // Check card header text
+    const headerText = card.querySelector('.card-header h2')?.textContent?.toLowerCase() || '';
+    const rows = card.querySelectorAll('tbody tr');
+    let anyRowMatch = false;
+    rows.forEach(row => {
+      const text = row.textContent.toLowerCase();
+      if (text.includes(query)) {
+        row.classList.remove('no-match');
+        anyRowMatch = true;
+      } else {
+        row.classList.add('no-match');
+      }
+    });
+    // For config card, check config-grid text
+    const configGrid = card.querySelector('.config-grid');
+    if (configGrid) {
+      const configText = configGrid.textContent.toLowerCase();
+      if (configText.includes(query) || headerText.includes(query)) {
+        card.classList.remove('hidden');
+        return;
+      }
+    }
+    if (anyRowMatch || headerText.includes(query)) {
+      card.classList.remove('hidden');
+    } else {
+      card.classList.add('hidden');
+    }
+  });
+}
+
+document.getElementById('search-input').addEventListener('input', applySearch);
+
+// --- Refresh all ---
+async function refreshAll(silent) {
+  if (isFetching) return;
+  setSyncStatus('fetching');
   try {
     [tasks, contacts, events, notes, pages, config, services, incidents, logos, photos, documents, spreadsheets, reports, presentations] = await Promise.all([
       fetchJSON('/api/tasks'), fetchJSON('/api/contacts'), fetchJSON('/api/events'),
@@ -453,7 +678,12 @@ async function refreshAll() {
     renderSpreadsheets(); renderReports(); renderPresentations();
     document.getElementById('resource-count').textContent = '14';
     document.getElementById('last-refresh').textContent = new Date().toLocaleTimeString();
-  } catch(e) { toast('Failed to refresh: ' + e.message, 'error'); }
+    setSyncStatus('done');
+    applySearch();
+  } catch(e) {
+    setSyncStatus('error');
+    if (!silent) toast('Failed to refresh: ' + e.message, 'error');
+  }
 }
 
 // Delete
@@ -508,6 +738,7 @@ function showAddModal(type) {
   };
 
   const form = forms[type];
+  if (!form) return;
   title.textContent = form.title;
   body.innerHTML = form.fields.map(f => {
     if (f.type === 'select') {
@@ -563,6 +794,49 @@ async function submitConfig() {
   toast('Config saved!');
   refreshAll();
 }
+
+// --- Keyboard shortcuts ---
+function getFocusedCardType() {
+  // Determine focused card by what's most visible or last interacted
+  const cards = document.querySelectorAll('#cards-grid .card[data-card-type]');
+  for (const card of cards) {
+    const rect = card.getBoundingClientRect();
+    if (rect.top >= 0 && rect.top < window.innerHeight * 0.6) {
+      return card.getAttribute('data-card-type');
+    }
+  }
+  return 'task';
+}
+
+document.addEventListener('keydown', function(e) {
+  // Ignore if typing in an input/textarea/select
+  const tag = e.target.tagName;
+  const isInput = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+  const modalOpen = document.getElementById('modal-overlay').classList.contains('active');
+
+  if (e.key === 'Escape') {
+    if (modalOpen) { closeModal(); e.preventDefault(); }
+    return;
+  }
+
+  if (isInput) return;
+
+  if (e.key === 'r' || e.key === 'R') {
+    e.preventDefault();
+    refreshAll();
+  }
+
+  if (e.key === 'n' || e.key === 'N') {
+    e.preventDefault();
+    const type = getFocusedCardType();
+    showAddModal(type);
+  }
+
+  if (e.key === '/') {
+    e.preventDefault();
+    document.getElementById('search-input').focus();
+  }
+});
 
 // Auto-refresh every 10s
 refreshAll();

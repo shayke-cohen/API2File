@@ -300,8 +300,8 @@ public enum XLSXFormat: FormatConverter {
         }
         let rowMatches = rowRegex.matches(in: xml, range: NSRange(location: 0, length: nsXML.length))
 
-        // Cell pattern: <c r="..." t="s"><v>...</v></c> or <c r="..."><v>...</v></c>
-        let cellPattern = "<c[^>]*?(?:\\s+t=\"([^\"]*)\")?[^>]*><v>(.*?)</v></c>"
+        // Cell pattern: <c ...><v>...</v></c>
+        let cellPattern = "<c\\s([^>]*)><v>(.*?)</v></c>"
         guard let cellRegex = try? NSRegularExpression(pattern: cellPattern, options: .dotMatchesLineSeparators) else {
             return rows
         }
@@ -313,12 +313,15 @@ public enum XLSXFormat: FormatConverter {
 
             var cells: [String] = []
             for cellMatch in cellMatches {
-                let typeRange = cellMatch.range(at: 1)
+                let attrsRange = cellMatch.range(at: 1)
                 let valueRange = cellMatch.range(at: 2)
+                let attrs = nsRow.substring(with: attrsRange)
                 let value = nsRow.substring(with: valueRange)
-                let type = typeRange.location != NSNotFound ? nsRow.substring(with: typeRange) : ""
 
-                if type == "s", let idx = Int(value), idx < sharedStrings.count {
+                // Check if t="s" attribute is present
+                let isSharedString = attrs.contains("t=\"s\"")
+
+                if isSharedString, let idx = Int(value), idx < sharedStrings.count {
                     cells.append(sharedStrings[idx])
                 } else {
                     cells.append(value)

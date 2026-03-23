@@ -58,11 +58,23 @@ public actor SyncEngine {
             }
         }
 
-        // Start sync coordinator
+        // Initial pull for all services (so files appear immediately)
+        for serviceId in serviceIds {
+            do {
+                try await performPull(serviceId: serviceId)
+                print("[SyncEngine] Initial pull complete for \(serviceId)")
+            } catch {
+                print("[SyncEngine] Initial pull failed for \(serviceId): \(error)")
+            }
+        }
+
+        // Start sync coordinator (periodic polling)
         await coordinator.startAll()
 
         // Generate CLAUDE.md guides
         try generateGuides()
+
+        print("[SyncEngine] Started with \(serviceIds.count) service(s)")
     }
 
     /// Stop the sync engine
@@ -345,5 +357,42 @@ public actor SyncEngine {
 
     public func setPaused(_ paused: Bool) async {
         await coordinator.setPaused(paused)
+    }
+
+    /// Remove a service — stops sync, cleans up .api2file dir, removes keychain credential
+    /// Keeps the user's synced files intact.
+    public func removeService(serviceId: String) async {
+        // Stop sync for this service
+        await coordinator.unregister(serviceId: serviceId)
+
+        // Get config before removing (for keychain key)
+        let keychainKey = serviceInfos[serviceId]?.config.auth.keychainKey
+
+        // Remove from internal state
+        adapterEngines.removeValue(forKey: serviceId)
+        syncStates.removeValue(forKey: serviceId)
+        serviceInfos.removeValue(forKey: serviceId)
+        gitManagers.removeValue(forKey: serviceId)
+
+        // Delete .api2file directory (adapter.json + state.json) but keep synced files
+        let api2fileDir = syncFolder.appendingPathComponent(serviceId).appendingPathComponent(".api2file")
+        try? FileManager.default.removeItem(at: api2fileDir)
+
+        // Remove keychain credential
+        if let key = keychainKey {
+            let keychain = KeychainManager()
+            await keychain.delete(key: key)
+        }
+
+        // Regenerate CLAUDE.md guides
+        try? generateGuides()
+    }
+
+    /// Register and start a new service (for use after AddServiceView creates the directory)
+    public func registerNewService(_ serviceId: String) async throws {
+        try await registerService(serviceId)
+        await coordinator.startService(serviceId: serviceId)
+        try? await performPull(serviceId: serviceId)
+        try? generateGuides()
     }
 }

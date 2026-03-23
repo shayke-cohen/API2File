@@ -28,6 +28,7 @@ final class AppState: ObservableObject {
     private var localServer: LocalServer?
     private var refreshTask: Task<Void, Never>?
     private var engineStarted = false
+    private var addServiceWindow: NSWindow?
 
     init() {
         // Auto-start engine on creation
@@ -95,10 +96,70 @@ final class AppState: ObservableObject {
         }
     }
 
+    func syncService(serviceId: String) {
+        Task {
+            await syncEngine?.triggerSync(serviceId: serviceId)
+            await refreshServices()
+        }
+    }
+
+    func removeService(serviceId: String) {
+        Task {
+            await syncEngine?.removeService(serviceId: serviceId)
+            await refreshServices()
+        }
+    }
+
     func togglePause() {
         isPaused.toggle()
         Task {
             await syncEngine?.setPaused(isPaused)
+        }
+    }
+
+    func openAddServiceWindow() {
+        // If window already exists, just bring it front
+        if let window = addServiceWindow, window.isVisible {
+            window.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+
+        let addServiceView = AddServiceView(onComplete: { [weak self] serviceId in
+            guard let self else { return }
+            Task { @MainActor in
+                // Register the new service with the engine
+                if let serviceId {
+                    try? await self.syncEngine?.registerNewService(serviceId)
+                }
+                await self.refreshServices()
+            }
+        })
+
+        let hostingController = NSHostingController(rootView: addServiceView)
+        let window = NSWindow(contentViewController: hostingController)
+        window.title = "Add Service"
+        window.styleMask = [.titled, .closable]
+        window.setContentSize(NSSize(width: 440, height: 360))
+        window.center()
+        window.isReleasedWhenClosed = false
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+
+        self.addServiceWindow = window
+    }
+
+    func updateAPIKey(serviceId: String, newKey: String) {
+        Task {
+            let keychainKey = "api2file.\(serviceId).key"
+            let keychain = KeychainManager()
+            await keychain.save(key: keychainKey, value: newKey)
+            // Reload the service to pick up the new credential
+            if let engine = syncEngine {
+                await engine.removeService(serviceId: serviceId)
+                try? await engine.registerNewService(serviceId)
+            }
+            await refreshServices()
         }
     }
 

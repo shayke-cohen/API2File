@@ -517,4 +517,100 @@ final class DemoAdapterPipelineTests: XCTestCase {
         let filenames = files.map { $0.lastPathComponent }.sorted()
         XCTAssertEqual(filenames, ["invoice-1042.pdf", "q1-report.pdf"])
     }
+
+    // MARK: - Office: Spreadsheets → XLSX (collection)
+
+    func testPullPipeline_SpreadsheetsToXLSX() async throws {
+        let records = try await fetchRecords(endpoint: "/api/spreadsheets")
+        XCTAssertEqual(records.count, 3, "Should have 3 seed spreadsheets")
+
+        // Encode to XLSX
+        let xlsxData = try XLSXFormat.encode(records: records, options: nil)
+        let xlsxFile = tempDir.appendingPathComponent("inventory.xlsx")
+        try xlsxData.write(to: xlsxFile)
+
+        // Read back and verify XLSX
+        let readData = try Data(contentsOf: xlsxFile)
+        XCTAssertTrue(readData.count > 100, "XLSX file should have substantial size")
+
+        // Decode back and verify round-trip
+        let decoded = try XLSXFormat.decode(data: readData, options: nil)
+        XCTAssertEqual(decoded.count, 3, "Should decode 3 spreadsheet rows")
+
+        // Spot-check fields
+        let mouse = decoded.first(where: { ($0["name"] as? String) == "Wireless Mouse" })
+        XCTAssertNotNil(mouse)
+        XCTAssertEqual(mouse?["category"] as? String, "Electronics")
+
+        let cable = decoded.first(where: { ($0["name"] as? String) == "USB-C Cable" })
+        XCTAssertNotNil(cable)
+        XCTAssertEqual(cable?["category"] as? String, "Accessories")
+    }
+
+    // MARK: - Office: Reports → DOCX (one-per-record)
+
+    func testPullPipeline_ReportsToDOCX() async throws {
+        let records = try await fetchRecords(endpoint: "/api/reports")
+        XCTAssertEqual(records.count, 2, "Should have 2 seed reports")
+
+        let reportsDir = tempDir.appendingPathComponent("reports")
+        try FileManager.default.createDirectory(at: reportsDir, withIntermediateDirectories: true)
+
+        for record in records {
+            let title = (record["title"] as? String ?? "untitled")
+                .lowercased().replacingOccurrences(of: " ", with: "-")
+            let filename = "\(title).docx"
+
+            let docxData = try DOCXFormat.encode(records: [record], options: nil)
+            let docxFile = reportsDir.appendingPathComponent(filename)
+            try docxData.write(to: docxFile)
+
+            // Read back and verify
+            let readData = try Data(contentsOf: docxFile)
+            XCTAssertTrue(readData.count > 100, "DOCX file should have substantial size")
+
+            // Decode back
+            let decoded = try DOCXFormat.decode(data: readData, options: nil)
+            XCTAssertEqual(decoded.count, 1)
+            let content = decoded[0]["content"] as? String ?? ""
+            let originalContent = record["content"] as? String ?? ""
+            // Verify key content survived round-trip
+            let firstLine = originalContent.components(separatedBy: "\n").first ?? ""
+            XCTAssertTrue(content.contains(firstLine), "DOCX round-trip should preserve content")
+        }
+
+        // Verify files exist
+        let files = try FileManager.default.contentsOfDirectory(at: reportsDir, includingPropertiesForKeys: nil)
+        let filenames = files.map { $0.lastPathComponent }.sorted()
+        XCTAssertEqual(filenames, ["project-proposal.docx", "quarterly-review.docx"])
+    }
+
+    // MARK: - Office: Presentations → PPTX (collection)
+
+    func testPullPipeline_PresentationsToPPTX() async throws {
+        let records = try await fetchRecords(endpoint: "/api/presentations")
+        XCTAssertEqual(records.count, 3, "Should have 3 seed presentations")
+
+        // Encode to PPTX
+        let pptxData = try PPTXFormat.encode(records: records, options: nil)
+        let pptxFile = tempDir.appendingPathComponent("deck.pptx")
+        try pptxData.write(to: pptxFile)
+
+        // Read back and verify PPTX
+        let readData = try Data(contentsOf: pptxFile)
+        XCTAssertTrue(readData.count > 100, "PPTX file should have substantial size")
+
+        // Decode back and verify slide count
+        let decoded = try PPTXFormat.decode(data: readData, options: nil)
+        XCTAssertEqual(decoded.count, 3, "Should decode 3 slides")
+
+        // Spot-check slide content
+        let overview = decoded.first(where: { ($0["title"] as? String) == "API2File Overview" })
+        XCTAssertNotNil(overview)
+        let content = overview?["content"] as? String ?? ""
+        XCTAssertTrue(content.contains("Sync cloud API data"))
+
+        let roadmap = decoded.first(where: { ($0["title"] as? String) == "Roadmap" })
+        XCTAssertNotNil(roadmap)
+    }
 }

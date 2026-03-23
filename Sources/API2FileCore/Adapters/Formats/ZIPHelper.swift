@@ -72,11 +72,13 @@ enum ZIPHelper {
 
         // Read all extracted files into dictionary
         var result: [String: Data] = [:]
+        let resolvedOutputDir = outputDir.resolvingSymlinksInPath().path
         let enumerator = FileManager.default.enumerator(at: outputDir, includingPropertiesForKeys: [.isRegularFileKey])
         while let fileURL = enumerator?.nextObject() as? URL {
             let isFile = (try? fileURL.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) ?? false
             guard isFile else { continue }
-            let relativePath = fileURL.path.replacingOccurrences(of: outputDir.path + "/", with: "")
+            let resolvedFile = fileURL.resolvingSymlinksInPath().path
+            let relativePath = resolvedFile.replacingOccurrences(of: resolvedOutputDir + "/", with: "")
             result[relativePath] = try Data(contentsOf: fileURL)
         }
 
