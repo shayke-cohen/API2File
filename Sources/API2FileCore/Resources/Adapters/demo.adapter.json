@@ -1,0 +1,61 @@
+{
+  "service": "demo",
+  "displayName": "Demo Tasks API",
+  "version": "1.0",
+
+  "auth": {
+    "type": "bearer",
+    "keychainKey": "api2file.demo.key",
+    "setup": {
+      "instructions": "No auth needed — this is a local demo server. Set any value."
+    }
+  },
+
+  "globals": {
+    "baseUrl": "http://localhost:8089",
+    "headers": {
+      "Content-Type": "application/json"
+    }
+  },
+
+  "resources": [
+    {
+      "name": "tasks",
+      "description": "Demo task list — a simple todo list for testing API2File",
+
+      "pull": {
+        "method": "GET",
+        "url": "http://localhost:8089/api/tasks",
+        "dataPath": "$"
+      },
+
+      "push": {
+        "create": {
+          "method": "POST",
+          "url": "http://localhost:8089/api/tasks"
+        },
+        "update": {
+          "method": "PUT",
+          "url": "http://localhost:8089/api/tasks/{id}"
+        },
+        "delete": {
+          "method": "DELETE",
+          "url": "http://localhost:8089/api/tasks/{id}"
+        }
+      },
+
+      "fileMapping": {
+        "strategy": "collection",
+        "directory": ".",
+        "filename": "tasks.csv",
+        "format": "csv",
+        "idField": "id"
+      },
+
+      "sync": {
+        "interval": 10,
+        "debounceMs": 500
+      }
+    }
+  ]
+}

@@ -48,6 +48,8 @@ public enum FormatConverterFactory {
         case .yaml: return YAMLFormat.self
         case .text: return TextFormat.self
         case .raw: return RawFormat.self
+        case .ics: return ICSFormat.self
+        case .vcf: return VCFFormat.self
         default:
             throw FormatError.unsupportedFormat(format)
         }

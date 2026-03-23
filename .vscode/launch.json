@@ -1,0 +1,24 @@
+{
+    "configurations": [
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:API2File}",
+            "name": "Debug API2FileApp",
+            "target": "API2FileApp",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug API2FileApp"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:API2File}",
+            "name": "Release API2FileApp",
+            "target": "API2FileApp",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release API2FileApp"
+        }
+    ]
+}

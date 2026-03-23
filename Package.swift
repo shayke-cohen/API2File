@@ -15,6 +15,10 @@ let package = Package(
             name: "API2FileApp",
             targets: ["API2FileApp"]
         ),
+        .executable(
+            name: "api2file-demo",
+            targets: ["API2FileDemo"]
+        ),
     ],
     targets: [
         .target(
@@ -26,6 +30,11 @@ let package = Package(
             name: "API2FileApp",
             dependencies: ["API2FileCore"],
             path: "Sources/API2FileApp"
+        ),
+        .executableTarget(
+            name: "API2FileDemo",
+            dependencies: ["API2FileCore"],
+            path: "Sources/API2FileDemo"
         ),
         .testTarget(
             name: "API2FileCoreTests",
