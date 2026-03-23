@@ -115,21 +115,16 @@ public actor SyncCoordinator {
     }
 
     private func performSync(serviceId: String, context: ServiceSyncContext) async {
-        // Notify sync started
         await context.onSyncStart?()
 
         do {
-            // 1. Process pending pushes first (local changes take priority)
             let pushes = pendingPushes[serviceId] ?? [:]
             for (filePath, _) in pushes {
                 try await context.pushHandler?(filePath)
                 pendingPushes[serviceId]?.removeValue(forKey: filePath)
             }
 
-            // 2. Pull remote changes
             try await context.pullHandler?()
-
-            // Notify sync completed
             await context.onSyncComplete?(nil)
         } catch {
             await context.onSyncComplete?(error)

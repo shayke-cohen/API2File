@@ -8,9 +8,6 @@ struct API2FileApp: App {
     var body: some Scene {
         MenuBarExtra {
             MenuBarView(appState: appState)
-                .onAppear {
-                    appState.startEngine()
-                }
         } label: {
             Image(systemName: appState.menuBarIcon)
         }
@@ -30,6 +27,14 @@ final class AppState: ObservableObject {
     private var syncEngine: SyncEngine?
     private var localServer: LocalServer?
     private var refreshTask: Task<Void, Never>?
+    private var engineStarted = false
+
+    init() {
+        // Auto-start engine on creation
+        Task { @MainActor [weak self] in
+            self?.startEngine()
+        }
+    }
 
     var menuBarIcon: String {
         if isPaused { return "icloud.slash" }
@@ -39,6 +44,9 @@ final class AppState: ObservableObject {
     }
 
     func startEngine() {
+        guard !engineStarted else { return }
+        engineStarted = true
+        print("[API2File] Starting sync engine...")
         let config = GlobalConfig.loadOrDefault(syncFolder: GlobalConfig().resolvedSyncFolder)
         self.config = config
 
@@ -57,7 +65,7 @@ final class AppState: ObservableObject {
                 // Refresh services list
                 await refreshServices()
             } catch {
-                print("API2File: Failed to start sync engine: \(error)")
+                print("[API2File] Failed to start: \(error)")
             }
         }
 

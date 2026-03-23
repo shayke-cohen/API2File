@@ -46,8 +46,13 @@ public actor AdapterEngine {
     public func pullAll() async throws -> [SyncableFile] {
         var allFiles: [SyncableFile] = []
         for resource in config.resources {
-            let files = try await pull(resource: resource)
-            allFiles.append(contentsOf: files)
+            do {
+                let files = try await pull(resource: resource)
+                allFiles.append(contentsOf: files)
+            } catch {
+                print("[AdapterEngine] Failed to pull resource '\(resource.name)': \(error)")
+                // Continue with other resources instead of aborting
+            }
         }
         return allFiles
     }
@@ -169,15 +174,27 @@ public actor AdapterEngine {
 
             let response = try await httpClient.request(request)
 
-            // Parse response JSON
-            guard let json = try JSONSerialization.jsonObject(with: response.body) as? [String: Any] else {
+            // Parse response JSON — handle both objects and arrays
+            let rawJSON = try JSONSerialization.jsonObject(with: response.body)
+            let json: [String: Any]
+            if let dict = rawJSON as? [String: Any] {
+                json = dict
+            } else if let array = rawJSON as? [[String: Any]] {
+                // Wrap array in a dict so JSONPath can extract it with "$"
+                json = ["$root": array]
+            } else {
                 throw AdapterError.invalidResponseData
             }
 
             // Extract records using dataPath
             let extracted: Any?
             if let dataPath = pullConfig.dataPath {
-                extracted = JSONPath.extract(dataPath, from: json)
+                // If we wrapped an array, "$" should return the array
+                if json["$root"] != nil && dataPath == "$" {
+                    extracted = json["$root"]
+                } else {
+                    extracted = JSONPath.extract(dataPath, from: json)
+                }
             } else {
                 extracted = json
             }

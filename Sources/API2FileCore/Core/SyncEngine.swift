@@ -241,7 +241,9 @@ public actor SyncEngine {
         // Skip read-only resources
         if resource.fileMapping.readOnly == true { return }
 
-        // Read file content
+        // Skip if file was deleted or is a directory
+        var isDir: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: fullPath.path, isDirectory: &isDir), !isDir.boolValue else { return }
         let content = try Data(contentsOf: fullPath)
         let file = SyncableFile(
             relativePath: filePath,
@@ -279,9 +281,11 @@ public actor SyncEngine {
             guard let relativeParts = extractServiceAndPath(from: path) else { continue }
             let (serviceId, filePath) = relativeParts
 
-            // Skip internal files
+            // Skip internal and temp files
             if filePath.hasPrefix(".api2file/") || filePath.hasPrefix(".git/") { continue }
             if filePath == "CLAUDE.md" { continue }
+            if filePath.hasPrefix(".") { continue } // .DS_Store, .dat.nosync*, etc.
+            if filePath.contains("~$") { continue } // Office temp files
 
             Task {
                 await coordinator.queuePush(serviceId: serviceId, filePath: filePath)
