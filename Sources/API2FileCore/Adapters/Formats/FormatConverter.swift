@@ -50,6 +50,9 @@ public enum FormatConverterFactory {
         case .raw: return RawFormat.self
         case .ics: return ICSFormat.self
         case .vcf: return VCFFormat.self
+        case .eml: return EMLFormat.self
+        case .svg: return SVGFormat.self
+        case .webloc: return WeblocFormat.self
         default:
             throw FormatError.unsupportedFormat(format)
         }

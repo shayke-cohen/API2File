@@ -2,23 +2,61 @@ import Foundation
 import Network
 
 /// A standalone demo REST API server for testing API2File end-to-end.
-/// Provides a simple "tasks" API with CRUD operations, backed by in-memory storage.
+/// Provides multiple resource APIs with CRUD operations, backed by in-memory storage.
+/// Each resource showcases a different file format.
 /// This is the first "cloud service" you can sync with — no account needed.
 public actor DemoAPIServer {
     private let port: UInt16
     private var listener: NWListener?
+
+    // Resource stores
     private var tasks: [DemoTask] = []
-    private var nextId: Int = 1
+    private var contacts: [DemoContact] = []
+    private var events: [DemoEvent] = []
+    private var notes: [DemoNote] = []
+    private var pages: [DemoPage] = []
+    private var config: DemoConfig = DemoConfig.seed
+
+    // Auto-increment counters
+    private var nextTaskId: Int = 1
+    private var nextContactId: Int = 1
+    private var nextEventId: Int = 1
+    private var nextNoteId: Int = 1
+    private var nextPageId: Int = 1
 
     public init(port: UInt16 = 8089) {
         self.port = port
-        // Seed with sample data
-        self.tasks = [
-            DemoTask(id: 1, name: "Buy groceries", status: "todo", priority: "medium", assignee: "Alice", dueDate: "2026-03-25"),
-            DemoTask(id: 2, name: "Fix login bug", status: "in-progress", priority: "high", assignee: "Bob", dueDate: "2026-03-24"),
-            DemoTask(id: 3, name: "Write docs", status: "done", priority: "low", assignee: "Alice", dueDate: "2026-03-20"),
-        ]
-        self.nextId = 4
+        // Inline seed to avoid actor-isolation issues in init
+        self.tasks = DemoTask.seedData
+        self.nextTaskId = 4
+        self.contacts = DemoContact.seedData
+        self.nextContactId = 3
+        self.events = DemoEvent.seedData
+        self.nextEventId = 4
+        self.notes = DemoNote.seedData
+        self.nextNoteId = 3
+        self.pages = DemoPage.seedData
+        self.nextPageId = 3
+        self.config = DemoConfig.seed
+    }
+
+    private func seedAll() {
+        tasks = DemoTask.seedData
+        nextTaskId = (tasks.map(\.id).max() ?? 0) + 1
+
+        contacts = DemoContact.seedData
+        nextContactId = (contacts.map(\.id).max() ?? 0) + 1
+
+        events = DemoEvent.seedData
+        nextEventId = (events.map(\.id).max() ?? 0) + 1
+
+        notes = DemoNote.seedData
+        nextNoteId = (notes.map(\.id).max() ?? 0) + 1
+
+        pages = DemoPage.seedData
+        nextPageId = (pages.map(\.id).max() ?? 0) + 1
+
+        config = DemoConfig.seed
     }
 
     // MARK: - Lifecycle
@@ -37,11 +75,17 @@ public actor DemoAPIServer {
             if case .ready = state {
                 print("[DemoAPI] Server running on http://localhost:\(self.port)")
                 print("[DemoAPI] Endpoints:")
-                print("[DemoAPI]   GET    /api/tasks       — list all tasks")
-                print("[DemoAPI]   GET    /api/tasks/:id   — get one task")
-                print("[DemoAPI]   POST   /api/tasks       — create task")
-                print("[DemoAPI]   PUT    /api/tasks/:id   — update task")
-                print("[DemoAPI]   DELETE /api/tasks/:id   — delete task")
+                print("[DemoAPI]   GET/POST       /api/tasks         — task list (CSV)")
+                print("[DemoAPI]   GET/PUT/DELETE  /api/tasks/:id")
+                print("[DemoAPI]   GET/POST       /api/contacts      — contacts (VCF)")
+                print("[DemoAPI]   GET/PUT/DELETE  /api/contacts/:id")
+                print("[DemoAPI]   GET/POST       /api/events        — events (ICS)")
+                print("[DemoAPI]   GET/PUT/DELETE  /api/events/:id")
+                print("[DemoAPI]   GET/POST       /api/notes         — notes (Markdown)")
+                print("[DemoAPI]   GET/PUT/DELETE  /api/notes/:id")
+                print("[DemoAPI]   GET/POST       /api/pages         — pages (HTML)")
+                print("[DemoAPI]   GET/PUT/DELETE  /api/pages/:id")
+                print("[DemoAPI]   GET/PUT         /api/config        — settings (JSON)")
             }
         }
 
@@ -59,14 +103,34 @@ public actor DemoAPIServer {
         tasks
     }
 
+    /// Get current contacts (for testing assertions)
+    public func getContacts() -> [DemoContact] {
+        contacts
+    }
+
+    /// Get current events (for testing assertions)
+    public func getEvents() -> [DemoEvent] {
+        events
+    }
+
+    /// Get current notes (for testing assertions)
+    public func getNotes() -> [DemoNote] {
+        notes
+    }
+
+    /// Get current pages (for testing assertions)
+    public func getPages() -> [DemoPage] {
+        pages
+    }
+
+    /// Get current config (for testing assertions)
+    public func getConfig() -> DemoConfig {
+        config
+    }
+
     /// Reset to seed data (for testing)
     public func reset() {
-        tasks = [
-            DemoTask(id: 1, name: "Buy groceries", status: "todo", priority: "medium", assignee: "Alice", dueDate: "2026-03-25"),
-            DemoTask(id: 2, name: "Fix login bug", status: "in-progress", priority: "high", assignee: "Bob", dueDate: "2026-03-24"),
-            DemoTask(id: 3, name: "Write docs", status: "done", priority: "low", assignee: "Alice", dueDate: "2026-03-20"),
-        ]
-        nextId = 4
+        seedAll()
     }
 
     // MARK: - Connection
@@ -116,15 +180,33 @@ public actor DemoAPIServer {
             return
         }
 
-        // Route
+        // Route to resource handlers
+        if path == "/api/tasks" || path.hasPrefix("/api/tasks/") {
+            routeTasks(method: method, path: path, body: body, connection: connection)
+        } else if path == "/api/contacts" || path.hasPrefix("/api/contacts/") {
+            routeContacts(method: method, path: path, body: body, connection: connection)
+        } else if path == "/api/events" || path.hasPrefix("/api/events/") {
+            routeEvents(method: method, path: path, body: body, connection: connection)
+        } else if path == "/api/notes" || path.hasPrefix("/api/notes/") {
+            routeNotes(method: method, path: path, body: body, connection: connection)
+        } else if path == "/api/pages" || path.hasPrefix("/api/pages/") {
+            routePages(method: method, path: path, body: body, connection: connection)
+        } else if path == "/api/config" {
+            routeConfig(method: method, body: body, connection: connection)
+        } else {
+            sendJSON(statusCode: 404, body: ["error": "Not Found"], connection: connection)
+        }
+    }
+
+    // MARK: - Tasks Routes
+
+    private func routeTasks(method: String, path: String, body: Data?, connection: NWConnection) {
         switch (method, path) {
-        // GET /api/tasks
         case ("GET", "/api/tasks"):
             let tasksJSON = tasks.map { $0.toDict() }
             sendJSONArray(statusCode: 200, body: tasksJSON, connection: connection)
 
-        // GET /api/tasks/:id
-        case ("GET", _) where path.hasPrefix("/api/tasks/"):
+        case ("GET", _):
             let idStr = String(path.dropFirst("/api/tasks/".count))
             if let id = Int(idStr), let task = tasks.first(where: { $0.id == id }) {
                 sendJSONDict(statusCode: 200, body: task.toDict(), connection: connection)
@@ -132,26 +214,24 @@ public actor DemoAPIServer {
                 sendJSON(statusCode: 404, body: ["error": "Task not found"], connection: connection)
             }
 
-        // POST /api/tasks
         case ("POST", "/api/tasks"):
             if let body, let dict = try? JSONSerialization.jsonObject(with: body) as? [String: Any] {
                 let task = DemoTask(
-                    id: nextId,
+                    id: nextTaskId,
                     name: dict["name"] as? String ?? "Untitled",
                     status: dict["status"] as? String ?? "todo",
                     priority: dict["priority"] as? String ?? "medium",
                     assignee: dict["assignee"] as? String ?? "",
                     dueDate: dict["dueDate"] as? String ?? ""
                 )
-                nextId += 1
+                nextTaskId += 1
                 tasks.append(task)
                 sendJSONDict(statusCode: 201, body: task.toDict(), connection: connection)
             } else {
                 sendJSON(statusCode: 400, body: ["error": "Invalid JSON body"], connection: connection)
             }
 
-        // PUT /api/tasks/:id
-        case ("PUT", _) where path.hasPrefix("/api/tasks/"):
+        case ("PUT", _):
             let idStr = String(path.dropFirst("/api/tasks/".count))
             if let id = Int(idStr),
                let idx = tasks.firstIndex(where: { $0.id == id }),
@@ -169,14 +249,289 @@ public actor DemoAPIServer {
                 sendJSON(statusCode: 404, body: ["error": "Task not found"], connection: connection)
             }
 
-        // DELETE /api/tasks/:id
-        case ("DELETE", _) where path.hasPrefix("/api/tasks/"):
+        case ("DELETE", _):
             let idStr = String(path.dropFirst("/api/tasks/".count))
             if let id = Int(idStr), let idx = tasks.firstIndex(where: { $0.id == id }) {
                 tasks.remove(at: idx)
                 sendJSON(statusCode: 200, body: ["deleted": "\(id)"], connection: connection)
             } else {
                 sendJSON(statusCode: 404, body: ["error": "Task not found"], connection: connection)
+            }
+
+        default:
+            sendJSON(statusCode: 404, body: ["error": "Not Found"], connection: connection)
+        }
+    }
+
+    // MARK: - Contacts Routes
+
+    private func routeContacts(method: String, path: String, body: Data?, connection: NWConnection) {
+        switch (method, path) {
+        case ("GET", "/api/contacts"):
+            let items = contacts.map { $0.toDict() }
+            sendJSONArray(statusCode: 200, body: items, connection: connection)
+
+        case ("GET", _):
+            let idStr = String(path.dropFirst("/api/contacts/".count))
+            if let id = Int(idStr), let item = contacts.first(where: { $0.id == id }) {
+                sendJSONDict(statusCode: 200, body: item.toDict(), connection: connection)
+            } else {
+                sendJSON(statusCode: 404, body: ["error": "Contact not found"], connection: connection)
+            }
+
+        case ("POST", "/api/contacts"):
+            if let body, let dict = try? JSONSerialization.jsonObject(with: body) as? [String: Any] {
+                let item = DemoContact(
+                    id: nextContactId,
+                    firstName: dict["firstName"] as? String ?? "",
+                    lastName: dict["lastName"] as? String ?? "",
+                    email: dict["email"] as? String ?? "",
+                    phone: dict["phone"] as? String ?? "",
+                    company: dict["company"] as? String ?? ""
+                )
+                nextContactId += 1
+                contacts.append(item)
+                sendJSONDict(statusCode: 201, body: item.toDict(), connection: connection)
+            } else {
+                sendJSON(statusCode: 400, body: ["error": "Invalid JSON body"], connection: connection)
+            }
+
+        case ("PUT", _):
+            let idStr = String(path.dropFirst("/api/contacts/".count))
+            if let id = Int(idStr),
+               let idx = contacts.firstIndex(where: { $0.id == id }),
+               let body,
+               let dict = try? JSONSerialization.jsonObject(with: body) as? [String: Any] {
+                var item = contacts[idx]
+                if let v = dict["firstName"] as? String { item.firstName = v }
+                if let v = dict["lastName"] as? String { item.lastName = v }
+                if let v = dict["email"] as? String { item.email = v }
+                if let v = dict["phone"] as? String { item.phone = v }
+                if let v = dict["company"] as? String { item.company = v }
+                contacts[idx] = item
+                sendJSONDict(statusCode: 200, body: item.toDict(), connection: connection)
+            } else {
+                sendJSON(statusCode: 404, body: ["error": "Contact not found"], connection: connection)
+            }
+
+        case ("DELETE", _):
+            let idStr = String(path.dropFirst("/api/contacts/".count))
+            if let id = Int(idStr), let idx = contacts.firstIndex(where: { $0.id == id }) {
+                contacts.remove(at: idx)
+                sendJSON(statusCode: 200, body: ["deleted": "\(id)"], connection: connection)
+            } else {
+                sendJSON(statusCode: 404, body: ["error": "Contact not found"], connection: connection)
+            }
+
+        default:
+            sendJSON(statusCode: 404, body: ["error": "Not Found"], connection: connection)
+        }
+    }
+
+    // MARK: - Events Routes
+
+    private func routeEvents(method: String, path: String, body: Data?, connection: NWConnection) {
+        switch (method, path) {
+        case ("GET", "/api/events"):
+            let items = events.map { $0.toDict() }
+            sendJSONArray(statusCode: 200, body: items, connection: connection)
+
+        case ("GET", _):
+            let idStr = String(path.dropFirst("/api/events/".count))
+            if let id = Int(idStr), let item = events.first(where: { $0.id == id }) {
+                sendJSONDict(statusCode: 200, body: item.toDict(), connection: connection)
+            } else {
+                sendJSON(statusCode: 404, body: ["error": "Event not found"], connection: connection)
+            }
+
+        case ("POST", "/api/events"):
+            if let body, let dict = try? JSONSerialization.jsonObject(with: body) as? [String: Any] {
+                let item = DemoEvent(
+                    id: nextEventId,
+                    title: dict["title"] as? String ?? "Untitled Event",
+                    startDate: dict["startDate"] as? String ?? "",
+                    endDate: dict["endDate"] as? String ?? "",
+                    location: dict["location"] as? String ?? "",
+                    description: dict["description"] as? String ?? "",
+                    status: dict["status"] as? String ?? "confirmed"
+                )
+                nextEventId += 1
+                events.append(item)
+                sendJSONDict(statusCode: 201, body: item.toDict(), connection: connection)
+            } else {
+                sendJSON(statusCode: 400, body: ["error": "Invalid JSON body"], connection: connection)
+            }
+
+        case ("PUT", _):
+            let idStr = String(path.dropFirst("/api/events/".count))
+            if let id = Int(idStr),
+               let idx = events.firstIndex(where: { $0.id == id }),
+               let body,
+               let dict = try? JSONSerialization.jsonObject(with: body) as? [String: Any] {
+                var item = events[idx]
+                if let v = dict["title"] as? String { item.title = v }
+                if let v = dict["startDate"] as? String { item.startDate = v }
+                if let v = dict["endDate"] as? String { item.endDate = v }
+                if let v = dict["location"] as? String { item.location = v }
+                if let v = dict["description"] as? String { item.description = v }
+                if let v = dict["status"] as? String { item.status = v }
+                events[idx] = item
+                sendJSONDict(statusCode: 200, body: item.toDict(), connection: connection)
+            } else {
+                sendJSON(statusCode: 404, body: ["error": "Event not found"], connection: connection)
+            }
+
+        case ("DELETE", _):
+            let idStr = String(path.dropFirst("/api/events/".count))
+            if let id = Int(idStr), let idx = events.firstIndex(where: { $0.id == id }) {
+                events.remove(at: idx)
+                sendJSON(statusCode: 200, body: ["deleted": "\(id)"], connection: connection)
+            } else {
+                sendJSON(statusCode: 404, body: ["error": "Event not found"], connection: connection)
+            }
+
+        default:
+            sendJSON(statusCode: 404, body: ["error": "Not Found"], connection: connection)
+        }
+    }
+
+    // MARK: - Notes Routes
+
+    private func routeNotes(method: String, path: String, body: Data?, connection: NWConnection) {
+        switch (method, path) {
+        case ("GET", "/api/notes"):
+            let items = notes.map { $0.toDict() }
+            sendJSONArray(statusCode: 200, body: items, connection: connection)
+
+        case ("GET", _):
+            let idStr = String(path.dropFirst("/api/notes/".count))
+            if let id = Int(idStr), let item = notes.first(where: { $0.id == id }) {
+                sendJSONDict(statusCode: 200, body: item.toDict(), connection: connection)
+            } else {
+                sendJSON(statusCode: 404, body: ["error": "Note not found"], connection: connection)
+            }
+
+        case ("POST", "/api/notes"):
+            if let body, let dict = try? JSONSerialization.jsonObject(with: body) as? [String: Any] {
+                let item = DemoNote(
+                    id: nextNoteId,
+                    title: dict["title"] as? String ?? "Untitled Note",
+                    content: dict["content"] as? String ?? ""
+                )
+                nextNoteId += 1
+                notes.append(item)
+                sendJSONDict(statusCode: 201, body: item.toDict(), connection: connection)
+            } else {
+                sendJSON(statusCode: 400, body: ["error": "Invalid JSON body"], connection: connection)
+            }
+
+        case ("PUT", _):
+            let idStr = String(path.dropFirst("/api/notes/".count))
+            if let id = Int(idStr),
+               let idx = notes.firstIndex(where: { $0.id == id }),
+               let body,
+               let dict = try? JSONSerialization.jsonObject(with: body) as? [String: Any] {
+                var item = notes[idx]
+                if let v = dict["title"] as? String { item.title = v }
+                if let v = dict["content"] as? String { item.content = v }
+                notes[idx] = item
+                sendJSONDict(statusCode: 200, body: item.toDict(), connection: connection)
+            } else {
+                sendJSON(statusCode: 404, body: ["error": "Note not found"], connection: connection)
+            }
+
+        case ("DELETE", _):
+            let idStr = String(path.dropFirst("/api/notes/".count))
+            if let id = Int(idStr), let idx = notes.firstIndex(where: { $0.id == id }) {
+                notes.remove(at: idx)
+                sendJSON(statusCode: 200, body: ["deleted": "\(id)"], connection: connection)
+            } else {
+                sendJSON(statusCode: 404, body: ["error": "Note not found"], connection: connection)
+            }
+
+        default:
+            sendJSON(statusCode: 404, body: ["error": "Not Found"], connection: connection)
+        }
+    }
+
+    // MARK: - Pages Routes
+
+    private func routePages(method: String, path: String, body: Data?, connection: NWConnection) {
+        switch (method, path) {
+        case ("GET", "/api/pages"):
+            let items = pages.map { $0.toDict() }
+            sendJSONArray(statusCode: 200, body: items, connection: connection)
+
+        case ("GET", _):
+            let idStr = String(path.dropFirst("/api/pages/".count))
+            if let id = Int(idStr), let item = pages.first(where: { $0.id == id }) {
+                sendJSONDict(statusCode: 200, body: item.toDict(), connection: connection)
+            } else {
+                sendJSON(statusCode: 404, body: ["error": "Page not found"], connection: connection)
+            }
+
+        case ("POST", "/api/pages"):
+            if let body, let dict = try? JSONSerialization.jsonObject(with: body) as? [String: Any] {
+                let item = DemoPage(
+                    id: nextPageId,
+                    title: dict["title"] as? String ?? "Untitled Page",
+                    slug: dict["slug"] as? String ?? "untitled",
+                    content: dict["content"] as? String ?? ""
+                )
+                nextPageId += 1
+                pages.append(item)
+                sendJSONDict(statusCode: 201, body: item.toDict(), connection: connection)
+            } else {
+                sendJSON(statusCode: 400, body: ["error": "Invalid JSON body"], connection: connection)
+            }
+
+        case ("PUT", _):
+            let idStr = String(path.dropFirst("/api/pages/".count))
+            if let id = Int(idStr),
+               let idx = pages.firstIndex(where: { $0.id == id }),
+               let body,
+               let dict = try? JSONSerialization.jsonObject(with: body) as? [String: Any] {
+                var item = pages[idx]
+                if let v = dict["title"] as? String { item.title = v }
+                if let v = dict["slug"] as? String { item.slug = v }
+                if let v = dict["content"] as? String { item.content = v }
+                pages[idx] = item
+                sendJSONDict(statusCode: 200, body: item.toDict(), connection: connection)
+            } else {
+                sendJSON(statusCode: 404, body: ["error": "Page not found"], connection: connection)
+            }
+
+        case ("DELETE", _):
+            let idStr = String(path.dropFirst("/api/pages/".count))
+            if let id = Int(idStr), let idx = pages.firstIndex(where: { $0.id == id }) {
+                pages.remove(at: idx)
+                sendJSON(statusCode: 200, body: ["deleted": "\(id)"], connection: connection)
+            } else {
+                sendJSON(statusCode: 404, body: ["error": "Page not found"], connection: connection)
+            }
+
+        default:
+            sendJSON(statusCode: 404, body: ["error": "Not Found"], connection: connection)
+        }
+    }
+
+    // MARK: - Config Routes
+
+    private func routeConfig(method: String, body: Data?, connection: NWConnection) {
+        switch method {
+        case "GET":
+            sendJSONDict(statusCode: 200, body: config.toDict(), connection: connection)
+
+        case "PUT":
+            if let body, let dict = try? JSONSerialization.jsonObject(with: body) as? [String: Any] {
+                if let v = dict["siteName"] as? String { config.siteName = v }
+                if let v = dict["theme"] as? String { config.theme = v }
+                if let v = dict["language"] as? String { config.language = v }
+                if let v = dict["timezone"] as? String { config.timezone = v }
+                if let v = dict["notifications"] as? Bool { config.notifications = v }
+                sendJSONDict(statusCode: 200, body: config.toDict(), connection: connection)
+            } else {
+                sendJSON(statusCode: 400, body: ["error": "Invalid JSON body"], connection: connection)
             }
 
         default:
@@ -263,6 +618,111 @@ public struct DemoTask: Codable, Sendable {
     public func toDict() -> [String: Any] {
         ["id": id, "name": name, "status": status, "priority": priority, "assignee": assignee, "dueDate": dueDate]
     }
+
+    static let seedData: [DemoTask] = [
+        DemoTask(id: 1, name: "Buy groceries", status: "todo", priority: "medium", assignee: "Alice", dueDate: "2026-03-25"),
+        DemoTask(id: 2, name: "Fix login bug", status: "in-progress", priority: "high", assignee: "Bob", dueDate: "2026-03-24"),
+        DemoTask(id: 3, name: "Write docs", status: "done", priority: "low", assignee: "Alice", dueDate: "2026-03-20"),
+    ]
+}
+
+// MARK: - Demo Contact Model
+
+public struct DemoContact: Codable, Sendable {
+    public var id: Int
+    public var firstName: String
+    public var lastName: String
+    public var email: String
+    public var phone: String
+    public var company: String
+
+    public func toDict() -> [String: Any] {
+        ["id": id, "firstName": firstName, "lastName": lastName, "email": email, "phone": phone, "company": company]
+    }
+
+    static let seedData: [DemoContact] = [
+        DemoContact(id: 1, firstName: "Alice", lastName: "Johnson", email: "alice@example.com", phone: "+1-555-0101", company: "Acme Corp"),
+        DemoContact(id: 2, firstName: "Bob", lastName: "Smith", email: "bob@example.com", phone: "+1-555-0102", company: "Globex Inc"),
+    ]
+}
+
+// MARK: - Demo Event Model
+
+public struct DemoEvent: Codable, Sendable {
+    public var id: Int
+    public var title: String
+    public var startDate: String   // ISO 8601
+    public var endDate: String
+    public var location: String
+    public var description: String
+    public var status: String      // confirmed, tentative, cancelled
+
+    public func toDict() -> [String: Any] {
+        ["id": id, "title": title, "startDate": startDate, "endDate": endDate, "location": location, "description": description, "status": status]
+    }
+
+    static let seedData: [DemoEvent] = [
+        DemoEvent(id: 1, title: "Team Standup", startDate: "2026-03-24T09:00:00Z", endDate: "2026-03-24T09:15:00Z", location: "Zoom", description: "Daily sync with the engineering team", status: "confirmed"),
+        DemoEvent(id: 2, title: "Product Launch", startDate: "2026-04-15T14:00:00Z", endDate: "2026-04-15T16:00:00Z", location: "Main Conference Room", description: "Q2 product launch event and demo", status: "tentative"),
+        DemoEvent(id: 3, title: "Design Review", startDate: "2026-03-26T11:00:00Z", endDate: "2026-03-26T12:00:00Z", location: "Room 42", description: "Review new landing page mockups", status: "confirmed"),
+    ]
+}
+
+// MARK: - Demo Note Model
+
+public struct DemoNote: Codable, Sendable {
+    public var id: Int
+    public var title: String
+    public var content: String     // Markdown text
+
+    public func toDict() -> [String: Any] {
+        ["id": id, "title": title, "content": content]
+    }
+
+    static let seedData: [DemoNote] = [
+        DemoNote(id: 1, title: "Meeting Notes", content: "# Meeting Notes\n\n## Attendees\n- Alice\n- Bob\n- Charlie\n\n## Action Items\n1. Update the roadmap\n2. Review pull requests\n3. Schedule follow-up\n\n## Decisions\n- Ship v2.0 by end of Q2\n- Hire two more engineers"),
+        DemoNote(id: 2, title: "Ideas", content: "Some ideas for the next sprint:\n\n- Improve onboarding flow\n- Add dark mode support\n- Refactor the auth module"),
+    ]
+}
+
+// MARK: - Demo Page Model
+
+public struct DemoPage: Codable, Sendable {
+    public var id: Int
+    public var title: String
+    public var slug: String
+    public var content: String     // HTML
+
+    public func toDict() -> [String: Any] {
+        ["id": id, "title": title, "slug": slug, "content": content]
+    }
+
+    static let seedData: [DemoPage] = [
+        DemoPage(id: 1, title: "Home", slug: "home", content: "<h1>Welcome</h1>\n<p>This is the home page of our demo site.</p>\n<ul>\n  <li><a href=\"/about\">About Us</a></li>\n  <li><a href=\"/contact\">Contact</a></li>\n</ul>"),
+        DemoPage(id: 2, title: "About", slug: "about", content: "<h1>About Us</h1>\n<p>We are a <strong>small team</strong> building great tools.</p>\n<h2>Our Mission</h2>\n<p>To make file-based API syncing <em>effortless</em>.</p>"),
+    ]
+}
+
+// MARK: - Demo Config Model
+
+public struct DemoConfig: Codable, Sendable {
+    public var siteName: String
+    public var theme: String
+    public var language: String
+    public var timezone: String
+    public var notifications: Bool
+
+    public func toDict() -> [String: Any] {
+        ["siteName": siteName, "theme": theme, "language": language, "timezone": timezone, "notifications": notifications]
+    }
+
+    static let seed = DemoConfig(
+        siteName: "My Demo Site",
+        theme: "light",
+        language: "en",
+        timezone: "America/New_York",
+        notifications: true
+    )
 }
 
 // MARK: - Data Extension

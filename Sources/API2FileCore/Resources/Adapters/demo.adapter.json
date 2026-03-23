@@ -1,6 +1,6 @@
 {
   "service": "demo",
-  "displayName": "Demo Tasks API",
+  "displayName": "Demo API",
   "version": "1.0",
 
   "auth": {
@@ -21,7 +21,7 @@
   "resources": [
     {
       "name": "tasks",
-      "description": "Demo task list — a simple todo list for testing API2File",
+      "description": "Demo task list — a simple todo list (CSV format)",
 
       "pull": {
         "method": "GET",
@@ -49,6 +49,190 @@
         "directory": ".",
         "filename": "tasks.csv",
         "format": "csv",
+        "idField": "id"
+      },
+
+      "sync": {
+        "interval": 10,
+        "debounceMs": 500
+      }
+    },
+    {
+      "name": "contacts",
+      "description": "Contact cards (VCF format)",
+
+      "pull": {
+        "method": "GET",
+        "url": "http://localhost:8089/api/contacts",
+        "dataPath": "$"
+      },
+
+      "push": {
+        "create": {
+          "method": "POST",
+          "url": "http://localhost:8089/api/contacts"
+        },
+        "update": {
+          "method": "PUT",
+          "url": "http://localhost:8089/api/contacts/{id}"
+        },
+        "delete": {
+          "method": "DELETE",
+          "url": "http://localhost:8089/api/contacts/{id}"
+        }
+      },
+
+      "fileMapping": {
+        "strategy": "one-per-record",
+        "directory": "contacts",
+        "filename": "{firstName|slugify}-{lastName|slugify}.vcf",
+        "format": "vcf",
+        "idField": "id"
+      },
+
+      "sync": {
+        "interval": 10,
+        "debounceMs": 500
+      }
+    },
+    {
+      "name": "events",
+      "description": "Calendar events (ICS format)",
+
+      "pull": {
+        "method": "GET",
+        "url": "http://localhost:8089/api/events",
+        "dataPath": "$"
+      },
+
+      "push": {
+        "create": {
+          "method": "POST",
+          "url": "http://localhost:8089/api/events"
+        },
+        "update": {
+          "method": "PUT",
+          "url": "http://localhost:8089/api/events/{id}"
+        },
+        "delete": {
+          "method": "DELETE",
+          "url": "http://localhost:8089/api/events/{id}"
+        }
+      },
+
+      "fileMapping": {
+        "strategy": "one-per-record",
+        "directory": "events",
+        "filename": "{title|slugify}.ics",
+        "format": "ics",
+        "idField": "id"
+      },
+
+      "sync": {
+        "interval": 10,
+        "debounceMs": 500
+      }
+    },
+    {
+      "name": "notes",
+      "description": "Notes written in Markdown",
+
+      "pull": {
+        "method": "GET",
+        "url": "http://localhost:8089/api/notes",
+        "dataPath": "$"
+      },
+
+      "push": {
+        "create": {
+          "method": "POST",
+          "url": "http://localhost:8089/api/notes"
+        },
+        "update": {
+          "method": "PUT",
+          "url": "http://localhost:8089/api/notes/{id}"
+        },
+        "delete": {
+          "method": "DELETE",
+          "url": "http://localhost:8089/api/notes/{id}"
+        }
+      },
+
+      "fileMapping": {
+        "strategy": "one-per-record",
+        "directory": "notes",
+        "filename": "{title|slugify}.md",
+        "format": "md",
+        "idField": "id",
+        "contentField": "content"
+      },
+
+      "sync": {
+        "interval": 10,
+        "debounceMs": 500
+      }
+    },
+    {
+      "name": "pages",
+      "description": "Web pages (HTML format)",
+
+      "pull": {
+        "method": "GET",
+        "url": "http://localhost:8089/api/pages",
+        "dataPath": "$"
+      },
+
+      "push": {
+        "create": {
+          "method": "POST",
+          "url": "http://localhost:8089/api/pages"
+        },
+        "update": {
+          "method": "PUT",
+          "url": "http://localhost:8089/api/pages/{id}"
+        },
+        "delete": {
+          "method": "DELETE",
+          "url": "http://localhost:8089/api/pages/{id}"
+        }
+      },
+
+      "fileMapping": {
+        "strategy": "one-per-record",
+        "directory": "pages",
+        "filename": "{slug}.html",
+        "format": "html",
+        "idField": "id",
+        "contentField": "content"
+      },
+
+      "sync": {
+        "interval": 10,
+        "debounceMs": 500
+      }
+    },
+    {
+      "name": "config",
+      "description": "Site configuration (JSON format, single object)",
+
+      "pull": {
+        "method": "GET",
+        "url": "http://localhost:8089/api/config",
+        "dataPath": "$"
+      },
+
+      "push": {
+        "update": {
+          "method": "PUT",
+          "url": "http://localhost:8089/api/config"
+        }
+      },
+
+      "fileMapping": {
+        "strategy": "collection",
+        "directory": ".",
+        "filename": "config.json",
+        "format": "json",
         "idField": "id"
       },
 

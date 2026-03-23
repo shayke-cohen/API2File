@@ -14,28 +14,32 @@ final class DemoServerE2ETests: XCTestCase {
     override func setUp() async throws {
         try await super.setUp()
 
-        // Find an available port in 18900-18999
-        var started = false
-        for candidate in UInt16(18900)...UInt16(18999) {
-            let candidate_server = DemoAPIServer(port: candidate)
+        // Use a random port to avoid conflicts between parallel test runs
+        let randomPort = UInt16.random(in: 19000...29999)
+        let candidate_server = DemoAPIServer(port: randomPort)
+        try await candidate_server.start()
+        server = candidate_server
+        port = randomPort
+
+        // Wait for server to bind and verify it's ready with retry
+        var ready = false
+        for attempt in 0..<10 {
+            try await Task.sleep(nanoseconds: 300_000_000)
             do {
-                try await candidate_server.start()
-                server = candidate_server
-                port = candidate
-                started = true
-                break
+                let url = URL(string: "\(baseURL)/api/tasks")!
+                let (_, response) = try await URLSession.shared.data(from: url)
+                if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 {
+                    ready = true
+                    break
+                }
             } catch {
-                continue
+                if attempt == 9 {
+                    XCTFail("Server not ready after 10 attempts on port \(randomPort): \(error)")
+                }
             }
         }
 
-        guard started else {
-            XCTFail("Could not start DemoAPIServer on any port in 18900-18999")
-            return
-        }
-
-        // Wait for server to bind
-        try await Task.sleep(nanoseconds: 500_000_000)
+        guard ready else { return }
 
         // Reset to clean seed state
         await server.reset()
