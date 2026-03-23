@@ -1,0 +1,161 @@
+{
+  "service": "wix-demo",
+  "displayName": "Wix Demo — Local Mock Server",
+  "version": "1.0",
+
+  "auth": {
+    "type": "bearer",
+    "keychainKey": "api2file.wix-demo.key",
+    "setup": {
+      "instructions": "No auth needed — this is a local demo server. Set any value."
+    }
+  },
+
+  "globals": {
+    "baseUrl": "http://localhost:8089",
+    "headers": {
+      "Content-Type": "application/json"
+    }
+  },
+
+  "resources": [
+    {
+      "name": "contacts",
+      "description": "Wix CRM contacts as a CSV spreadsheet",
+
+      "pull": {
+        "method": "GET",
+        "url": "http://localhost:8089/api/wix/contacts",
+        "dataPath": "$.contacts"
+      },
+
+      "fileMapping": {
+        "strategy": "collection",
+        "directory": ".",
+        "filename": "contacts.csv",
+        "format": "csv",
+        "idField": "id",
+        "transforms": {
+          "pull": [
+            { "op": "flatten", "path": "info.name", "to": "" },
+            { "op": "flatten", "path": "info.emails", "to": "emails" },
+            { "op": "flatten", "path": "info.phones", "to": "phones" },
+            { "op": "omit", "fields": ["info", "revision", "source", "lastActivity"] }
+          ]
+        }
+      },
+
+      "sync": {
+        "interval": 10,
+        "debounceMs": 500
+      }
+    },
+    {
+      "name": "blog-posts",
+      "description": "Wix blog posts as Markdown files",
+
+      "pull": {
+        "method": "GET",
+        "url": "http://localhost:8089/api/wix/posts",
+        "dataPath": "$.posts"
+      },
+
+      "fileMapping": {
+        "strategy": "one-per-record",
+        "directory": "blog",
+        "filename": "{slug|slugify}.md",
+        "format": "md",
+        "idField": "id",
+        "contentField": "richContent",
+        "transforms": {
+          "pull": [
+            { "op": "omit", "fields": ["coverMedia", "memberId", "hashtags", "commentingEnabled", "minutesToRead", "tagIds", "pricingPlanIds"] }
+          ]
+        }
+      },
+
+      "sync": {
+        "interval": 10,
+        "debounceMs": 500
+      }
+    },
+    {
+      "name": "products",
+      "description": "Wix Store products as a CSV catalog",
+
+      "pull": {
+        "method": "GET",
+        "url": "http://localhost:8089/api/wix/products",
+        "dataPath": "$.products"
+      },
+
+      "fileMapping": {
+        "strategy": "collection",
+        "directory": ".",
+        "filename": "products.csv",
+        "format": "csv",
+        "idField": "id",
+        "transforms": {
+          "pull": [
+            { "op": "flatten", "path": "priceData", "to": "" },
+            { "op": "flatten", "path": "stock", "to": "" },
+            { "op": "omit", "fields": ["media", "additionalInfoSections", "customTextFields", "variants", "productOptions"] }
+          ]
+        }
+      },
+
+      "sync": {
+        "interval": 10,
+        "debounceMs": 500
+      }
+    },
+    {
+      "name": "bookings",
+      "description": "Wix Bookings services as JSON files",
+
+      "pull": {
+        "method": "GET",
+        "url": "http://localhost:8089/api/wix/services",
+        "dataPath": "$.services"
+      },
+
+      "fileMapping": {
+        "strategy": "one-per-record",
+        "directory": "bookings",
+        "filename": "{name|slugify}.json",
+        "format": "json",
+        "idField": "id",
+        "readOnly": true
+      },
+
+      "sync": {
+        "interval": 10,
+        "debounceMs": 500
+      }
+    },
+    {
+      "name": "collections",
+      "description": "Wix CMS data collections catalog",
+
+      "pull": {
+        "method": "GET",
+        "url": "http://localhost:8089/api/wix/collections",
+        "dataPath": "$.collections"
+      },
+
+      "fileMapping": {
+        "strategy": "collection",
+        "directory": ".",
+        "filename": "collections.json",
+        "format": "json",
+        "idField": "id",
+        "readOnly": true
+      },
+
+      "sync": {
+        "interval": 10,
+        "debounceMs": 500
+      }
+    }
+  ]
+}

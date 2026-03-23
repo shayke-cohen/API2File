@@ -123,6 +123,54 @@ public actor AdapterEngine {
         }
     }
 
+    // MARK: - Push Actions
+
+    /// Action type for pushing a record
+    public enum PushAction: Sendable {
+        case create
+        case update(id: String)
+    }
+
+    /// Push a single record with a specific action (create or update)
+    public func pushRecord(_ record: [String: Any], resource: ResourceConfig, action: PushAction) async throws {
+        guard let pushConfig = resource.push else {
+            throw AdapterError.noPushConfig(resource.name)
+        }
+
+        // Apply push transforms
+        let transforms = resource.fileMapping.transforms?.push ?? []
+        let transformed = transforms.isEmpty ? [record] : TransformPipeline.apply(transforms, to: [record])
+        guard let rec = transformed.first else { return }
+
+        switch action {
+        case .create:
+            try await pushRecord(rec, pushConfig: pushConfig, remoteId: nil, isUpdate: false)
+        case .update(let id):
+            try await pushRecord(rec, pushConfig: pushConfig, remoteId: id, isUpdate: true)
+        }
+    }
+
+    /// Delete a record from the API by its remote ID
+    public func delete(remoteId: String, resource: ResourceConfig) async throws {
+        guard let pushConfig = resource.push, let deleteConfig = pushConfig.delete else {
+            print("[AdapterEngine] No delete config for \(resource.name)")
+            return
+        }
+
+        let url = resolveURL(deleteConfig.url)
+            .replacingOccurrences(of: "{id}", with: remoteId)
+
+        let method = HTTPMethod(rawValue: deleteConfig.method?.uppercased() ?? "DELETE") ?? .DELETE
+        let request = APIRequest(
+            method: method,
+            url: url,
+            headers: config.globals?.headers ?? [:]
+        )
+
+        _ = try await httpClient.request(request)
+        print("[AdapterEngine] Deleted record \(remoteId) from \(resource.name)")
+    }
+
     // MARK: - Config Loading
 
     /// Load an AdapterConfig from `.api2file/adapter.json` inside a service directory.

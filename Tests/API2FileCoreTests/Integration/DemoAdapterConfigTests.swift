@@ -167,10 +167,66 @@ final class DemoAdapterConfigTests: XCTestCase {
         XCTAssertEqual(docs.fileMapping.filename, "{name|slugify}.pdf")
     }
 
+    // MARK: - Wix Demo
+
+    func testWixDemoAdapterParses() throws {
+        let config = try loadBundledAdapter(named: "wix-demo.adapter")
+        XCTAssertEqual(config.service, "wix-demo")
+        XCTAssertEqual(config.displayName, "Wix Demo — Local Mock Server")
+        XCTAssertEqual(config.auth.type, .bearer)
+        XCTAssertEqual(config.auth.keychainKey, "api2file.wix-demo.key")
+        XCTAssertEqual(config.globals?.baseUrl, "http://localhost:8089")
+        XCTAssertEqual(config.resources.count, 5)
+
+        // Contacts resource
+        let contacts = config.resources[0]
+        XCTAssertEqual(contacts.name, "contacts")
+        XCTAssertEqual(contacts.pull?.dataPath, "$.contacts")
+        XCTAssertEqual(contacts.fileMapping.strategy, .collection)
+        XCTAssertEqual(contacts.fileMapping.format, .csv)
+        XCTAssertEqual(contacts.fileMapping.filename, "contacts.csv")
+        XCTAssertNotNil(contacts.fileMapping.transforms?.pull)
+        XCTAssertEqual(contacts.fileMapping.transforms?.pull?.count, 4)
+
+        // Blog posts resource
+        let blogPosts = config.resources[1]
+        XCTAssertEqual(blogPosts.name, "blog-posts")
+        XCTAssertEqual(blogPosts.pull?.dataPath, "$.posts")
+        XCTAssertEqual(blogPosts.fileMapping.strategy, .onePerRecord)
+        XCTAssertEqual(blogPosts.fileMapping.format, .markdown)
+        XCTAssertEqual(blogPosts.fileMapping.directory, "blog")
+        XCTAssertEqual(blogPosts.fileMapping.contentField, "richContent")
+
+        // Products resource
+        let products = config.resources[2]
+        XCTAssertEqual(products.name, "products")
+        XCTAssertEqual(products.pull?.dataPath, "$.products")
+        XCTAssertEqual(products.fileMapping.strategy, .collection)
+        XCTAssertEqual(products.fileMapping.format, .csv)
+        XCTAssertEqual(products.fileMapping.filename, "products.csv")
+        XCTAssertNotNil(products.fileMapping.transforms?.pull)
+
+        // Bookings resource
+        let bookings = config.resources[3]
+        XCTAssertEqual(bookings.name, "bookings")
+        XCTAssertEqual(bookings.pull?.dataPath, "$.services")
+        XCTAssertEqual(bookings.fileMapping.strategy, .onePerRecord)
+        XCTAssertEqual(bookings.fileMapping.format, .json)
+        XCTAssertEqual(bookings.fileMapping.readOnly, true)
+
+        // Collections resource
+        let collections = config.resources[4]
+        XCTAssertEqual(collections.name, "collections")
+        XCTAssertEqual(collections.pull?.dataPath, "$.collections")
+        XCTAssertEqual(collections.fileMapping.strategy, .collection)
+        XCTAssertEqual(collections.fileMapping.format, .json)
+        XCTAssertEqual(collections.fileMapping.readOnly, true)
+    }
+
     // MARK: - All adapters share same base URL
 
     func testAllAdaptersPointToLocalDemoServer() throws {
-        let adapterNames = ["teamboard.adapter", "peoplehub.adapter", "calsync.adapter", "pagecraft.adapter", "devops.adapter", "mediamanager.adapter"]
+        let adapterNames = ["teamboard.adapter", "peoplehub.adapter", "calsync.adapter", "pagecraft.adapter", "devops.adapter", "mediamanager.adapter", "wix-demo.adapter"]
         for name in adapterNames {
             let config = try loadBundledAdapter(named: name)
             XCTAssertEqual(config.globals?.baseUrl, "http://localhost:8089", "\(config.service) should point to localhost:8089")

@@ -789,4 +789,130 @@ final class DemoServerE2ETests: XCTestCase {
         let tempTask = resetTasks.first(where: { ($0["name"] as? String) == "Temporary task" })
         XCTAssertNil(tempTask, "Temporary task should be gone after reset")
     }
+
+    // MARK: - Test: Pull Wix contacts from demo server (wrapped response)
+
+    func testPullWixContactsFromDemoServer() async throws {
+        let client = makeClient()
+        let request = APIRequest(method: .GET, url: "\(baseURL)/api/wix/contacts")
+        let response = try await client.request(request)
+        XCTAssertEqual(response.statusCode, 200)
+
+        // Response should be wrapped in {"contacts": [...]}
+        let json = try JSONSerialization.jsonObject(with: response.body)
+        guard let dict = json as? [String: Any],
+              let contacts = dict["contacts"] as? [[String: Any]] else {
+            XCTFail("Expected wrapped contacts response")
+            return
+        }
+        XCTAssertEqual(contacts.count, 3, "Should have 3 seed Wix contacts")
+
+        // Verify nested structure
+        let alice = contacts.first(where: { ($0["primaryEmail"] as? String) == "alice@example.com" })
+        XCTAssertNotNil(alice)
+        XCTAssertNotNil(alice?["id"] as? String, "Wix contacts use string IDs")
+        let info = alice?["info"] as? [String: Any]
+        XCTAssertNotNil(info)
+        let name = info?["name"] as? [String: Any]
+        XCTAssertEqual(name?["first"] as? String, "Alice")
+        XCTAssertEqual(name?["last"] as? String, "Johnson")
+        let emails = info?["emails"] as? [[String: Any]]
+        XCTAssertEqual(emails?.count, 1)
+        XCTAssertEqual(emails?.first?["email"] as? String, "alice@example.com")
+    }
+
+    // MARK: - Test: Pull Wix blog posts from demo server
+
+    func testPullWixBlogPostsFromDemoServer() async throws {
+        let client = makeClient()
+        let request = APIRequest(method: .GET, url: "\(baseURL)/api/wix/posts")
+        let response = try await client.request(request)
+        XCTAssertEqual(response.statusCode, 200)
+
+        let json = try JSONSerialization.jsonObject(with: response.body)
+        guard let dict = json as? [String: Any],
+              let posts = dict["posts"] as? [[String: Any]] else {
+            XCTFail("Expected wrapped posts response")
+            return
+        }
+        XCTAssertEqual(posts.count, 2, "Should have 2 seed Wix blog posts")
+
+        let post = posts.first(where: { ($0["slug"] as? String) == "getting-started-with-api2file" })
+        XCTAssertNotNil(post)
+        XCTAssertEqual(post?["title"] as? String, "Getting Started with API2File")
+        XCTAssertEqual(post?["published"] as? Bool, true)
+        let content = post?["richContent"] as? String ?? ""
+        XCTAssertTrue(content.contains("# Getting Started"))
+    }
+
+    // MARK: - Test: Pull Wix products from demo server
+
+    func testPullWixProductsFromDemoServer() async throws {
+        let client = makeClient()
+        let request = APIRequest(method: .GET, url: "\(baseURL)/api/wix/products")
+        let response = try await client.request(request)
+        XCTAssertEqual(response.statusCode, 200)
+
+        let json = try JSONSerialization.jsonObject(with: response.body)
+        guard let dict = json as? [String: Any],
+              let products = dict["products"] as? [[String: Any]] else {
+            XCTFail("Expected wrapped products response")
+            return
+        }
+        XCTAssertEqual(products.count, 3, "Should have 3 seed Wix products")
+
+        let mouse = products.first(where: { ($0["name"] as? String) == "Wireless Mouse" })
+        XCTAssertNotNil(mouse)
+        let priceData = mouse?["priceData"] as? [String: Any]
+        XCTAssertEqual(priceData?["currency"] as? String, "USD")
+        XCTAssertEqual(priceData?["price"] as? Double, 29.99)
+        let stock = mouse?["stock"] as? [String: Any]
+        XCTAssertEqual(stock?["inventoryStatus"] as? String, "IN_STOCK")
+        XCTAssertEqual(stock?["quantity"] as? Int, 150)
+    }
+
+    // MARK: - Test: Pull Wix bookings from demo server
+
+    func testPullWixBookingsFromDemoServer() async throws {
+        let client = makeClient()
+        let request = APIRequest(method: .GET, url: "\(baseURL)/api/wix/services")
+        let response = try await client.request(request)
+        XCTAssertEqual(response.statusCode, 200)
+
+        let json = try JSONSerialization.jsonObject(with: response.body)
+        guard let dict = json as? [String: Any],
+              let services = dict["services"] as? [[String: Any]] else {
+            XCTFail("Expected wrapped services response")
+            return
+        }
+        XCTAssertEqual(services.count, 2, "Should have 2 seed Wix bookings")
+
+        let consultation = services.first(where: { ($0["name"] as? String) == "One-on-One Consultation" })
+        XCTAssertNotNil(consultation)
+        XCTAssertEqual(consultation?["category"] as? String, "Consulting")
+        XCTAssertEqual(consultation?["duration"] as? Int, 30)
+        XCTAssertEqual(consultation?["price"] as? Double, 75.0)
+    }
+
+    // MARK: - Test: Pull Wix collections from demo server
+
+    func testPullWixCollectionsFromDemoServer() async throws {
+        let client = makeClient()
+        let request = APIRequest(method: .GET, url: "\(baseURL)/api/wix/collections")
+        let response = try await client.request(request)
+        XCTAssertEqual(response.statusCode, 200)
+
+        let json = try JSONSerialization.jsonObject(with: response.body)
+        guard let dict = json as? [String: Any],
+              let collections = dict["collections"] as? [[String: Any]] else {
+            XCTFail("Expected wrapped collections response")
+            return
+        }
+        XCTAssertEqual(collections.count, 3, "Should have 3 seed Wix collections")
+
+        let products = collections.first(where: { ($0["displayName"] as? String) == "Products" })
+        XCTAssertNotNil(products)
+        XCTAssertEqual(products?["fields"] as? Int, 12)
+        XCTAssertEqual(products?["items"] as? Int, 156)
+    }
 }

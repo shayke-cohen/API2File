@@ -613,4 +613,260 @@ final class DemoAdapterPipelineTests: XCTestCase {
         let roadmap = decoded.first(where: { ($0["title"] as? String) == "Roadmap" })
         XCTAssertNotNil(roadmap)
     }
+
+    // MARK: - Wix: Contacts → CSV (wrapped response with JSONPath extraction)
+
+    func testPullPipeline_WixContactsToCSV() async throws {
+        let client = makeClient()
+        let request = APIRequest(method: .GET, url: "\(baseURL)/api/wix/contacts")
+        let response = try await client.request(request)
+        XCTAssertEqual(response.statusCode, 200)
+
+        // Parse wrapped response and extract with JSONPath-like key
+        let json = try JSONSerialization.jsonObject(with: response.body)
+        guard let dict = json as? [String: Any],
+              let contacts = dict["contacts"] as? [[String: Any]] else {
+            XCTFail("Expected wrapped contacts response")
+            return
+        }
+        XCTAssertEqual(contacts.count, 3)
+
+        // Verify we got the right data before encoding
+        // Note: contacts have nested info structure; the real adapter would flatten first.
+        // For this test, we just verify the wrapped response extraction and basic CSV output.
+        let alice = contacts.first(where: { ($0["primaryEmail"] as? String) == "alice@example.com" })
+        XCTAssertNotNil(alice)
+        XCTAssertNotNil(alice?["id"] as? String, "Wix contacts use string IDs")
+
+        let info = alice?["info"] as? [String: Any]
+        XCTAssertNotNil(info)
+        let name = info?["name"] as? [String: Any]
+        XCTAssertEqual(name?["first"] as? String, "Alice")
+        XCTAssertEqual(name?["last"] as? String, "Johnson")
+
+        // Encode flat fields to CSV (simulating what happens after transforms)
+        let flatRecords: [[String: Any]] = contacts.map { contact in
+            var flat: [String: Any] = [:]
+            flat["id"] = contact["id"]
+            flat["primaryEmail"] = contact["primaryEmail"]
+            flat["createdDate"] = contact["createdDate"]
+            if let info = contact["info"] as? [String: Any],
+               let nameInfo = info["name"] as? [String: Any] {
+                flat["first"] = nameInfo["first"]
+                flat["last"] = nameInfo["last"]
+            }
+            return flat
+        }
+        let csvData = try CSVFormat.encode(records: flatRecords, options: nil)
+        let csvFile = tempDir.appendingPathComponent("contacts.csv")
+        try csvData.write(to: csvFile)
+
+        // Read back and verify
+        let readData = try Data(contentsOf: csvFile)
+        let csvString = String(data: readData, encoding: .utf8)!
+        let lines = csvString.components(separatedBy: "\n").filter { !$0.isEmpty }
+        XCTAssertEqual(lines.count, 4, "Header + 3 data rows")
+
+        let headers = lines[0]
+        XCTAssertTrue(headers.contains("_id"), "CSV should have _id column")
+        XCTAssertTrue(headers.contains("primaryEmail"), "CSV should have primaryEmail column")
+        XCTAssertTrue(headers.contains("first"), "CSV should have first column after flatten")
+
+        // Decode back
+        let decoded = try CSVFormat.decode(data: readData, options: nil)
+        XCTAssertEqual(decoded.count, 3, "Should decode 3 contacts")
+
+        let aliceDecoded = decoded.first(where: { ($0["primaryEmail"] as? String) == "alice@example.com" })
+        XCTAssertNotNil(aliceDecoded)
+    }
+
+    // MARK: - Wix: Blog Posts → Markdown (one-per-record)
+
+    func testPullPipeline_WixBlogPostsToMarkdown() async throws {
+        let client = makeClient()
+        let request = APIRequest(method: .GET, url: "\(baseURL)/api/wix/posts")
+        let response = try await client.request(request)
+        XCTAssertEqual(response.statusCode, 200)
+
+        // Extract from wrapped response
+        let json = try JSONSerialization.jsonObject(with: response.body)
+        guard let dict = json as? [String: Any],
+              let posts = dict["posts"] as? [[String: Any]] else {
+            XCTFail("Expected wrapped posts response")
+            return
+        }
+        XCTAssertEqual(posts.count, 2)
+
+        let blogDir = tempDir.appendingPathComponent("blog")
+        try FileManager.default.createDirectory(at: blogDir, withIntermediateDirectories: true)
+
+        for post in posts {
+            let slug = post["slug"] as? String ?? "untitled"
+            let filename = "\(slug).md"
+            let content = post["richContent"] as? String ?? ""
+
+            // Write content as markdown (simulating contentField extraction)
+            let mdFile = blogDir.appendingPathComponent(filename)
+            try Data(content.utf8).write(to: mdFile)
+
+            // Read back and verify
+            let readData = try Data(contentsOf: mdFile)
+            let readString = String(data: readData, encoding: .utf8)!
+            XCTAssertEqual(readString, content)
+        }
+
+        // Verify files
+        let files = try FileManager.default.contentsOfDirectory(at: blogDir, includingPropertiesForKeys: nil)
+        let filenames = files.map { $0.lastPathComponent }.sorted()
+        XCTAssertEqual(filenames, ["advanced-sync-patterns.md", "getting-started-with-api2file.md"])
+    }
+
+    // MARK: - Wix: Products → CSV (wrapped response with nested priceData/stock)
+
+    func testPullPipeline_WixProductsToCSV() async throws {
+        let client = makeClient()
+        let request = APIRequest(method: .GET, url: "\(baseURL)/api/wix/products")
+        let response = try await client.request(request)
+        XCTAssertEqual(response.statusCode, 200)
+
+        // Extract from wrapped response
+        let json = try JSONSerialization.jsonObject(with: response.body)
+        guard let dict = json as? [String: Any],
+              let products = dict["products"] as? [[String: Any]] else {
+            XCTFail("Expected wrapped products response")
+            return
+        }
+        XCTAssertEqual(products.count, 3)
+
+        // Verify raw data extraction
+        let mouse = products.first(where: { ($0["name"] as? String) == "Wireless Mouse" })
+        XCTAssertNotNil(mouse)
+        let priceData = mouse?["priceData"] as? [String: Any]
+        XCTAssertEqual(priceData?["currency"] as? String, "USD")
+        XCTAssertEqual(priceData?["price"] as? Double, 29.99)
+        let stock = mouse?["stock"] as? [String: Any]
+        XCTAssertEqual(stock?["inventoryStatus"] as? String, "IN_STOCK")
+
+        // Encode flat fields to CSV (simulating what happens after flatten transforms)
+        let flatRecords: [[String: Any]] = products.map { product in
+            var flat: [String: Any] = [:]
+            flat["id"] = product["id"]
+            flat["name"] = product["name"]
+            flat["productType"] = product["productType"]
+            flat["description"] = product["description"]
+            flat["visible"] = product["visible"]
+            if let pd = product["priceData"] as? [String: Any] {
+                flat["currency"] = pd["currency"]
+                flat["price"] = pd["price"]
+                flat["discountedPrice"] = pd["discountedPrice"]
+            }
+            if let st = product["stock"] as? [String: Any] {
+                flat["inventoryStatus"] = st["inventoryStatus"]
+                flat["quantity"] = st["quantity"]
+            }
+            return flat
+        }
+        let csvData = try CSVFormat.encode(records: flatRecords, options: nil)
+        let csvFile = tempDir.appendingPathComponent("products.csv")
+        try csvData.write(to: csvFile)
+
+        // Read back and verify
+        let readData = try Data(contentsOf: csvFile)
+        let csvString = String(data: readData, encoding: .utf8)!
+        let lines = csvString.components(separatedBy: "\n").filter { !$0.isEmpty }
+        XCTAssertEqual(lines.count, 4, "Header + 3 data rows")
+
+        let headers = lines[0]
+        XCTAssertTrue(headers.contains("name"), "CSV should have name column")
+        XCTAssertTrue(headers.contains("productType"), "CSV should have productType column")
+        XCTAssertTrue(headers.contains("currency"), "CSV should have currency column after flatten")
+        XCTAssertTrue(headers.contains("inventoryStatus"), "CSV should have inventoryStatus after flatten")
+
+        // Decode back
+        let decoded = try CSVFormat.decode(data: readData, options: nil)
+        XCTAssertEqual(decoded.count, 3, "Should decode 3 products")
+
+        let mouseDecoded = decoded.first(where: { ($0["name"] as? String) == "Wireless Mouse" })
+        XCTAssertNotNil(mouseDecoded)
+        XCTAssertEqual(mouseDecoded?["currency"] as? String, "USD")
+    }
+
+    // MARK: - Wix: Bookings → JSON (one-per-record)
+
+    func testPullPipeline_WixBookingsToJSON() async throws {
+        let client = makeClient()
+        let request = APIRequest(method: .GET, url: "\(baseURL)/api/wix/services")
+        let response = try await client.request(request)
+        XCTAssertEqual(response.statusCode, 200)
+
+        // Extract from wrapped response
+        let json = try JSONSerialization.jsonObject(with: response.body)
+        guard let dict = json as? [String: Any],
+              let services = dict["services"] as? [[String: Any]] else {
+            XCTFail("Expected wrapped services response")
+            return
+        }
+        XCTAssertEqual(services.count, 2)
+
+        let bookingsDir = tempDir.appendingPathComponent("bookings")
+        try FileManager.default.createDirectory(at: bookingsDir, withIntermediateDirectories: true)
+
+        for service in services {
+            let name = (service["name"] as? String ?? "unknown")
+                .lowercased().replacingOccurrences(of: " ", with: "-")
+            let filename = "\(name).json"
+
+            let jsonData = try JSONFormat.encode(records: [service], options: nil)
+            let jsonFile = bookingsDir.appendingPathComponent(filename)
+            try jsonData.write(to: jsonFile)
+
+            // Read back and decode
+            let readData = try Data(contentsOf: jsonFile)
+            let decoded = try JSONFormat.decode(data: readData, options: nil)
+            XCTAssertEqual(decoded.count, 1)
+            XCTAssertEqual(decoded[0]["name"] as? String, service["name"] as? String)
+        }
+
+        // Verify files
+        let files = try FileManager.default.contentsOfDirectory(at: bookingsDir, includingPropertiesForKeys: nil)
+        let filenames = files.map { $0.lastPathComponent }.sorted()
+        XCTAssertEqual(filenames, ["group-workshop.json", "one-on-one-consultation.json"])
+    }
+
+    // MARK: - Wix: Collections → JSON (collection)
+
+    func testPullPipeline_WixCollectionsToJSON() async throws {
+        let client = makeClient()
+        let request = APIRequest(method: .GET, url: "\(baseURL)/api/wix/collections")
+        let response = try await client.request(request)
+        XCTAssertEqual(response.statusCode, 200)
+
+        // Extract from wrapped response
+        let json = try JSONSerialization.jsonObject(with: response.body)
+        guard let dict = json as? [String: Any],
+              let collections = dict["collections"] as? [[String: Any]] else {
+            XCTFail("Expected wrapped collections response")
+            return
+        }
+        XCTAssertEqual(collections.count, 3)
+
+        // Encode to JSON (collection — all records in one file)
+        let jsonData = try JSONFormat.encode(records: collections, options: nil)
+        let jsonFile = tempDir.appendingPathComponent("collections.json")
+        try jsonData.write(to: jsonFile)
+
+        // Read back and verify
+        let readData = try Data(contentsOf: jsonFile)
+        let decoded = try JSONFormat.decode(data: readData, options: nil)
+        XCTAssertEqual(decoded.count, 3, "Should decode 3 collections")
+
+        let products = decoded.first(where: { ($0["displayName"] as? String) == "Products" })
+        XCTAssertNotNil(products)
+        XCTAssertEqual(products?["fields"] as? Int, 12)
+        XCTAssertEqual(products?["items"] as? Int, 156)
+
+        let jsonString = String(data: readData, encoding: .utf8)!
+        XCTAssertTrue(jsonString.contains("\"displayName\""), "JSON should contain displayName")
+        XCTAssertTrue(jsonString.contains("\n"), "JSON should be pretty-printed")
+    }
 }

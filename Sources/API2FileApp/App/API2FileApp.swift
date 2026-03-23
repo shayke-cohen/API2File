@@ -118,35 +118,40 @@ final class AppState: ObservableObject {
     }
 
     func openAddServiceWindow() {
-        // If window already exists, just bring it front
-        if let window = addServiceWindow, window.isVisible {
+        // Defer window creation to next run loop iteration to avoid
+        // reentrancy issues when called from within MenuBarExtra
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+
+            // If window already exists, just bring it front
+            if let window = self.addServiceWindow, window.isVisible {
+                window.makeKeyAndOrderFront(nil)
+                NSApp.activate(ignoringOtherApps: true)
+                return
+            }
+
+            let addServiceView = AddServiceView(onComplete: { [weak self] serviceId in
+                guard let self else { return }
+                Task { @MainActor in
+                    if let serviceId {
+                        try? await self.syncEngine?.registerNewService(serviceId)
+                    }
+                    await self.refreshServices()
+                }
+            })
+
+            let hostingController = NSHostingController(rootView: addServiceView)
+            let window = NSWindow(contentViewController: hostingController)
+            window.title = "Add Service"
+            window.styleMask = [.titled, .closable]
+            window.setContentSize(NSSize(width: 440, height: 360))
+            window.center()
+            window.isReleasedWhenClosed = false
             window.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
-            return
+
+            self.addServiceWindow = window
         }
-
-        let addServiceView = AddServiceView(onComplete: { [weak self] serviceId in
-            guard let self else { return }
-            Task { @MainActor in
-                // Register the new service with the engine
-                if let serviceId {
-                    try? await self.syncEngine?.registerNewService(serviceId)
-                }
-                await self.refreshServices()
-            }
-        })
-
-        let hostingController = NSHostingController(rootView: addServiceView)
-        let window = NSWindow(contentViewController: hostingController)
-        window.title = "Add Service"
-        window.styleMask = [.titled, .closable]
-        window.setContentSize(NSSize(width: 440, height: 360))
-        window.center()
-        window.isReleasedWhenClosed = false
-        window.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
-
-        self.addServiceWindow = window
     }
 
     func updateAPIKey(serviceId: String, newKey: String) {

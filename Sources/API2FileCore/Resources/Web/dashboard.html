@@ -347,6 +347,56 @@
       <div class="file-hint">&#128196; <code>presentation.pptx</code> &mdash; Opens in Keynote / PowerPoint</div>
       <div class="card-body"><table><thead><tr><th>Title</th><th>Content</th></tr></thead><tbody id="presentations-tbody"></tbody></table></div>
     </div>
+
+    <!-- Wix Demo: Contacts -->
+    <div class="card" id="wix-contacts-card">
+      <div class="card-header">
+        <h2>&#127760; Wix Contacts</h2>
+        <span class="format-tag format-csv">CSV</span>
+      </div>
+      <div class="file-hint">&#128196; <code>wix-demo/contacts.csv</code> &mdash; Wix CRM contacts</div>
+      <div class="card-body"><table><thead><tr><th>Name</th><th>Email</th><th>Phone</th><th>Created</th></tr></thead><tbody id="wix-contacts-tbody"></tbody></table></div>
+    </div>
+
+    <!-- Wix Demo: Blog Posts -->
+    <div class="card" id="wix-posts-card">
+      <div class="card-header">
+        <h2>&#128221; Wix Blog Posts</h2>
+        <span class="format-tag format-md">MD</span>
+      </div>
+      <div class="file-hint">&#128196; <code>wix-demo/blog/*.md</code> &mdash; Wix blog posts</div>
+      <div class="card-body"><table><thead><tr><th>Title</th><th>Slug</th><th>Published</th></tr></thead><tbody id="wix-posts-tbody"></tbody></table></div>
+    </div>
+
+    <!-- Wix Demo: Products -->
+    <div class="card" id="wix-products-card">
+      <div class="card-header">
+        <h2>&#128722; Wix Products</h2>
+        <span class="format-tag format-csv">CSV</span>
+      </div>
+      <div class="file-hint">&#128196; <code>wix-demo/products.csv</code> &mdash; Wix store products</div>
+      <div class="card-body"><table><thead><tr><th>Name</th><th>Type</th><th>Price</th><th>Stock</th><th>Visible</th></tr></thead><tbody id="wix-products-tbody"></tbody></table></div>
+    </div>
+
+    <!-- Wix Demo: Bookings -->
+    <div class="card" id="wix-bookings-card">
+      <div class="card-header">
+        <h2>&#128197; Wix Bookings</h2>
+        <span class="format-tag format-json">JSON</span>
+      </div>
+      <div class="file-hint">&#128196; <code>wix-demo/bookings/*.json</code> &mdash; Wix booking services</div>
+      <div class="card-body"><table><thead><tr><th>Name</th><th>Category</th><th>Duration</th><th>Price</th></tr></thead><tbody id="wix-bookings-tbody"></tbody></table></div>
+    </div>
+
+    <!-- Wix Demo: Collections -->
+    <div class="card" id="wix-collections-card">
+      <div class="card-header">
+        <h2>&#128451; Wix Collections</h2>
+        <span class="format-tag format-json">JSON</span>
+      </div>
+      <div class="file-hint">&#128196; <code>wix-demo/collections.json</code> &mdash; Wix CMS collections</div>
+      <div class="card-body"><table><thead><tr><th>Name</th><th>Fields</th><th>Items</th></tr></thead><tbody id="wix-collections-tbody"></tbody></table></div>
+    </div>
   </div>
 </div>
 
@@ -366,6 +416,7 @@ const API = '';
 let tasks = [], contacts = [], events = [], notes = [], pages = [], config = {};
 let services = [], incidents = [], logos = [], photos = [], documents = [];
 let spreadsheets = [], reports = [], presentations = [];
+let wixContacts = [], wixPosts = [], wixProducts = [], wixBookings = [], wixCollections = [];
 let isFetching = false;
 let connectionOk = true;
 let focusedCardType = null;
@@ -593,6 +644,41 @@ function renderPresentations() {
   ).join('');
 }
 
+function renderWixContacts() {
+  document.getElementById('wix-contacts-tbody').innerHTML = wixContacts.map(c => {
+    const name = (c.info && c.info.name) ? (c.info.name.first + ' ' + c.info.name.last) : '';
+    const email = c.primaryEmail || '';
+    const phone = (c.info && c.info.phones && c.info.phones[0]) ? c.info.phones[0].phone : '';
+    return '<tr><td>' + escHtml(name) + '</td><td>' + escHtml(email) + '</td><td>' + escHtml(phone) + '</td><td>' + shortDate(c.createdDate) + '</td></tr>';
+  }).join('');
+}
+
+function renderWixPosts() {
+  document.getElementById('wix-posts-tbody').innerHTML = wixPosts.map(p =>
+    '<tr><td>' + escHtml(p.title) + '</td><td><code>' + escHtml(p.slug) + '</code></td><td>' + pill(String(p.published)) + '</td></tr>'
+  ).join('');
+}
+
+function renderWixProducts() {
+  document.getElementById('wix-products-tbody').innerHTML = wixProducts.map(p => {
+    const price = (p.priceData) ? '$' + (p.priceData.price||0).toFixed(2) : '';
+    const stock = (p.stock) ? p.stock.inventoryStatus : '';
+    return '<tr><td>' + escHtml(p.name) + '</td><td>' + escHtml(p.productType) + '</td><td>' + price + '</td><td>' + escHtml(stock) + '</td><td>' + pill(String(p.visible)) + '</td></tr>';
+  }).join('');
+}
+
+function renderWixBookings() {
+  document.getElementById('wix-bookings-tbody').innerHTML = wixBookings.map(b =>
+    '<tr><td>' + escHtml(b.name) + '</td><td>' + escHtml(b.category) + '</td><td>' + b.duration + ' min</td><td>$' + (b.price||0).toFixed(2) + '</td></tr>'
+  ).join('');
+}
+
+function renderWixCollections() {
+  document.getElementById('wix-collections-tbody').innerHTML = wixCollections.map(c =>
+    '<tr><td>' + escHtml(c.displayName) + '</td><td>' + c.fields + '</td><td>' + c.items + '</td></tr>'
+  ).join('');
+}
+
 // --- File preview: Notes (Markdown) ---
 function previewNote(id) {
   const note = notes.find(n => n.id === id);
@@ -666,17 +752,27 @@ async function refreshAll(silent) {
   if (isFetching) return;
   setSyncStatus('fetching');
   try {
-    [tasks, contacts, events, notes, pages, config, services, incidents, logos, photos, documents, spreadsheets, reports, presentations] = await Promise.all([
+    const results = await Promise.all([
       fetchJSON('/api/tasks'), fetchJSON('/api/contacts'), fetchJSON('/api/events'),
       fetchJSON('/api/notes'), fetchJSON('/api/pages'), fetchJSON('/api/config'),
       fetchJSON('/api/services'), fetchJSON('/api/incidents'), fetchJSON('/api/logos'),
       fetchJSON('/api/photos'), fetchJSON('/api/documents'),
-      fetchJSON('/api/spreadsheets'), fetchJSON('/api/reports'), fetchJSON('/api/presentations')
+      fetchJSON('/api/spreadsheets'), fetchJSON('/api/reports'), fetchJSON('/api/presentations'),
+      fetchJSON('/api/wix/contacts'), fetchJSON('/api/wix/posts'),
+      fetchJSON('/api/wix/products'), fetchJSON('/api/wix/services'),
+      fetchJSON('/api/wix/collections')
     ]);
+    [tasks, contacts, events, notes, pages, config, services, incidents, logos, photos, documents, spreadsheets, reports, presentations] = results.slice(0, 14);
+    wixContacts = (results[14] && results[14].contacts) || [];
+    wixPosts = (results[15] && results[15].posts) || [];
+    wixProducts = (results[16] && results[16].products) || [];
+    wixBookings = (results[17] && results[17].services) || [];
+    wixCollections = (results[18] && results[18].collections) || [];
     renderTasks(); renderContacts(); renderEvents(); renderNotes(); renderPages(); renderConfig();
     renderServices(); renderIncidents(); renderLogos(); renderPhotos(); renderDocuments();
     renderSpreadsheets(); renderReports(); renderPresentations();
-    document.getElementById('resource-count').textContent = '14';
+    renderWixContacts(); renderWixPosts(); renderWixProducts(); renderWixBookings(); renderWixCollections();
+    document.getElementById('resource-count').textContent = '19';
     document.getElementById('last-refresh').textContent = new Date().toLocaleTimeString();
     setSyncStatus('done');
     applySearch();

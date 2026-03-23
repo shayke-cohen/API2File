@@ -12,6 +12,7 @@ public actor SyncEngine {
     private var adapterEngines: [String: AdapterEngine] = [:]
     private var syncStates: [String: SyncState] = [:]
     private var serviceInfos: [String: ServiceInfo] = [:]
+    private var lastKnownRecords: [String: [[String: Any]]] = [:]
 
     public init(config: GlobalConfig) {
         self.config = config
@@ -215,6 +216,15 @@ public actor SyncEngine {
             try FileManager.default.createDirectory(at: filePath.deletingLastPathComponent(), withIntermediateDirectories: true)
             try file.content.write(to: filePath, options: .atomic)
 
+            // Cache decoded records for collection-strategy files (for diffing on push)
+            if let resource = findResource(for: file.relativePath, in: engine.config),
+               resource.fileMapping.strategy == .collection {
+                let cacheKey = "\(serviceId):\(file.relativePath)"
+                if let records = try? FormatConverterFactory.decode(data: file.content, format: file.format, options: resource.fileMapping.formatOptions) {
+                    lastKnownRecords[cacheKey] = records
+                }
+            }
+
             // Update sync state
             if let remoteId = file.remoteId {
                 syncStates[serviceId]?.files[file.relativePath] = FileSyncState(
@@ -314,6 +324,57 @@ public actor SyncEngine {
         guard components.count == 2 else { return nil }
 
         return (String(components[0]), String(components[1]))
+    }
+
+    // MARK: - Collection Diff Push
+
+    /// Smart push for collection files: diff old vs new records, push only changes
+    private func pushCollectionDiff(
+        serviceId: String,
+        filePath: String,
+        content: Data,
+        resource: ResourceConfig,
+        engine: AdapterEngine
+    ) async throws {
+        let cacheKey = "\(serviceId):\(filePath)"
+        let idField = resource.fileMapping.idField ?? "id"
+
+        // Decode new records from the edited file
+        let newRecords = try FormatConverterFactory.decode(
+            data: content,
+            format: resource.fileMapping.format,
+            options: resource.fileMapping.formatOptions
+        )
+
+        // Get old records (from cache or empty if first push)
+        let oldRecords = lastKnownRecords[cacheKey] ?? []
+
+        // Diff
+        let diff = CollectionDiffer.diff(old: oldRecords, new: newRecords, idField: idField)
+
+        if diff.isEmpty {
+            return // No actual changes
+        }
+
+        print("[SyncEngine] Collection diff for \(filePath): \(diff.summary)")
+
+        // Push creates
+        for record in diff.created {
+            try await engine.pushRecord(record, resource: resource, action: .create)
+        }
+
+        // Push updates
+        for (id, record) in diff.updated {
+            try await engine.pushRecord(record, resource: resource, action: .update(id: id))
+        }
+
+        // Push deletes
+        for id in diff.deleted {
+            try await engine.delete(remoteId: id, resource: resource)
+        }
+
+        // Update cache with new records
+        lastKnownRecords[cacheKey] = newRecords
     }
 
     // MARK: - Helpers
