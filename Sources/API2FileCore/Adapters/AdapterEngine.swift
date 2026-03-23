@@ -24,6 +24,20 @@ public enum AdapterError: Error, LocalizedError {
     }
 }
 
+/// Result of a pull operation, containing both transformed files and raw API records.
+public struct PullResult: @unchecked Sendable {
+    /// The transformed files to write to disk for users.
+    public let files: [SyncableFile]
+    /// Raw API records keyed by relative file path (pre-transform).
+    /// Used to write object files and support inverse transforms on push.
+    public let rawRecordsByFile: [String: [[String: Any]]]
+
+    public init(files: [SyncableFile], rawRecordsByFile: [String: [[String: Any]]] = [:]) {
+        self.files = files
+        self.rawRecordsByFile = rawRecordsByFile
+    }
+}
+
 /// Orchestrates API-to-file sync for a single service.
 ///
 /// Each AdapterEngine instance is bound to one `AdapterConfig` (e.g., Monday, Notion)
@@ -42,27 +56,29 @@ public actor AdapterEngine {
     // MARK: - Pull All
 
     /// Pull all resources defined in the adapter config and write them to files.
-    /// - Returns: All synced files across all resources.
-    public func pullAll() async throws -> [SyncableFile] {
+    /// - Returns: PullResult containing all synced files and raw records.
+    public func pullAll() async throws -> PullResult {
         var allFiles: [SyncableFile] = []
+        var allRawRecords: [String: [[String: Any]]] = [:]
         for resource in config.resources {
             do {
-                let files = try await pull(resource: resource)
-                allFiles.append(contentsOf: files)
+                let result = try await pull(resource: resource)
+                allFiles.append(contentsOf: result.files)
+                allRawRecords.merge(result.rawRecordsByFile) { _, new in new }
             } catch {
                 print("[AdapterEngine] Failed to pull resource '\(resource.name)': \(error)")
                 // Continue with other resources instead of aborting
             }
         }
-        return allFiles
+        return PullResult(files: allFiles, rawRecordsByFile: allRawRecords)
     }
 
     // MARK: - Pull Single Resource
 
-    /// Pull a single resource from the API and return SyncableFile objects.
+    /// Pull a single resource from the API and return PullResult with files and raw records.
     /// - Parameter resource: The resource configuration
-    /// - Returns: Array of SyncableFile representing the pulled data
-    public func pull(resource: ResourceConfig) async throws -> [SyncableFile] {
+    /// - Returns: PullResult containing files and raw API records
+    public func pull(resource: ResourceConfig) async throws -> PullResult {
         guard let pullConfig = resource.pull else {
             throw AdapterError.noPullConfig(resource.name)
         }
@@ -77,18 +93,33 @@ public actor AdapterEngine {
         // Convert to files based on mapping strategy
         let files = try mapToFiles(records: transformed, resource: resource)
 
+        // Build raw records mapping keyed by file path
+        var rawRecordsByFile: [String: [[String: Any]]] = [:]
+        if resource.fileMapping.strategy == .collection {
+            // Collection: all raw records map to the single file
+            if let firstFile = files.first {
+                rawRecordsByFile[firstFile.relativePath] = records
+            }
+        } else {
+            // One-per-record: each raw record maps to its corresponding file
+            for (index, file) in files.enumerated() where index < records.count {
+                rawRecordsByFile[file.relativePath] = [records[index]]
+            }
+        }
+
         // Pull children recursively
         var allFiles = files
         if let children = resource.children {
             for child in children {
                 for parentRecord in transformed {
-                    let childFiles = try await pullChild(child, parentRecord: parentRecord)
-                    allFiles.append(contentsOf: childFiles)
+                    let childResult = try await pullChild(child, parentRecord: parentRecord)
+                    allFiles.append(contentsOf: childResult.files)
+                    rawRecordsByFile.merge(childResult.rawRecordsByFile) { _, new in new }
                 }
             }
         }
 
-        return allFiles
+        return PullResult(files: allFiles, rawRecordsByFile: rawRecordsByFile)
     }
 
     // MARK: - Push
@@ -424,7 +455,7 @@ public actor AdapterEngine {
     // MARK: - Private — Children
 
     /// Pull a child resource using a parent record's data for template resolution.
-    private func pullChild(_ child: ResourceConfig, parentRecord: [String: Any]) async throws -> [SyncableFile] {
+    private func pullChild(_ child: ResourceConfig, parentRecord: [String: Any]) async throws -> PullResult {
         guard var pullConfig = child.pull else {
             throw AdapterError.noPullConfig(child.name)
         }
@@ -456,7 +487,21 @@ public actor AdapterEngine {
         let transforms = child.fileMapping.transforms?.pull ?? []
         let transformed = transforms.isEmpty ? records : TransformPipeline.apply(transforms, to: records)
 
-        return try mapToFiles(records: transformed, resource: child)
+        let files = try mapToFiles(records: transformed, resource: child)
+
+        // Build raw records mapping
+        var rawRecordsByFile: [String: [[String: Any]]] = [:]
+        if child.fileMapping.strategy == .collection {
+            if let firstFile = files.first {
+                rawRecordsByFile[firstFile.relativePath] = records
+            }
+        } else {
+            for (index, file) in files.enumerated() where index < records.count {
+                rawRecordsByFile[file.relativePath] = [records[index]]
+            }
+        }
+
+        return PullResult(files: files, rawRecordsByFile: rawRecordsByFile)
     }
 
     // MARK: - Private — URL Resolution

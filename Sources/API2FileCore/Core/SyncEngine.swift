@@ -13,6 +13,7 @@ public actor SyncEngine {
     private var syncStates: [String: SyncState] = [:]
     private var serviceInfos: [String: ServiceInfo] = [:]
     private var lastKnownRecords: [String: [[String: Any]]] = [:]
+    private var suppressedPaths: Set<String> = []
     private var historyLogs: [String: SyncHistoryLog] = [:]
     private var _notificationManager: NotificationManager?
     private var notificationManager: NotificationManager {
@@ -242,13 +243,36 @@ public actor SyncEngine {
         let startTime = Date()
 
         do {
-            let files = try await engine.pullAll()
+            let pullResult = try await engine.pullAll()
+            let files = pullResult.files
 
             // Write files to disk
             for file in files {
                 let filePath = serviceDir.appendingPathComponent(file.relativePath)
                 try FileManager.default.createDirectory(at: filePath.deletingLastPathComponent(), withIntermediateDirectories: true)
+
+                // Suppress file watcher for user files we're about to write
+                suppressedPaths.insert(file.relativePath)
                 try file.content.write(to: filePath, options: .atomic)
+
+                // Write object file with raw API records
+                if let rawRecords = pullResult.rawRecordsByFile[file.relativePath],
+                   let resource = findResource(for: file.relativePath, in: engine.config) {
+                    let objectPath = ObjectFileManager.objectFilePath(
+                        forUserFile: file.relativePath,
+                        strategy: resource.fileMapping.strategy
+                    )
+                    let objectURL = serviceDir.appendingPathComponent(objectPath)
+                    suppressedPaths.insert(objectPath)
+
+                    if resource.fileMapping.strategy == .onePerRecord {
+                        if let record = rawRecords.first {
+                            try ObjectFileManager.writeRecordObjectFile(record: record, to: objectURL)
+                        }
+                    } else {
+                        try ObjectFileManager.writeCollectionObjectFile(records: rawRecords, to: objectURL)
+                    }
+                }
 
                 // Cache decoded records for collection-strategy files (for diffing on push)
                 if let resource = findResource(for: file.relativePath, in: engine.config),
@@ -326,7 +350,7 @@ public actor SyncEngine {
         guard let resource = findResource(for: filePath, in: engine.config) else { return }
 
         // Skip read-only resources
-        if resource.fileMapping.readOnly == true { return }
+        if resource.fileMapping.effectivePushMode == .readOnly { return }
 
         // Skip if file was deleted or is a directory
         var isDir: ObjCBool = false
@@ -427,8 +451,22 @@ public actor SyncEngine {
             // Skip internal and temp files
             if filePath.hasPrefix(".api2file/") || filePath.hasPrefix(".git/") { continue }
             if filePath == "CLAUDE.md" { continue }
-            if filePath.hasPrefix(".") { continue } // .DS_Store, .dat.nosync*, etc.
             if filePath.contains("~$") { continue } // Office temp files
+
+            // Skip suppressed paths (written by pull or regeneration — prevents loops)
+            if suppressedPaths.remove(filePath) != nil { continue }
+
+            // Check if this is an object file change (agent editing raw records)
+            if ObjectFileManager.isObjectFile(filePath) {
+                Task { [weak self] in
+                    guard let self else { return }
+                    await self.performObjectPush(serviceId: serviceId, objectFilePath: filePath)
+                }
+                continue
+            }
+
+            // Skip other hidden files (.DS_Store, etc.) — but not object files (handled above)
+            if filePath.hasPrefix(".") || filePath.contains("/.") { continue }
 
             Task {
                 await coordinator.queuePush(serviceId: serviceId, filePath: filePath)
@@ -465,6 +503,7 @@ public actor SyncEngine {
     // MARK: - Collection Diff Push
 
     /// Smart push for collection files: diff old vs new records, push only changes.
+    /// Applies inverse transforms when the resource uses auto-reverse pushMode.
     /// Returns the diff result (nil if no changes).
     @discardableResult
     private func pushCollectionDiff(
@@ -496,14 +535,51 @@ public actor SyncEngine {
 
         print("[SyncEngine] Collection diff for \(filePath): \(diff.summary)")
 
-        // Push creates
-        for record in diff.created {
-            try await engine.pushRecord(record, resource: resource, action: .create)
+        // Load raw records from object file for inverse transforms
+        let serviceDir = syncFolder.appendingPathComponent(serviceId)
+        let objectPath = ObjectFileManager.objectFilePath(forUserFile: filePath, strategy: .collection)
+        let objectURL = serviceDir.appendingPathComponent(objectPath)
+        let rawRecords: [[String: Any]]? = try? ObjectFileManager.readCollectionObjectFile(from: objectURL)
+
+        // Compute inverse transforms if needed
+        let pullTransforms = resource.fileMapping.transforms?.pull ?? []
+        let inverseOps = pullTransforms.isEmpty ? [] : InverseTransformPipeline.computeInverse(of: pullTransforms)
+        let shouldInverse = resource.fileMapping.effectivePushMode == .autoReverse && !inverseOps.isEmpty
+
+        // Build raw record lookup by ID for merging
+        var rawLookup: [String: [String: Any]] = [:]
+        if shouldInverse, let rawRecords {
+            for raw in rawRecords {
+                if let id = raw[idField] as? String {
+                    rawLookup[id] = raw
+                } else if let id = raw[idField] as? Int {
+                    rawLookup["\(id)"] = raw
+                }
+            }
         }
 
-        // Push updates
+        // Push creates
+        for record in diff.created {
+            let pushRecord: [String: Any]
+            if shouldInverse {
+                pushRecord = InverseTransformPipeline.applyMechanical(inverseOps: inverseOps, editedRecord: record)
+            } else {
+                pushRecord = record
+            }
+            try await engine.pushRecord(pushRecord, resource: resource, action: .create)
+        }
+
+        // Push updates (with inverse transform merging)
         for (id, record) in diff.updated {
-            try await engine.pushRecord(record, resource: resource, action: .update(id: id))
+            let pushRecord: [String: Any]
+            if shouldInverse, let rawRecord = rawLookup[id] {
+                pushRecord = InverseTransformPipeline.apply(inverseOps: inverseOps, editedRecord: record, rawRecord: rawRecord)
+            } else if shouldInverse {
+                pushRecord = InverseTransformPipeline.applyMechanical(inverseOps: inverseOps, editedRecord: record)
+            } else {
+                pushRecord = record
+            }
+            try await engine.pushRecord(pushRecord, resource: resource, action: .update(id: id))
         }
 
         // Push deletes
@@ -511,10 +587,126 @@ public actor SyncEngine {
             try await engine.delete(remoteId: id, resource: resource)
         }
 
-        // Update cache with new records
+        // Update caches
         lastKnownRecords[cacheKey] = newRecords
 
+        // Update object file with current state
+        if shouldInverse || rawRecords != nil {
+            // Re-build raw records: apply inverse to all current records
+            var updatedRawRecords: [[String: Any]] = []
+            for record in newRecords {
+                let recordId: String?
+                if let id = record[idField] as? String { recordId = id }
+                else if let id = record[idField] as? Int { recordId = "\(id)" }
+                else { recordId = nil }
+
+                if shouldInverse, let rid = recordId, let rawRecord = rawLookup[rid] {
+                    updatedRawRecords.append(InverseTransformPipeline.apply(inverseOps: inverseOps, editedRecord: record, rawRecord: rawRecord))
+                } else if shouldInverse {
+                    updatedRawRecords.append(InverseTransformPipeline.applyMechanical(inverseOps: inverseOps, editedRecord: record))
+                } else {
+                    updatedRawRecords.append(record)
+                }
+            }
+            suppressedPaths.insert(objectPath)
+            try? ObjectFileManager.writeCollectionObjectFile(records: updatedRawRecords, to: objectURL)
+        }
+
         return diff
+    }
+
+    // MARK: - Object File Push (Agent edits raw records)
+
+    /// Handle an agent editing an object file — push raw records to API, regenerate user file.
+    private func performObjectPush(serviceId: String, objectFilePath: String) async {
+        guard let engine = adapterEngines[serviceId] else { return }
+        let serviceDir = syncFolder.appendingPathComponent(serviceId)
+        let objectURL = serviceDir.appendingPathComponent(objectFilePath)
+
+        do {
+            // Find which resource this object file belongs to
+            guard let (resource, userFilePath) = findResourceForObjectFile(objectFilePath, in: engine.config) else {
+                print("[SyncEngine] No resource found for object file: \(objectFilePath)")
+                return
+            }
+
+            // Skip read-only resources
+            if resource.fileMapping.effectivePushMode == .readOnly { return }
+
+            let idField = resource.fileMapping.idField ?? "id"
+
+            if resource.fileMapping.strategy == .onePerRecord {
+                // One-per-record: read single record, push it
+                let record = try ObjectFileManager.readRecordObjectFile(from: objectURL)
+                let recordId: String?
+                if let id = record[idField] as? String { recordId = id }
+                else if let id = record[idField] as? Int { recordId = "\(id)" }
+                else { recordId = nil }
+
+                if let id = recordId {
+                    try await engine.pushRecord(record, resource: resource, action: .update(id: id))
+                } else {
+                    try await engine.pushRecord(record, resource: resource, action: .create)
+                }
+            } else {
+                // Collection: read all records, diff and push
+                let rawRecords = try ObjectFileManager.readCollectionObjectFile(from: objectURL)
+                let cacheKey = "\(serviceId):\(userFilePath)"
+                let oldRaw = lastKnownRecords[cacheKey] ?? []
+
+                let diff = CollectionDiffer.diff(old: oldRaw, new: rawRecords, idField: idField)
+                if !diff.isEmpty {
+                    for record in diff.created {
+                        try await engine.pushRecord(record, resource: resource, action: .create)
+                    }
+                    for (id, record) in diff.updated {
+                        try await engine.pushRecord(record, resource: resource, action: .update(id: id))
+                    }
+                    for id in diff.deleted {
+                        try await engine.delete(remoteId: id, resource: resource)
+                    }
+                }
+            }
+
+            // Regenerate user file from raw records by applying pull transforms
+            let pullTransforms = resource.fileMapping.transforms?.pull ?? []
+            let rawRecords: [[String: Any]]
+            if resource.fileMapping.strategy == .onePerRecord {
+                rawRecords = [try ObjectFileManager.readRecordObjectFile(from: objectURL)]
+            } else {
+                rawRecords = try ObjectFileManager.readCollectionObjectFile(from: objectURL)
+            }
+            let transformed = pullTransforms.isEmpty ? rawRecords : TransformPipeline.apply(pullTransforms, to: rawRecords)
+
+            // Encode and write the user file
+            let format = resource.fileMapping.format
+            let encoded = try FormatConverterFactory.encode(records: transformed, format: format, options: resource.fileMapping.formatOptions)
+            let userFileURL = serviceDir.appendingPathComponent(userFilePath)
+            suppressedPaths.insert(userFilePath)
+            try encoded.write(to: userFileURL, options: .atomic)
+
+            // Update lastKnownRecords cache
+            lastKnownRecords["\(serviceId):\(userFilePath)"] = transformed
+
+            print("[SyncEngine] Object file push: \(objectFilePath) → regenerated \(userFilePath)")
+
+        } catch {
+            print("[SyncEngine] Object file push failed for \(objectFilePath): \(error)")
+        }
+    }
+
+    /// Find the resource and user file path for a given object file path.
+    private func findResourceForObjectFile(_ objectPath: String, in config: AdapterConfig) -> (ResourceConfig, String)? {
+        for resource in config.resources {
+            let format = resource.fileMapping.format
+            if let userPath = ObjectFileManager.userFilePath(forObjectFile: objectPath, strategy: resource.fileMapping.strategy, format: format) {
+                // Verify this user path matches the resource
+                if findResource(for: userPath, in: config) != nil {
+                    return (resource, userPath)
+                }
+            }
+        }
+        return nil
     }
 
     // MARK: - Helpers

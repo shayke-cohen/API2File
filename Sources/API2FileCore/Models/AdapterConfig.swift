@@ -195,8 +195,9 @@ public struct FileMappingConfig: Codable, Sendable {
     public let readOnly: Bool?
     public let preserveExtension: Bool?
     public let transforms: TransformConfig?
+    public let pushMode: PushMode?
 
-    public init(strategy: MappingStrategy, directory: String, filename: String? = nil, format: FileFormat = .json, formatOptions: FormatOptions? = nil, idField: String? = nil, contentField: String? = nil, readOnly: Bool? = nil, preserveExtension: Bool? = nil, transforms: TransformConfig? = nil) {
+    public init(strategy: MappingStrategy, directory: String, filename: String? = nil, format: FileFormat = .json, formatOptions: FormatOptions? = nil, idField: String? = nil, contentField: String? = nil, readOnly: Bool? = nil, preserveExtension: Bool? = nil, transforms: TransformConfig? = nil, pushMode: PushMode? = nil) {
         self.strategy = strategy
         self.directory = directory
         self.filename = filename
@@ -207,7 +208,35 @@ public struct FileMappingConfig: Codable, Sendable {
         self.readOnly = readOnly
         self.preserveExtension = preserveExtension
         self.transforms = transforms
+        self.pushMode = pushMode
     }
+
+    /// Resolve the effective push mode based on config and transforms.
+    public var effectivePushMode: PushMode {
+        // Explicit pushMode takes priority
+        if let mode = pushMode { return mode }
+        // readOnly flag
+        if readOnly == true { return .readOnly }
+        // Auto-detect based on transforms and idField
+        let hasPullTransforms = !(transforms?.pull?.isEmpty ?? true)
+        if hasPullTransforms {
+            return idField != nil ? .autoReverse : .readOnly
+        }
+        // No pull transforms — push works as-is
+        return .passthrough
+    }
+}
+
+/// Push mode for a resource — determines how file edits are transformed before pushing to API.
+public enum PushMode: String, Codable, Sendable {
+    /// System auto-computes inverse of pull transforms
+    case autoReverse = "auto-reverse"
+    /// No push allowed
+    case readOnly = "read-only"
+    /// Use explicit push transforms defined in config
+    case custom
+    /// No transforms needed — push file data as-is
+    case passthrough
 }
 
 public enum MappingStrategy: String, Codable, Sendable {

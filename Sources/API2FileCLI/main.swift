@@ -561,16 +561,16 @@ func commandPull(serviceName: String?) {
                 }
 
                 let engine = AdapterEngine(config: adapterConfig, serviceDir: serviceDir, httpClient: httpClient)
-                let files = try await engine.pullAll()
+                let pullResult = try await engine.pullAll()
 
                 // Write files to disk
-                for file in files {
+                for file in pullResult.files {
                     let filePath = serviceDir.appendingPathComponent(file.relativePath)
                     try FileManager.default.createDirectory(at: filePath.deletingLastPathComponent(), withIntermediateDirectories: true)
                     try file.content.write(to: filePath, options: .atomic)
                 }
 
-                printSuccess("  \u{2713} \(adapterConfig.displayName) — pulled \(files.count) file(s)")
+                printSuccess("  \u{2713} \(adapterConfig.displayName) — pulled \(pullResult.files.count) file(s)")
 
             } catch {
                 printError("  \u{2717} \(serviceId) — \(error.localizedDescription)")
