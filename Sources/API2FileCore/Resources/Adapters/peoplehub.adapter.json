@@ -1,0 +1,100 @@
+{
+  "service": "peoplehub",
+  "displayName": "PeopleHub — CRM & Contacts",
+  "version": "1.0",
+
+  "auth": {
+    "type": "bearer",
+    "keychainKey": "api2file.peoplehub.key",
+    "setup": {
+      "instructions": "Demo adapter — uses local DemoAPIServer. No real auth needed."
+    }
+  },
+
+  "globals": {
+    "baseUrl": "http://localhost:8089",
+    "headers": {
+      "Content-Type": "application/json"
+    }
+  },
+
+  "resources": [
+    {
+      "name": "contacts",
+      "description": "Contact cards — double-click to open in Contacts.app",
+
+      "pull": {
+        "method": "GET",
+        "url": "http://localhost:8089/api/contacts",
+        "dataPath": "$"
+      },
+
+      "push": {
+        "create": {
+          "method": "POST",
+          "url": "http://localhost:8089/api/contacts"
+        },
+        "update": {
+          "method": "PUT",
+          "url": "http://localhost:8089/api/contacts/{id}"
+        },
+        "delete": {
+          "method": "DELETE",
+          "url": "http://localhost:8089/api/contacts/{id}"
+        }
+      },
+
+      "fileMapping": {
+        "strategy": "one-per-record",
+        "directory": "contacts",
+        "filename": "{firstName|slugify}-{lastName|slugify}.vcf",
+        "format": "vcf",
+        "idField": "id"
+      },
+
+      "sync": {
+        "interval": 20,
+        "debounceMs": 500
+      }
+    },
+    {
+      "name": "notes",
+      "description": "Meeting notes and memos as Markdown files",
+
+      "pull": {
+        "method": "GET",
+        "url": "http://localhost:8089/api/notes",
+        "dataPath": "$"
+      },
+
+      "push": {
+        "create": {
+          "method": "POST",
+          "url": "http://localhost:8089/api/notes"
+        },
+        "update": {
+          "method": "PUT",
+          "url": "http://localhost:8089/api/notes/{id}"
+        },
+        "delete": {
+          "method": "DELETE",
+          "url": "http://localhost:8089/api/notes/{id}"
+        }
+      },
+
+      "fileMapping": {
+        "strategy": "one-per-record",
+        "directory": "notes",
+        "filename": "{title|slugify}.md",
+        "format": "md",
+        "idField": "id",
+        "contentField": "content"
+      },
+
+      "sync": {
+        "interval": 20,
+        "debounceMs": 500
+      }
+    }
+  ]
+}

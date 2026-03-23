@@ -1,0 +1,99 @@
+{
+  "service": "calsync",
+  "displayName": "CalSync — Calendar & Scheduling",
+  "version": "1.0",
+
+  "auth": {
+    "type": "bearer",
+    "keychainKey": "api2file.calsync.key",
+    "setup": {
+      "instructions": "Demo adapter — uses local DemoAPIServer. No real auth needed."
+    }
+  },
+
+  "globals": {
+    "baseUrl": "http://localhost:8089",
+    "headers": {
+      "Content-Type": "application/json"
+    }
+  },
+
+  "resources": [
+    {
+      "name": "events",
+      "description": "Calendar events — double-click to open in Calendar.app",
+
+      "pull": {
+        "method": "GET",
+        "url": "http://localhost:8089/api/events",
+        "dataPath": "$"
+      },
+
+      "push": {
+        "create": {
+          "method": "POST",
+          "url": "http://localhost:8089/api/events"
+        },
+        "update": {
+          "method": "PUT",
+          "url": "http://localhost:8089/api/events/{id}"
+        },
+        "delete": {
+          "method": "DELETE",
+          "url": "http://localhost:8089/api/events/{id}"
+        }
+      },
+
+      "fileMapping": {
+        "strategy": "collection",
+        "directory": ".",
+        "filename": "calendar.ics",
+        "format": "ics",
+        "idField": "id"
+      },
+
+      "sync": {
+        "interval": 10,
+        "debounceMs": 500
+      }
+    },
+    {
+      "name": "action-items",
+      "description": "Tasks as action items — opens in Numbers",
+
+      "pull": {
+        "method": "GET",
+        "url": "http://localhost:8089/api/tasks",
+        "dataPath": "$"
+      },
+
+      "push": {
+        "create": {
+          "method": "POST",
+          "url": "http://localhost:8089/api/tasks"
+        },
+        "update": {
+          "method": "PUT",
+          "url": "http://localhost:8089/api/tasks/{id}"
+        },
+        "delete": {
+          "method": "DELETE",
+          "url": "http://localhost:8089/api/tasks/{id}"
+        }
+      },
+
+      "fileMapping": {
+        "strategy": "collection",
+        "directory": ".",
+        "filename": "action-items.csv",
+        "format": "csv",
+        "idField": "id"
+      },
+
+      "sync": {
+        "interval": 10,
+        "debounceMs": 500
+      }
+    }
+  ]
+}

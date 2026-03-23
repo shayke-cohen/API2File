@@ -16,6 +16,8 @@ public actor DemoAPIServer {
     private var notes: [DemoNote] = []
     private var pages: [DemoPage] = []
     private var config: DemoConfig = DemoConfig.seed
+    private var services: [DemoService] = []
+    private var incidents: [DemoIncident] = []
 
     // Auto-increment counters
     private var nextTaskId: Int = 1
@@ -23,6 +25,8 @@ public actor DemoAPIServer {
     private var nextEventId: Int = 1
     private var nextNoteId: Int = 1
     private var nextPageId: Int = 1
+    private var nextServiceId: Int = 1
+    private var nextIncidentId: Int = 1
 
     public init(port: UInt16 = 8089) {
         self.port = port
@@ -38,6 +42,10 @@ public actor DemoAPIServer {
         self.pages = DemoPage.seedData
         self.nextPageId = 3
         self.config = DemoConfig.seed
+        self.services = DemoService.seedData
+        self.nextServiceId = 4
+        self.incidents = DemoIncident.seedData
+        self.nextIncidentId = 5
     }
 
     private func seedAll() {
@@ -57,6 +65,12 @@ public actor DemoAPIServer {
         nextPageId = (pages.map(\.id).max() ?? 0) + 1
 
         config = DemoConfig.seed
+
+        services = DemoService.seedData
+        nextServiceId = (services.map(\.id).max() ?? 0) + 1
+
+        incidents = DemoIncident.seedData
+        nextIncidentId = (incidents.map(\.id).max() ?? 0) + 1
     }
 
     // MARK: - Lifecycle
@@ -86,6 +100,10 @@ public actor DemoAPIServer {
                 print("[DemoAPI]   GET/POST       /api/pages         — pages (HTML)")
                 print("[DemoAPI]   GET/PUT/DELETE  /api/pages/:id")
                 print("[DemoAPI]   GET/PUT         /api/config        — settings (JSON)")
+                print("[DemoAPI]   GET/POST       /api/services      — services (JSON)")
+                print("[DemoAPI]   GET/PUT/DELETE  /api/services/:id")
+                print("[DemoAPI]   GET/POST       /api/incidents     — incidents (CSV)")
+                print("[DemoAPI]   GET/PUT/DELETE  /api/incidents/:id")
             }
         }
 
@@ -126,6 +144,16 @@ public actor DemoAPIServer {
     /// Get current config (for testing assertions)
     public func getConfig() -> DemoConfig {
         config
+    }
+
+    /// Get current services (for testing assertions)
+    public func getServices() -> [DemoService] {
+        services
+    }
+
+    /// Get current incidents (for testing assertions)
+    public func getIncidents() -> [DemoIncident] {
+        incidents
     }
 
     /// Reset to seed data (for testing)
@@ -193,6 +221,10 @@ public actor DemoAPIServer {
             routePages(method: method, path: path, body: body, connection: connection)
         } else if path == "/api/config" {
             routeConfig(method: method, body: body, connection: connection)
+        } else if path == "/api/services" || path.hasPrefix("/api/services/") {
+            routeServices(method: method, path: path, body: body, connection: connection)
+        } else if path == "/api/incidents" || path.hasPrefix("/api/incidents/") {
+            routeIncidents(method: method, path: path, body: body, connection: connection)
         } else {
             sendJSON(statusCode: 404, body: ["error": "Not Found"], connection: connection)
         }
@@ -539,6 +571,138 @@ public actor DemoAPIServer {
         }
     }
 
+    // MARK: - Services Routes
+
+    private func routeServices(method: String, path: String, body: Data?, connection: NWConnection) {
+        switch (method, path) {
+        case ("GET", "/api/services"):
+            let items = services.map { $0.toDict() }
+            sendJSONArray(statusCode: 200, body: items, connection: connection)
+
+        case ("GET", _):
+            let idStr = String(path.dropFirst("/api/services/".count))
+            if let id = Int(idStr), let item = services.first(where: { $0.id == id }) {
+                sendJSONDict(statusCode: 200, body: item.toDict(), connection: connection)
+            } else {
+                sendJSON(statusCode: 404, body: ["error": "Service not found"], connection: connection)
+            }
+
+        case ("POST", "/api/services"):
+            if let body, let dict = try? JSONSerialization.jsonObject(with: body) as? [String: Any] {
+                let item = DemoService(
+                    id: nextServiceId,
+                    name: dict["name"] as? String ?? "unnamed-service",
+                    status: dict["status"] as? String ?? "healthy",
+                    uptime: dict["uptime"] as? Double ?? 100.0,
+                    lastChecked: dict["lastChecked"] as? String ?? "",
+                    responseTimeMs: dict["responseTimeMs"] as? Int ?? 0,
+                    version: dict["version"] as? String ?? "0.0.1"
+                )
+                nextServiceId += 1
+                services.append(item)
+                sendJSONDict(statusCode: 201, body: item.toDict(), connection: connection)
+            } else {
+                sendJSON(statusCode: 400, body: ["error": "Invalid JSON body"], connection: connection)
+            }
+
+        case ("PUT", _):
+            let idStr = String(path.dropFirst("/api/services/".count))
+            if let id = Int(idStr),
+               let idx = services.firstIndex(where: { $0.id == id }),
+               let body,
+               let dict = try? JSONSerialization.jsonObject(with: body) as? [String: Any] {
+                var item = services[idx]
+                if let v = dict["name"] as? String { item.name = v }
+                if let v = dict["status"] as? String { item.status = v }
+                if let v = dict["uptime"] as? Double { item.uptime = v }
+                if let v = dict["lastChecked"] as? String { item.lastChecked = v }
+                if let v = dict["responseTimeMs"] as? Int { item.responseTimeMs = v }
+                if let v = dict["version"] as? String { item.version = v }
+                services[idx] = item
+                sendJSONDict(statusCode: 200, body: item.toDict(), connection: connection)
+            } else {
+                sendJSON(statusCode: 404, body: ["error": "Service not found"], connection: connection)
+            }
+
+        case ("DELETE", _):
+            let idStr = String(path.dropFirst("/api/services/".count))
+            if let id = Int(idStr), let idx = services.firstIndex(where: { $0.id == id }) {
+                services.remove(at: idx)
+                sendJSON(statusCode: 200, body: ["deleted": "\(id)"], connection: connection)
+            } else {
+                sendJSON(statusCode: 404, body: ["error": "Service not found"], connection: connection)
+            }
+
+        default:
+            sendJSON(statusCode: 404, body: ["error": "Not Found"], connection: connection)
+        }
+    }
+
+    // MARK: - Incidents Routes
+
+    private func routeIncidents(method: String, path: String, body: Data?, connection: NWConnection) {
+        switch (method, path) {
+        case ("GET", "/api/incidents"):
+            let items = incidents.map { $0.toDict() }
+            sendJSONArray(statusCode: 200, body: items, connection: connection)
+
+        case ("GET", _):
+            let idStr = String(path.dropFirst("/api/incidents/".count))
+            if let id = Int(idStr), let item = incidents.first(where: { $0.id == id }) {
+                sendJSONDict(statusCode: 200, body: item.toDict(), connection: connection)
+            } else {
+                sendJSON(statusCode: 404, body: ["error": "Incident not found"], connection: connection)
+            }
+
+        case ("POST", "/api/incidents"):
+            if let body, let dict = try? JSONSerialization.jsonObject(with: body) as? [String: Any] {
+                let item = DemoIncident(
+                    id: nextIncidentId,
+                    timestamp: dict["timestamp"] as? String ?? "",
+                    severity: dict["severity"] as? String ?? "info",
+                    service: dict["service"] as? String ?? "",
+                    message: dict["message"] as? String ?? "",
+                    resolved: dict["resolved"] as? Bool ?? false
+                )
+                nextIncidentId += 1
+                incidents.append(item)
+                sendJSONDict(statusCode: 201, body: item.toDict(), connection: connection)
+            } else {
+                sendJSON(statusCode: 400, body: ["error": "Invalid JSON body"], connection: connection)
+            }
+
+        case ("PUT", _):
+            let idStr = String(path.dropFirst("/api/incidents/".count))
+            if let id = Int(idStr),
+               let idx = incidents.firstIndex(where: { $0.id == id }),
+               let body,
+               let dict = try? JSONSerialization.jsonObject(with: body) as? [String: Any] {
+                var item = incidents[idx]
+                if let v = dict["timestamp"] as? String { item.timestamp = v }
+                if let v = dict["severity"] as? String { item.severity = v }
+                if let v = dict["service"] as? String { item.service = v }
+                if let v = dict["message"] as? String { item.message = v }
+                if let v = dict["resolved"] as? Bool { item.resolved = v }
+                incidents[idx] = item
+                sendJSONDict(statusCode: 200, body: item.toDict(), connection: connection)
+            } else {
+                sendJSON(statusCode: 404, body: ["error": "Incident not found"], connection: connection)
+            }
+
+        case ("DELETE", _):
+            let idStr = String(path.dropFirst("/api/incidents/".count))
+            if let id = Int(idStr), let idx = incidents.firstIndex(where: { $0.id == id }) {
+                incidents.remove(at: idx)
+                sendJSON(statusCode: 200, body: ["deleted": "\(id)"], connection: connection)
+            } else {
+                sendJSON(statusCode: 404, body: ["error": "Incident not found"], connection: connection)
+            }
+
+        default:
+            sendJSON(statusCode: 404, body: ["error": "Not Found"], connection: connection)
+        }
+    }
+
     // MARK: - HTTP Helpers
 
     private func parseHTTPRequest(_ data: Data) -> (method: String, path: String, body: Data?)? {
@@ -723,6 +887,50 @@ public struct DemoConfig: Codable, Sendable {
         timezone: "America/New_York",
         notifications: true
     )
+}
+
+// MARK: - Demo Service Model
+
+public struct DemoService: Codable, Sendable {
+    public var id: Int
+    public var name: String
+    public var status: String      // healthy, degraded, down
+    public var uptime: Double      // percentage, e.g. 99.95
+    public var lastChecked: String // ISO 8601
+    public var responseTimeMs: Int
+    public var version: String
+
+    public func toDict() -> [String: Any] {
+        ["id": id, "name": name, "status": status, "uptime": uptime, "lastChecked": lastChecked, "responseTimeMs": responseTimeMs, "version": version]
+    }
+
+    static let seedData: [DemoService] = [
+        DemoService(id: 1, name: "auth-service", status: "healthy", uptime: 99.99, lastChecked: "2026-03-23T10:30:00Z", responseTimeMs: 45, version: "3.2.1"),
+        DemoService(id: 2, name: "payment-api", status: "degraded", uptime: 98.50, lastChecked: "2026-03-23T10:30:00Z", responseTimeMs: 320, version: "2.0.4"),
+        DemoService(id: 3, name: "search-index", status: "healthy", uptime: 99.95, lastChecked: "2026-03-23T10:30:00Z", responseTimeMs: 12, version: "1.8.0"),
+    ]
+}
+
+// MARK: - Demo Incident Model
+
+public struct DemoIncident: Codable, Sendable {
+    public var id: Int
+    public var timestamp: String   // ISO 8601
+    public var severity: String    // info, warning, critical
+    public var service: String
+    public var message: String
+    public var resolved: Bool
+
+    public func toDict() -> [String: Any] {
+        ["id": id, "timestamp": timestamp, "severity": severity, "service": service, "message": message, "resolved": resolved]
+    }
+
+    static let seedData: [DemoIncident] = [
+        DemoIncident(id: 1, timestamp: "2026-03-23T08:00:00Z", severity: "info", service: "auth-service", message: "Routine key rotation completed", resolved: true),
+        DemoIncident(id: 2, timestamp: "2026-03-23T09:15:00Z", severity: "warning", service: "payment-api", message: "Response time exceeding 300ms threshold", resolved: false),
+        DemoIncident(id: 3, timestamp: "2026-03-23T09:45:00Z", severity: "critical", service: "payment-api", message: "Database connection pool exhausted", resolved: false),
+        DemoIncident(id: 4, timestamp: "2026-03-23T10:00:00Z", severity: "info", service: "search-index", message: "Index rebuild completed successfully", resolved: true),
+    ]
 }
 
 // MARK: - Data Extension

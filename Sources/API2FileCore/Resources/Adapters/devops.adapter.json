@@ -1,0 +1,99 @@
+{
+  "service": "devops",
+  "displayName": "DevOps — Infrastructure Monitoring",
+  "version": "1.0",
+
+  "auth": {
+    "type": "bearer",
+    "keychainKey": "api2file.devops.key",
+    "setup": {
+      "instructions": "Demo adapter — uses local DemoAPIServer. No real auth needed."
+    }
+  },
+
+  "globals": {
+    "baseUrl": "http://localhost:8089",
+    "headers": {
+      "Content-Type": "application/json"
+    }
+  },
+
+  "resources": [
+    {
+      "name": "services",
+      "description": "Microservice health status — one JSON file per service",
+
+      "pull": {
+        "method": "GET",
+        "url": "http://localhost:8089/api/services",
+        "dataPath": "$"
+      },
+
+      "push": {
+        "create": {
+          "method": "POST",
+          "url": "http://localhost:8089/api/services"
+        },
+        "update": {
+          "method": "PUT",
+          "url": "http://localhost:8089/api/services/{id}"
+        },
+        "delete": {
+          "method": "DELETE",
+          "url": "http://localhost:8089/api/services/{id}"
+        }
+      },
+
+      "fileMapping": {
+        "strategy": "one-per-record",
+        "directory": "services",
+        "filename": "{name|slugify}.json",
+        "format": "json",
+        "idField": "id"
+      },
+
+      "sync": {
+        "interval": 10,
+        "debounceMs": 500
+      }
+    },
+    {
+      "name": "incidents",
+      "description": "Operational incidents log — spreadsheet view in Numbers",
+
+      "pull": {
+        "method": "GET",
+        "url": "http://localhost:8089/api/incidents",
+        "dataPath": "$"
+      },
+
+      "push": {
+        "create": {
+          "method": "POST",
+          "url": "http://localhost:8089/api/incidents"
+        },
+        "update": {
+          "method": "PUT",
+          "url": "http://localhost:8089/api/incidents/{id}"
+        },
+        "delete": {
+          "method": "DELETE",
+          "url": "http://localhost:8089/api/incidents/{id}"
+        }
+      },
+
+      "fileMapping": {
+        "strategy": "collection",
+        "directory": ".",
+        "filename": "incidents.csv",
+        "format": "csv",
+        "idField": "id"
+      },
+
+      "sync": {
+        "interval": 10,
+        "debounceMs": 500
+      }
+    }
+  ]
+}

@@ -95,14 +95,99 @@ cat ~/API2File/CLAUDE.md
 cat ~/API2File/demo/CLAUDE.md
 ```
 
+## Full Showcase (5 Demo Adapters)
+
+The showcase sets up 5 themed adapters, each simulating a real-world service with different file formats.
+
+### 1. Build and start the demo server
+
+```bash
+swift build
+swift run api2file-demo
+```
+
+### 2. Set up all 5 adapters
+
+In another terminal:
+```bash
+./scripts/demo-all-setup.sh
+```
+
+This creates 5 service directories under `~/API2File/`:
+
+| Service | Simulates | Formats |
+|---|---|---|
+| `teamboard/` | Project management | CSV + YAML |
+| `peoplehub/` | CRM & contacts | VCF + Markdown |
+| `calsync/` | Calendar | ICS + CSV |
+| `pagecraft/` | CMS / website | HTML + Markdown + JSON |
+| `devops/` | Infrastructure | JSON + CSV |
+
+### 3. Test each adapter
+
+**TeamBoard** (CSV + YAML):
+```bash
+curl -s http://localhost:8089/api/tasks | jq .
+curl -s http://localhost:8089/api/config | jq .
+```
+
+**PeopleHub** (VCF + Markdown):
+```bash
+curl -s http://localhost:8089/api/contacts | jq .
+curl -s http://localhost:8089/api/notes | jq .
+```
+
+**CalSync** (ICS + CSV):
+```bash
+curl -s http://localhost:8089/api/events | jq .
+# After sync: open ~/API2File/calsync/calendar.ics  → Calendar.app
+```
+
+**PageCraft** (HTML + Markdown + JSON):
+```bash
+curl -s http://localhost:8089/api/pages | jq .
+# After sync: open ~/API2File/pagecraft/pages/home.html  → Safari
+```
+
+**DevOps** (JSON + CSV):
+```bash
+# Services — one JSON file per microservice
+curl -s http://localhost:8089/api/services | jq .
+
+# Incidents — CSV spreadsheet
+curl -s http://localhost:8089/api/incidents | jq .
+```
+
+### 4. Native app integration
+
+After a sync cycle, try opening files in their native macOS apps:
+```bash
+open ~/API2File/calsync/calendar.ics           # Calendar.app
+open ~/API2File/peoplehub/contacts/             # VCF files → Contacts.app
+open ~/API2File/teamboard/tasks.csv             # Numbers
+open ~/API2File/pagecraft/pages/home.html       # Safari
+open ~/API2File/devops/incidents.csv            # Numbers
+```
+
+### 5. Clean up
+
+```bash
+rm -rf ~/API2File/teamboard ~/API2File/peoplehub ~/API2File/calsync ~/API2File/pagecraft ~/API2File/devops
+```
+
+---
+
 ## Running Tests
 
 ```bash
-# All tests (184+)
+# All tests (284+)
 swift test
 
 # Just the E2E tests with demo server
 swift test --filter DemoServerE2E
+
+# Just adapter config parsing tests
+swift test --filter DemoAdapterConfig
 
 # Just unit tests
 swift test --filter "FormatConverter|TransformPipeline|Template|JSONPath|Keychain|HTTPClient|AdapterConfig|SyncState|GitManager|AgentGuide|SyncCoordinator"

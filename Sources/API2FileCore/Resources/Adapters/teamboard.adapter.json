@@ -1,0 +1,91 @@
+{
+  "service": "teamboard",
+  "displayName": "TeamBoard — Project Management",
+  "version": "1.0",
+
+  "auth": {
+    "type": "bearer",
+    "keychainKey": "api2file.teamboard.key",
+    "setup": {
+      "instructions": "Demo adapter — uses local DemoAPIServer. No real auth needed."
+    }
+  },
+
+  "globals": {
+    "baseUrl": "http://localhost:8089",
+    "headers": {
+      "Content-Type": "application/json"
+    }
+  },
+
+  "resources": [
+    {
+      "name": "tasks",
+      "description": "Project tasks — opens in Numbers/Excel as a spreadsheet",
+
+      "pull": {
+        "method": "GET",
+        "url": "http://localhost:8089/api/tasks",
+        "dataPath": "$"
+      },
+
+      "push": {
+        "create": {
+          "method": "POST",
+          "url": "http://localhost:8089/api/tasks"
+        },
+        "update": {
+          "method": "PUT",
+          "url": "http://localhost:8089/api/tasks/{id}"
+        },
+        "delete": {
+          "method": "DELETE",
+          "url": "http://localhost:8089/api/tasks/{id}"
+        }
+      },
+
+      "fileMapping": {
+        "strategy": "collection",
+        "directory": ".",
+        "filename": "tasks.csv",
+        "format": "csv",
+        "idField": "id"
+      },
+
+      "sync": {
+        "interval": 15,
+        "debounceMs": 500
+      }
+    },
+    {
+      "name": "config",
+      "description": "Project settings as YAML",
+
+      "pull": {
+        "method": "GET",
+        "url": "http://localhost:8089/api/config",
+        "dataPath": "$"
+      },
+
+      "push": {
+        "update": {
+          "method": "PUT",
+          "url": "http://localhost:8089/api/config"
+        }
+      },
+
+      "fileMapping": {
+        "strategy": "collection",
+        "directory": ".",
+        "filename": "settings.yaml",
+        "format": "yaml",
+        "idField": "id"
+      },
+
+      "sync": {
+        "interval": 15,
+        "debounceMs": 500
+      }
+    }
+  ]
+}

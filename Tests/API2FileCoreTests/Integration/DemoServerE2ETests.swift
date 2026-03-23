@@ -417,6 +417,178 @@ final class DemoServerE2ETests: XCTestCase {
         XCTAssertNotNil(rePulledNewTask, "New task should appear in re-pulled CSV")
     }
 
+    // MARK: - Test: Services CRUD (DevOps adapter)
+
+    func testPullServicesFromDemoServer() async throws {
+        let client = makeClient()
+        let request = APIRequest(method: .GET, url: "\(baseURL)/api/services")
+        let response = try await client.request(request)
+        XCTAssertEqual(response.statusCode, 200)
+
+        let json = try JSONSerialization.jsonObject(with: response.body)
+        guard let services = json as? [[String: Any]] else {
+            XCTFail("Expected array of services"); return
+        }
+        XCTAssertEqual(services.count, 3, "Should have 3 seed services")
+
+        let auth = services.first(where: { ($0["name"] as? String) == "auth-service" })
+        XCTAssertNotNil(auth)
+        XCTAssertEqual(auth?["status"] as? String, "healthy")
+        XCTAssertEqual(auth?["version"] as? String, "3.2.1")
+
+        let payment = services.first(where: { ($0["name"] as? String) == "payment-api" })
+        XCTAssertNotNil(payment)
+        XCTAssertEqual(payment?["status"] as? String, "degraded")
+    }
+
+    func testCreateServiceViaAPI() async throws {
+        let client = makeClient()
+
+        let newService: [String: Any] = [
+            "name": "email-gateway",
+            "status": "healthy",
+            "uptime": 99.9,
+            "lastChecked": "2026-03-23T11:00:00Z",
+            "responseTimeMs": 80,
+            "version": "1.0.0"
+        ]
+        let body = try JSONSerialization.data(withJSONObject: newService)
+        let createRequest = APIRequest(
+            method: .POST,
+            url: "\(baseURL)/api/services",
+            headers: ["Content-Type": "application/json"],
+            body: body
+        )
+        let createResponse = try await client.request(createRequest)
+        XCTAssertEqual(createResponse.statusCode, 201)
+
+        let created = try JSONSerialization.jsonObject(with: createResponse.body) as? [String: Any]
+        XCTAssertEqual(created?["name"] as? String, "email-gateway")
+
+        // Verify 4 services now
+        let listRequest = APIRequest(method: .GET, url: "\(baseURL)/api/services")
+        let listResponse = try await client.request(listRequest)
+        let all = try JSONSerialization.jsonObject(with: listResponse.body) as? [[String: Any]]
+        XCTAssertEqual(all?.count, 4)
+    }
+
+    func testUpdateServiceViaAPI() async throws {
+        let client = makeClient()
+
+        let update: [String: Any] = ["status": "healthy", "responseTimeMs": 50]
+        let body = try JSONSerialization.data(withJSONObject: update)
+        let putRequest = APIRequest(
+            method: .PUT,
+            url: "\(baseURL)/api/services/2",
+            headers: ["Content-Type": "application/json"],
+            body: body
+        )
+        let putResponse = try await client.request(putRequest)
+        XCTAssertEqual(putResponse.statusCode, 200)
+
+        let updated = try JSONSerialization.jsonObject(with: putResponse.body) as? [String: Any]
+        XCTAssertEqual(updated?["status"] as? String, "healthy")
+        XCTAssertEqual(updated?["responseTimeMs"] as? Int, 50)
+        XCTAssertEqual(updated?["name"] as? String, "payment-api") // unchanged
+    }
+
+    func testDeleteServiceViaAPI() async throws {
+        let client = makeClient()
+
+        let deleteRequest = APIRequest(method: .DELETE, url: "\(baseURL)/api/services/3")
+        let deleteResponse = try await client.request(deleteRequest)
+        XCTAssertEqual(deleteResponse.statusCode, 200)
+
+        let listRequest = APIRequest(method: .GET, url: "\(baseURL)/api/services")
+        let listResponse = try await client.request(listRequest)
+        let all = try JSONSerialization.jsonObject(with: listResponse.body) as? [[String: Any]]
+        XCTAssertEqual(all?.count, 2)
+    }
+
+    // MARK: - Test: Incidents CRUD (DevOps adapter)
+
+    func testPullIncidentsFromDemoServer() async throws {
+        let client = makeClient()
+        let request = APIRequest(method: .GET, url: "\(baseURL)/api/incidents")
+        let response = try await client.request(request)
+        XCTAssertEqual(response.statusCode, 200)
+
+        let json = try JSONSerialization.jsonObject(with: response.body)
+        guard let incidents = json as? [[String: Any]] else {
+            XCTFail("Expected array of incidents"); return
+        }
+        XCTAssertEqual(incidents.count, 4, "Should have 4 seed incidents")
+
+        let critical = incidents.first(where: { ($0["severity"] as? String) == "critical" })
+        XCTAssertNotNil(critical)
+        XCTAssertEqual(critical?["service"] as? String, "payment-api")
+        XCTAssertEqual(critical?["message"] as? String, "Database connection pool exhausted")
+        XCTAssertEqual(critical?["resolved"] as? Bool, false)
+    }
+
+    func testCreateIncidentViaAPI() async throws {
+        let client = makeClient()
+
+        let newIncident: [String: Any] = [
+            "timestamp": "2026-03-23T12:00:00Z",
+            "severity": "warning",
+            "service": "auth-service",
+            "message": "Elevated login failure rate",
+            "resolved": false
+        ]
+        let body = try JSONSerialization.data(withJSONObject: newIncident)
+        let createRequest = APIRequest(
+            method: .POST,
+            url: "\(baseURL)/api/incidents",
+            headers: ["Content-Type": "application/json"],
+            body: body
+        )
+        let createResponse = try await client.request(createRequest)
+        XCTAssertEqual(createResponse.statusCode, 201)
+
+        let created = try JSONSerialization.jsonObject(with: createResponse.body) as? [String: Any]
+        XCTAssertEqual(created?["severity"] as? String, "warning")
+        XCTAssertEqual(created?["service"] as? String, "auth-service")
+
+        // Verify 5 incidents now
+        let listRequest = APIRequest(method: .GET, url: "\(baseURL)/api/incidents")
+        let listResponse = try await client.request(listRequest)
+        let all = try JSONSerialization.jsonObject(with: listResponse.body) as? [[String: Any]]
+        XCTAssertEqual(all?.count, 5)
+    }
+
+    func testUpdateIncidentViaAPI() async throws {
+        let client = makeClient()
+
+        let update: [String: Any] = ["resolved": true]
+        let body = try JSONSerialization.data(withJSONObject: update)
+        let putRequest = APIRequest(
+            method: .PUT,
+            url: "\(baseURL)/api/incidents/2",
+            headers: ["Content-Type": "application/json"],
+            body: body
+        )
+        let putResponse = try await client.request(putRequest)
+        XCTAssertEqual(putResponse.statusCode, 200)
+
+        let updated = try JSONSerialization.jsonObject(with: putResponse.body) as? [String: Any]
+        XCTAssertEqual(updated?["resolved"] as? Bool, true)
+        XCTAssertEqual(updated?["severity"] as? String, "warning") // unchanged
+    }
+
+    func testDeleteIncidentViaAPI() async throws {
+        let client = makeClient()
+
+        let deleteRequest = APIRequest(method: .DELETE, url: "\(baseURL)/api/incidents/1")
+        let deleteResponse = try await client.request(deleteRequest)
+        XCTAssertEqual(deleteResponse.statusCode, 200)
+
+        let listRequest = APIRequest(method: .GET, url: "\(baseURL)/api/incidents")
+        let listResponse = try await client.request(listRequest)
+        let all = try JSONSerialization.jsonObject(with: listResponse.body) as? [[String: Any]]
+        XCTAssertEqual(all?.count, 3)
+    }
+
     // MARK: - Test: Server reset
 
     func testServerReset() async throws {

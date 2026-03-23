@@ -1,0 +1,131 @@
+{
+  "service": "pagecraft",
+  "displayName": "PageCraft — CMS & Website Builder",
+  "version": "1.0",
+
+  "auth": {
+    "type": "bearer",
+    "keychainKey": "api2file.pagecraft.key",
+    "setup": {
+      "instructions": "Demo adapter — uses local DemoAPIServer. No real auth needed."
+    }
+  },
+
+  "globals": {
+    "baseUrl": "http://localhost:8089",
+    "headers": {
+      "Content-Type": "application/json"
+    }
+  },
+
+  "resources": [
+    {
+      "name": "pages",
+      "description": "Web pages — open in Safari or any browser",
+
+      "pull": {
+        "method": "GET",
+        "url": "http://localhost:8089/api/pages",
+        "dataPath": "$"
+      },
+
+      "push": {
+        "create": {
+          "method": "POST",
+          "url": "http://localhost:8089/api/pages"
+        },
+        "update": {
+          "method": "PUT",
+          "url": "http://localhost:8089/api/pages/{id}"
+        },
+        "delete": {
+          "method": "DELETE",
+          "url": "http://localhost:8089/api/pages/{id}"
+        }
+      },
+
+      "fileMapping": {
+        "strategy": "one-per-record",
+        "directory": "pages",
+        "filename": "{slug}.html",
+        "format": "html",
+        "idField": "id",
+        "contentField": "content"
+      },
+
+      "sync": {
+        "interval": 15,
+        "debounceMs": 500
+      }
+    },
+    {
+      "name": "blog-posts",
+      "description": "Blog posts as Markdown files",
+
+      "pull": {
+        "method": "GET",
+        "url": "http://localhost:8089/api/notes",
+        "dataPath": "$"
+      },
+
+      "push": {
+        "create": {
+          "method": "POST",
+          "url": "http://localhost:8089/api/notes"
+        },
+        "update": {
+          "method": "PUT",
+          "url": "http://localhost:8089/api/notes/{id}"
+        },
+        "delete": {
+          "method": "DELETE",
+          "url": "http://localhost:8089/api/notes/{id}"
+        }
+      },
+
+      "fileMapping": {
+        "strategy": "one-per-record",
+        "directory": "blog",
+        "filename": "{title|slugify}.md",
+        "format": "md",
+        "idField": "id",
+        "contentField": "content"
+      },
+
+      "sync": {
+        "interval": 15,
+        "debounceMs": 500
+      }
+    },
+    {
+      "name": "config",
+      "description": "Site configuration as JSON",
+
+      "pull": {
+        "method": "GET",
+        "url": "http://localhost:8089/api/config",
+        "dataPath": "$"
+      },
+
+      "push": {
+        "update": {
+          "method": "PUT",
+          "url": "http://localhost:8089/api/config"
+        }
+      },
+
+      "fileMapping": {
+        "strategy": "collection",
+        "directory": ".",
+        "filename": "site.json",
+        "format": "json",
+        "idField": "id"
+      },
+
+      "sync": {
+        "interval": 15,
+        "debounceMs": 500
+      }
+    }
+  ]
+}
