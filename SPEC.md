@@ -129,6 +129,32 @@ All credentials stored in macOS Keychain with `com.api2file.` namespace.
 - Bundled `demo.adapter.json` config
 - Setup script for zero-friction onboarding
 
+### FR-11: macOS Menu Bar App
+
+- Native SwiftUI menu bar app (`LSUIElement` — no dock icon)
+- Service list with status indicators and per-service sync controls
+- **Add Service wizard** — guided 3-step flow: select service → enter credentials → connected
+  - Service-specific extra fields (Wix Site ID, Airtable Base ID/Table Name)
+  - API key securely stored in macOS Keychain
+- **Service detail view** — NavigationSplitView in Preferences showing resources, last sync time, file count, error details
+- **Service management** — disconnect services, update API keys, per-service sync
+- **Onboarding** — empty state guidance when no services are connected
+- **Preferences** — General tab (sync folder, git, notifications, interval) and Services tab (detail view)
+- **.app bundle** — distributable as a standalone macOS application
+
+### FR-12: Bundled External Adapters
+
+Five bundled adapter configs for real external services:
+
+| Service | Auth | Resources | Formats |
+| --- | --- | --- | --- |
+| Monday.com | Bearer token (GraphQL) | boards with items | CSV |
+| Wix | API key + Site ID header | contacts, products, blog posts, bookings, collections | CSV, Markdown, JSON |
+| GitHub | Bearer token (PAT) | repos, issues, gists, notifications, starred | CSV, JSON |
+| Airtable | Bearer token (PAT) | records, bases | JSON |
+
+Plus 6 demo-based adapters (TeamBoard, PeopleHub, CalSync, PageCraft, DevOps, MediaManager) showcasing all supported file formats.
+
 ## Non-Functional Requirements
 
 ### NFR-1: Zero External Dependencies
@@ -274,11 +300,11 @@ Usage: `{name|slugify}.json`, `{field|default:untitled}.csv`
 
 ## Roadmap
 
-### Phase 1 — MVP (Current)
+### Phase 1 — MVP (Complete)
 
 - Config-driven adapter engine with JSON configs
 - Bidirectional sync: pull + push with polling and file watching
-- 9 file formats: CSV, JSON, YAML, ICS, VCF, HTML, Markdown, Text, Raw
+- 10+ file formats: CSV, JSON, YAML, ICS, VCF, HTML, Markdown, SVG, Text, Raw
 - Transform pipeline: pick, omit, rename, flatten, keyBy
 - Git auto-commit per sync cycle
 - macOS Keychain credential storage
@@ -287,15 +313,22 @@ Usage: `{name|slugify}.json`, `{field|default:untitled}.csv`
 - CLAUDE.md agent guide generation
 - 180+ tests (unit, integration, E2E)
 
-### Phase 2 — Full macOS Experience
+### Phase 2 — Full macOS Experience (Current)
 
-- Finder Sync Extension (file status badges)
-- SwiftUI preferences window
-- OAuth2 flow handler
+- macOS menu bar app with SwiftUI
+- SwiftUI preferences window with General and Services tabs
+- Service detail view (NavigationSplitView) with resources, status, actions
+- Add Service wizard with service-specific extra fields
+- Service management: disconnect, update API key, per-service sync
+- Bundled external adapters: Monday.com, Wix, GitHub, Airtable
+- .app bundle for distribution
 - macOS notifications with action buttons
-- Launch at login (SMAppService)
-- Conflict resolution UI (diff viewer)
-- Office formats: XLSX (Numbers/Excel), DOCX (Pages/Word)
+- Empty state onboarding guidance
+- Finder Sync Extension (file status badges) — planned
+- OAuth2 flow handler — backend complete, UI planned
+- Launch at login (SMAppService) — setting exists, integration planned
+- Conflict resolution UI (diff viewer) — planned
+- Office formats: XLSX (Numbers/Excel), DOCX (Pages/Word) — planned
 
 ### Phase 3 — Power Features
 

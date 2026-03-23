@@ -7,8 +7,10 @@ Think **Dropbox, but for APIs** — config-driven, format-aware, zero external d
 ## Features
 
 - **Config-driven adapters** — connect any REST/GraphQL API via JSON config, no code required
+- **Bundled adapters** — Monday.com, Wix, GitHub, Airtable out of the box, plus 6 demo adapters
+- **macOS menu bar app** — always-on sync with per-service controls, preferences, and service detail view
 - **Bidirectional sync** — pull (server to file) and push (file to server) with debouncing
-- **10 file formats** — JSON, CSV, YAML, ICS (Calendar.app), VCF (Contacts.app), HTML, Markdown, Text, Raw, and more
+- **10+ file formats** — JSON, CSV, YAML, ICS (Calendar.app), VCF (Contacts.app), HTML, Markdown, SVG, Text, Raw, and more
 - **Transform pipeline** — declarative data transforms: pick, omit, rename, flatten, keyBy
 - **Git auto-commit** — every sync cycle is committed with descriptive messages
 - **Keychain auth** — secure credential storage via macOS Keychain
@@ -25,48 +27,66 @@ Think **Dropbox, but for APIs** — config-driven, format-aware, zero external d
 - Swift 5.9+
 - Xcode Command Line Tools
 
-### Build
+### Build & Run
 
 ```bash
+# Build the app
 swift build
+
+# Build the .app bundle (release)
+swift build -c release
+# The .app bundle is at build/API2File.app — copy to /Applications/ to launch from Spotlight
 ```
 
-### Run the Demo
+### Launch the App
 
 ```bash
-# Set up demo environment
-./scripts/demo-setup.sh
+# Option 1: Run directly
+swift run API2FileApp
 
-# Start the demo server (runs on port 8089)
+# Option 2: Open the .app bundle
+open build/API2File.app
+
+# Option 3: If installed to Applications
+open /Applications/API2File.app
+```
+
+The app runs as a **menu bar icon** (cloud icon, top-right of screen). Click it to see connected services, sync controls, and add new services.
+
+### Add a Service
+
+1. Click the cloud icon in the menu bar
+2. Click **"Add Service..."**
+3. Choose a service (Demo, Monday.com, Wix, GitHub, or Airtable)
+4. Enter your API key (and any extra fields like Wix Site ID or Airtable Base ID)
+5. Click **Connect** — data syncs to `~/API2File/{service}/`
+
+### Bundled Adapters
+
+| Service | Auth | Resources | File Formats |
+|---|---|---|---|
+| **Demo** | None needed | tasks, contacts, events, notes, pages, etc. | CSV, VCF, ICS, MD, HTML, JSON, SVG, PNG, PDF |
+| **Monday.com** | Bearer token | boards with items | CSV |
+| **Wix** | API key + Site ID | contacts, products, blog posts, bookings, collections | CSV, Markdown, JSON |
+| **GitHub** | Personal access token | repos, issues, gists, notifications, starred | CSV, JSON |
+| **Airtable** | Personal access token + Base/Table ID | records, bases | JSON |
+
+### Run the Demo (No Account Needed)
+
+```bash
+# Start the demo server (port 8089)
 swift run api2file-demo
 
-# In another terminal — verify the API works
-curl -s http://localhost:8089/api/tasks | python3 -m json.tool
+# In the app, add the "Demo Tasks API" service with any API key
+# Files appear at ~/API2File/demo/
 ```
 
-The demo server provides a tasks API with seed data. The adapter config at `~/API2File/demo/.api2file/adapter.json` maps it to a local `tasks.csv` file.
+### Manage Services
 
-### Test the Sync
-
-**Pull** (API to local file):
-```bash
-# After sync runs, check the CSV
-cat ~/API2File/demo/tasks.csv
-```
-
-**Push** (local edit to API):
-1. Edit `~/API2File/demo/tasks.csv` (e.g., change a task name)
-2. Save the file
-3. Wait for the sync interval (10s) or trigger manually
-4. Verify the change hit the API:
-   ```bash
-   curl -s http://localhost:8089/api/tasks/1 | python3 -m json.tool
-   ```
-
-**Git history**:
-```bash
-cd ~/API2File/demo && git log --oneline
-```
+- **Preferences → Services tab** — click a service to see detail view with resources, last sync time, file count
+- **Service detail** — Sync Now, Open Folder, Update API Key, Disconnect
+- **Menu bar** — each service has a submenu with quick sync and folder access
+- **Per-service sync** — click the service submenu → Sync Now (or use Sync Now for all)
 
 ## How It Works
 
@@ -210,6 +230,29 @@ Tests/
     └── Integration/       # E2E and full sync cycle tests
 ```
 
+## macOS App
+
+API2File runs as a **menu bar app** — no dock icon, always accessible from the system tray.
+
+### Menu Bar
+
+- Cloud icon shows sync status (synced, syncing, error, paused)
+- Per-service submenus with Sync Now, Open Folder, last sync time, file count
+- Global controls: Sync Now (all), Pause/Resume, Add Service
+
+### Preferences (two tabs)
+
+- **General** — sync folder, git auto-commit, sync interval, notifications, server port
+- **Services** — sidebar/detail view with NavigationSplitView
+  - Click a service to see: status, last sync time, file count, resource list, error details
+  - Actions: Sync Now, Open Folder, Update API Key, Disconnect
+
+### Add Service Wizard
+
+- 5 bundled services with guided setup
+- Service-specific extra fields (Wix Site ID, Airtable Base ID + Table Name)
+- API key stored securely in macOS Keychain
+
 ## Folder Layout at Runtime
 
 ```
@@ -222,6 +265,9 @@ Tests/
 │   ├── .git/
 │   ├── CLAUDE.md          # Service-specific agent guide
 │   └── tasks.csv          # Synced data file
+├── github/                # GitHub repos, issues, gists
+├── wix/                   # Wix contacts, products, blog
+├── airtable/              # Airtable records
 └── {other-services}/
 ```
 

@@ -21,7 +21,7 @@ API2File is a native macOS sync engine built in pure Swift with zero external de
 │              ▼                  ▼                  ▼     │
 │  ┌───────────────┐  ┌───────────────┐  ┌──────────────┐│
 │  │ AdapterEngine │  │ AdapterEngine │  │AdapterEngine ││
-│  │ (demo)        │  │ (monday)      │  │(wix)         ││
+│  │ (demo)        │  │ (monday)      │  │(github, etc) ││
 │  └───────┬───────┘  └───────┬───────┘  └──────┬───────┘│
 │          │                  │                  │        │
 │  ┌───────▼──────────────────▼──────────────────▼──────┐ │
@@ -299,3 +299,53 @@ User-facing files contain zero metadata — only actual content. The state file 
 | Hidden state | `.api2file/state.json` | User files stay 100% clean content |
 | Shell git | `Process` + `git` CLI | More reliable than SwiftGit2, standard on dev Macs |
 | Keychain auth | macOS Security framework | Secure, native, survives app reinstalls |
+| Menu bar app | `MenuBarExtra` (SwiftUI) | Lightweight, always accessible, no dock clutter |
+| NSWindow for modals | `NSHostingController` in standalone window | Menu bar apps can't present sheets; standalone window works from any call site |
+
+## macOS App Architecture
+
+### UI Layer
+
+```
+API2FileApp.swift
+├── AppState (@MainActor, ObservableObject)
+│   ├── services: [ServiceInfo]
+│   ├── syncEngine: SyncEngine (actor)
+│   ├── openAddServiceWindow() → NSWindow + NSHostingController
+│   ├── syncService(serviceId:) / removeService(serviceId:)
+│   └── updateAPIKey(serviceId:newKey:)
+├── MenuBarExtra → MenuBarView
+│   ├── Service submenus (Sync Now, Open Folder, status)
+│   └── Global controls (Add Service, Sync Now, Pause)
+└── Settings → PreferencesView
+    ├── GeneralTab (config bindings)
+    └── ServicesTab (NavigationSplitView)
+        ├── Sidebar: service list with context menus
+        └── Detail: ServiceDetailView
+            ├── Info: status, last sync, file count, resources
+            ├── Actions: Sync, Open Folder, Update Key, Disconnect
+            └── Sheets: re-auth, disconnect confirmation
+```
+
+### AddServiceView Flow
+
+```
+selectService → enterCredentials → connecting → done
+                     │
+                     ├── API key (SecureField)
+                     ├── ExtraFields (Wix: Site ID, Airtable: Base ID + Table Name)
+                     └── Placeholder substitution in adapter config JSON
+```
+
+### Bundled Adapter Configs
+
+Located at `Sources/API2FileCore/Resources/Adapters/`:
+
+| Adapter | API Type | Auth | Key Resources |
+| --- | --- | --- | --- |
+| `demo.adapter.json` | REST (localhost) | Bearer | 11 resources across all formats |
+| `monday.adapter.json` | GraphQL | Bearer | boards with items → CSV |
+| `wix.adapter.json` | REST (POST queries) | API key + Site ID header | contacts, products, blog, bookings |
+| `github.adapter.json` | REST | Bearer (PAT) | repos, issues, gists, notifications, starred |
+| `airtable.adapter.json` | REST | Bearer (PAT) | records, bases |
+| 6 demo adapters | REST (localhost) | Bearer | teamboard, peoplehub, calsync, pagecraft, devops, mediamanager |

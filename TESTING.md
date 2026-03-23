@@ -191,6 +191,52 @@ open ~/API2File/mediamanager/documents/q1-report.pdf  # Preview (PDF)
 rm -rf ~/API2File/teamboard ~/API2File/peoplehub ~/API2File/calsync ~/API2File/pagecraft ~/API2File/devops ~/API2File/mediamanager
 ```
 
+## Testing the macOS App
+
+### 1. Build and launch
+
+```bash
+# Debug build + run
+swift run API2FileApp
+
+# Or build the .app bundle
+swift build -c release
+open build/API2File.app
+```
+
+### 2. Test Add Service flow
+
+1. Click the cloud icon in the menu bar
+2. Click **"Add Service..."** — a wizard window should open
+3. Select **Demo Tasks API** — enter any value as the API key → Connect
+4. Verify: Demo API appears in the menu bar dropdown with green status
+
+### 3. Test Wix/Airtable extra fields
+
+1. Open Add Service → select **Wix**
+2. Verify: "Site ID" field appears below the API key field
+3. Open Add Service → select **Airtable**
+4. Verify: "Base ID" and "Table Name" fields appear
+
+### 4. Test Service Detail View
+
+1. Open **Preferences → Services** tab
+2. Click on a connected service in the sidebar
+3. Verify: detail view shows status, last sync time, file count, resource list
+4. Test actions: Sync Now, Open Folder, Update Key, Disconnect
+
+### 5. Test per-service sync
+
+1. In the menu bar, hover over a service name to open its submenu
+2. Click **Sync Now** — service should sync independently
+3. Verify: last sync time updates
+
+### 6. Test service removal
+
+1. Open Preferences → Services → click a service → **Disconnect...**
+2. Confirm the dialog
+3. Verify: service disappears from the list; files at `~/API2File/{service}/` are preserved
+
 ---
 
 ## Running Tests
