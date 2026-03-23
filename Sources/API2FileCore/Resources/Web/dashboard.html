@@ -43,6 +43,9 @@
   .format-svg { background: rgba(188,140,255,0.15); color: var(--purple); }
   .format-png { background: rgba(63,185,80,0.15); color: var(--green); }
   .format-pdf { background: rgba(248,81,73,0.15); color: var(--red); }
+  .format-xlsx { background: rgba(63,185,80,0.15); color: var(--green); }
+  .format-docx { background: rgba(88,166,255,0.15); color: var(--accent); }
+  .format-pptx { background: rgba(226,125,34,0.15); color: #e67e22; }
   .pill-info { background: rgba(88,166,255,0.15); color: var(--accent); }
   .pill-warning { background: rgba(210,153,34,0.15); color: var(--yellow); }
   .pill-critical { background: rgba(248,81,73,0.15); color: var(--red); }
@@ -261,6 +264,36 @@
       <div class="file-hint">&#128196; <code>documents/*.pdf</code> &mdash; Opens in Preview</div>
       <div class="card-body"><table><thead><tr><th>Name</th><th>Size</th></tr></thead><tbody id="documents-tbody"></tbody></table></div>
     </div>
+
+    <!-- Spreadsheets -->
+    <div class="card" id="spreadsheets-card">
+      <div class="card-header">
+        <h2>&#128202; Spreadsheets</h2>
+        <span class="format-tag format-xlsx">XLSX</span>
+      </div>
+      <div class="file-hint">&#128196; <code>spreadsheets.xlsx</code> &mdash; Opens in Numbers / Excel</div>
+      <div class="card-body"><table><thead><tr><th>Name</th><th>Category</th><th>Qty</th><th>Price</th><th>In Stock</th></tr></thead><tbody id="spreadsheets-tbody"></tbody></table></div>
+    </div>
+
+    <!-- Reports -->
+    <div class="card" id="reports-card">
+      <div class="card-header">
+        <h2>&#128196; Reports</h2>
+        <span class="format-tag format-docx">DOCX</span>
+      </div>
+      <div class="file-hint">&#128196; <code>reports/*.docx</code> &mdash; Opens in Pages / Word</div>
+      <div class="card-body"><table><thead><tr><th>Title</th><th>Preview</th></tr></thead><tbody id="reports-tbody"></tbody></table></div>
+    </div>
+
+    <!-- Presentations -->
+    <div class="card" id="presentations-card">
+      <div class="card-header">
+        <h2>&#127916; Presentations</h2>
+        <span class="format-tag format-pptx">PPTX</span>
+      </div>
+      <div class="file-hint">&#128196; <code>presentation.pptx</code> &mdash; Opens in Keynote / PowerPoint</div>
+      <div class="card-body"><table><thead><tr><th>Title</th><th>Content</th></tr></thead><tbody id="presentations-tbody"></tbody></table></div>
+    </div>
   </div>
 </div>
 
@@ -279,6 +312,7 @@ const API = '';
 // State
 let tasks = [], contacts = [], events = [], notes = [], pages = [], config = {};
 let services = [], incidents = [], logos = [], photos = [], documents = [];
+let spreadsheets = [], reports = [], presentations = [];
 
 // Fetch helpers
 async function fetchJSON(path) {
@@ -386,18 +420,38 @@ function renderDocuments() {
   }).join('');
 }
 
+function renderSpreadsheets() {
+  document.getElementById('spreadsheets-tbody').innerHTML = spreadsheets.map(s =>
+    '<tr><td>' + escHtml(s.name) + '</td><td>' + escHtml(s.category) + '</td><td>' + s.quantity + '</td><td>$' + (s.price||0).toFixed(2) + '</td><td>' + pill(String(s.inStock)) + '</td></tr>'
+  ).join('');
+}
+
+function renderReports() {
+  document.getElementById('reports-tbody').innerHTML = reports.map(r =>
+    '<tr><td>' + escHtml(r.title) + '</td><td style="color:var(--text2)">' + escHtml(truncate(r.content, 60)) + '</td></tr>'
+  ).join('');
+}
+
+function renderPresentations() {
+  document.getElementById('presentations-tbody').innerHTML = presentations.map(p =>
+    '<tr><td>' + escHtml(p.title) + '</td><td style="color:var(--text2)">' + escHtml(truncate(p.content, 60)) + '</td></tr>'
+  ).join('');
+}
+
 // Refresh all
 async function refreshAll() {
   try {
-    [tasks, contacts, events, notes, pages, config, services, incidents, logos, photos, documents] = await Promise.all([
+    [tasks, contacts, events, notes, pages, config, services, incidents, logos, photos, documents, spreadsheets, reports, presentations] = await Promise.all([
       fetchJSON('/api/tasks'), fetchJSON('/api/contacts'), fetchJSON('/api/events'),
       fetchJSON('/api/notes'), fetchJSON('/api/pages'), fetchJSON('/api/config'),
       fetchJSON('/api/services'), fetchJSON('/api/incidents'), fetchJSON('/api/logos'),
-      fetchJSON('/api/photos'), fetchJSON('/api/documents')
+      fetchJSON('/api/photos'), fetchJSON('/api/documents'),
+      fetchJSON('/api/spreadsheets'), fetchJSON('/api/reports'), fetchJSON('/api/presentations')
     ]);
     renderTasks(); renderContacts(); renderEvents(); renderNotes(); renderPages(); renderConfig();
     renderServices(); renderIncidents(); renderLogos(); renderPhotos(); renderDocuments();
-    document.getElementById('resource-count').textContent = '11';
+    renderSpreadsheets(); renderReports(); renderPresentations();
+    document.getElementById('resource-count').textContent = '14';
     document.getElementById('last-refresh').textContent = new Date().toLocaleTimeString();
   } catch(e) { toast('Failed to refresh: ' + e.message, 'error'); }
 }

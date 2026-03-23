@@ -504,17 +504,11 @@ final class FormatConverterTests: XCTestCase {
         XCTAssertTrue(try FormatConverterFactory.converter(for: .raw) == RawFormat.self)
     }
 
-    func testFactoryUnsupportedFormatThrows() {
-        XCTAssertThrowsError(try FormatConverterFactory.converter(for: .xlsx)) { error in
-            guard let formatError = error as? FormatError else {
-                XCTFail("Expected FormatError but got \(type(of: error))")
-                return
-            }
-            if case .unsupportedFormat(let fmt) = formatError {
-                XCTAssertEqual(fmt, .xlsx)
-            } else {
-                XCTFail("Expected unsupportedFormat but got \(formatError)")
-            }
+    func testFactoryReturnsConverterForAllSupportedFormats() {
+        // All formats should now have converters (including xlsx, docx, pptx stubs)
+        let allFormats: [FileFormat] = [.json, .csv, .html, .markdown, .yaml, .text, .raw, .ics, .vcf, .eml, .svg, .webloc, .xlsx, .docx, .pptx]
+        for format in allFormats {
+            XCTAssertNoThrow(try FormatConverterFactory.converter(for: format), "Should have converter for \(format.rawValue)")
         }
     }
 
@@ -529,5 +523,105 @@ final class FormatConverterTests: XCTestCase {
         XCTAssertEqual(decoded.count, 1)
         XCTAssertEqual(decoded[0]["name"] as? String, "Test")
         XCTAssertEqual(decoded[0]["value"] as? Int, 42)
+    }
+
+    // MARK: - XLSX Format Tests
+
+    func testXLSXEncodeDecodeRoundTrip() throws {
+        let records: [[String: Any]] = [
+            ["name": "Widget", "price": 9.99, "quantity": 100],
+            ["name": "Gadget", "price": 24.99, "quantity": 50],
+        ]
+        let data = try XLSXFormat.encode(records: records, options: nil)
+        XCTAssertTrue(data.count > 100, "XLSX should have substantial size")
+
+        let decoded = try XLSXFormat.decode(data: data, options: nil)
+        XCTAssertEqual(decoded.count, 2)
+        XCTAssertEqual(decoded[0]["name"] as? String, "Widget")
+        XCTAssertEqual(decoded[1]["name"] as? String, "Gadget")
+    }
+
+    func testXLSXEmptyRecords() throws {
+        let data = try XLSXFormat.encode(records: [], options: nil)
+        XCTAssertTrue(data.count > 0, "Empty XLSX should still be valid")
+        let decoded = try XLSXFormat.decode(data: data, options: nil)
+        XCTAssertEqual(decoded.count, 0)
+    }
+
+    func testXLSXPreservesTypes() throws {
+        let records: [[String: Any]] = [
+            ["text": "hello", "number": 42, "decimal": 3.14, "flag": true],
+        ]
+        let data = try XLSXFormat.encode(records: records, options: nil)
+        let decoded = try XLSXFormat.decode(data: data, options: nil)
+        XCTAssertEqual(decoded.count, 1)
+        XCTAssertEqual(decoded[0]["text"] as? String, "hello")
+        XCTAssertEqual(decoded[0]["number"] as? Int, 42)
+    }
+
+    // MARK: - DOCX Format Tests
+
+    func testDOCXEncodeDecodeRoundTrip() throws {
+        let records: [[String: Any]] = [["content": "Hello World\n\nThis is a test document.\n\nThird paragraph."]]
+        let data = try DOCXFormat.encode(records: records, options: nil)
+        XCTAssertTrue(data.count > 100, "DOCX should have substantial size")
+
+        let decoded = try DOCXFormat.decode(data: data, options: nil)
+        XCTAssertEqual(decoded.count, 1)
+        let content = decoded[0]["content"] as? String ?? ""
+        XCTAssertTrue(content.contains("Hello World"))
+        XCTAssertTrue(content.contains("Third paragraph"))
+    }
+
+    func testDOCXEmptyContent() throws {
+        let records: [[String: Any]] = [["content": ""]]
+        let data = try DOCXFormat.encode(records: records, options: nil)
+        XCTAssertTrue(data.count > 0)
+        let decoded = try DOCXFormat.decode(data: data, options: nil)
+        XCTAssertEqual(decoded.count, 1)
+    }
+
+    func testDOCXCustomContentField() throws {
+        let records: [[String: Any]] = [["body": "Custom field content"]]
+        let options = FormatOptions(fieldMapping: ["content": "body"])
+        let data = try DOCXFormat.encode(records: records, options: options)
+        let decoded = try DOCXFormat.decode(data: data, options: options)
+        XCTAssertEqual(decoded.count, 1)
+        let body = decoded[0]["body"] as? String ?? ""
+        XCTAssertTrue(body.contains("Custom field content"))
+    }
+
+    // MARK: - PPTX Format Tests
+
+    func testPPTXEncodeDecodeRoundTrip() throws {
+        let records: [[String: Any]] = [
+            ["title": "Slide One", "content": "First slide content"],
+            ["title": "Slide Two", "content": "Second slide content"],
+        ]
+        let data = try PPTXFormat.encode(records: records, options: nil)
+        XCTAssertTrue(data.count > 100, "PPTX should have substantial size")
+
+        let decoded = try PPTXFormat.decode(data: data, options: nil)
+        XCTAssertEqual(decoded.count, 2)
+        XCTAssertEqual(decoded[0]["title"] as? String, "Slide One")
+        XCTAssertEqual(decoded[1]["title"] as? String, "Slide Two")
+    }
+
+    func testPPTXEmptyRecords() throws {
+        let data = try PPTXFormat.encode(records: [], options: nil)
+        XCTAssertTrue(data.count > 0)
+    }
+
+    func testPPTXSlideContent() throws {
+        let records: [[String: Any]] = [
+            ["title": "Features", "content": "Feature A\nFeature B\nFeature C"],
+        ]
+        let data = try PPTXFormat.encode(records: records, options: nil)
+        let decoded = try PPTXFormat.decode(data: data, options: nil)
+        XCTAssertEqual(decoded.count, 1)
+        XCTAssertEqual(decoded[0]["title"] as? String, "Features")
+        let content = decoded[0]["content"] as? String ?? ""
+        XCTAssertTrue(content.contains("Feature A"))
+        XCTAssertTrue(content.contains("Feature C"))
     }
 }

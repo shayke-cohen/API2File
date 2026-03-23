@@ -53,6 +53,9 @@ public enum FormatConverterFactory {
         case .eml: return EMLFormat.self
         case .svg: return SVGFormat.self
         case .webloc: return WeblocFormat.self
+        case .xlsx: return XLSXFormat.self
+        case .docx: return DOCXFormat.self
+        case .pptx: return PPTXFormat.self
         default:
             throw FormatError.unsupportedFormat(format)
         }

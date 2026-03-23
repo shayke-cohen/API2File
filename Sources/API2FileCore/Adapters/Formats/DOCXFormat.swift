@@ -17,7 +17,7 @@ public enum DOCXFormat: FormatConverter {
 
         // Split text into paragraphs by newlines
         let paragraphs = text.components(separatedBy: "\n")
-            .map { $0.trimmingCharacters(in: .carriage) }
+            .map { $0.trimmingCharacters(in: CharacterSet(charactersIn: "\r")) }
 
         return try buildDocument(paragraphs: paragraphs)
     }

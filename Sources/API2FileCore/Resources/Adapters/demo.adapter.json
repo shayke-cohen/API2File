@@ -371,6 +371,85 @@
       },
 
       "sync": { "interval": 10, "debounceMs": 500 }
+    },
+    {
+      "name": "spreadsheets",
+      "description": "Product inventory spreadsheet (XLSX) — opens in Numbers/Excel",
+
+      "pull": {
+        "method": "GET",
+        "url": "http://localhost:8089/api/spreadsheets",
+        "dataPath": "$"
+      },
+
+      "push": {
+        "create": { "method": "POST", "url": "http://localhost:8089/api/spreadsheets" },
+        "update": { "method": "PUT", "url": "http://localhost:8089/api/spreadsheets/{id}" },
+        "delete": { "method": "DELETE", "url": "http://localhost:8089/api/spreadsheets/{id}" }
+      },
+
+      "fileMapping": {
+        "strategy": "collection",
+        "directory": ".",
+        "filename": "inventory.xlsx",
+        "format": "xlsx",
+        "idField": "id"
+      },
+
+      "sync": { "interval": 10, "debounceMs": 500 }
+    },
+    {
+      "name": "reports",
+      "description": "Word documents (DOCX) — opens in Pages/Word",
+
+      "pull": {
+        "method": "GET",
+        "url": "http://localhost:8089/api/reports",
+        "dataPath": "$"
+      },
+
+      "push": {
+        "create": { "method": "POST", "url": "http://localhost:8089/api/reports" },
+        "update": { "method": "PUT", "url": "http://localhost:8089/api/reports/{id}" },
+        "delete": { "method": "DELETE", "url": "http://localhost:8089/api/reports/{id}" }
+      },
+
+      "fileMapping": {
+        "strategy": "one-per-record",
+        "directory": "reports",
+        "filename": "{title|slugify}.docx",
+        "format": "docx",
+        "idField": "id",
+        "contentField": "content"
+      },
+
+      "sync": { "interval": 10, "debounceMs": 500 }
+    },
+    {
+      "name": "presentations",
+      "description": "Slide decks (PPTX) — opens in Keynote/PowerPoint",
+
+      "pull": {
+        "method": "GET",
+        "url": "http://localhost:8089/api/presentations",
+        "dataPath": "$"
+      },
+
+      "push": {
+        "create": { "method": "POST", "url": "http://localhost:8089/api/presentations" },
+        "update": { "method": "PUT", "url": "http://localhost:8089/api/presentations/{id}" },
+        "delete": { "method": "DELETE", "url": "http://localhost:8089/api/presentations/{id}" }
+      },
+
+      "fileMapping": {
+        "strategy": "collection",
+        "directory": ".",
+        "filename": "deck.pptx",
+        "format": "pptx",
+        "idField": "id"
+      },
+
+      "sync": { "interval": 10, "debounceMs": 500 }
     }
   ]
 }
