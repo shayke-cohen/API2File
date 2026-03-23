@@ -134,6 +134,12 @@ public actor LocalServer {
             return await handleGetServiceStatus(serviceId: serviceId)
         }
 
+        // GET /api/services/:id/history
+        if method == "GET", let serviceId = matchRoute(path: path, pattern: "/api/services/", suffix: "/history") {
+            let limit = min(Int(request.queryItems["limit"] ?? "") ?? 50, 500)
+            return await handleGetHistory(serviceId: serviceId, limit: limit)
+        }
+
         // POST /api/services/:id/sync
         if method == "POST", let serviceId = matchRoute(path: path, pattern: "/api/services/", suffix: "/sync") {
             return await handleTriggerSync(serviceId: serviceId)
@@ -181,6 +187,23 @@ public actor LocalServer {
         }
         await syncEngine.triggerSync(serviceId: serviceId)
         return HTTPResponse(statusCode: 200, body: ["triggered": "true"])
+    }
+
+    private func handleGetHistory(serviceId: String, limit: Int) async -> HTTPResponse {
+        guard await syncEngine.getServiceStatus(serviceId) != nil else {
+            return HTTPResponse(statusCode: 404, body: [
+                "error": "Service not found",
+                "serviceId": serviceId
+            ])
+        }
+        let entries = await syncEngine.getHistory(serviceId: serviceId, limit: limit)
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.sortedKeys]
+        guard let data = try? encoder.encode(entries) else {
+            return HTTPResponse(statusCode: 500, body: ["error": "Failed to encode history"])
+        }
+        return HTTPResponse(statusCode: 200, bodyRaw: data)
     }
 
     private func handleValidateAdapter(body: Data?) -> HTTPResponse {
@@ -266,6 +289,7 @@ public actor LocalServer {
 private struct HTTPRequest {
     let method: String
     let path: String
+    let queryItems: [String: String]
     let headers: [(String, String)]
     let body: Data?
 
@@ -283,8 +307,20 @@ private struct HTTPRequest {
 
         let method = String(parts[0])
         let rawPath = String(parts[1])
-        // Strip query string
-        let path = rawPath.split(separator: "?", maxSplits: 1).first.map(String.init) ?? rawPath
+
+        // Parse query string before stripping
+        let pathParts = rawPath.split(separator: "?", maxSplits: 1)
+        let path = pathParts.first.map(String.init) ?? rawPath
+        var queryItems: [String: String] = [:]
+        if pathParts.count == 2 {
+            let queryString = String(pathParts[1])
+            for pair in queryString.split(separator: "&") {
+                let kv = pair.split(separator: "=", maxSplits: 1)
+                if kv.count == 2 {
+                    queryItems[String(kv[0])] = String(kv[1])
+                }
+            }
+        }
 
         var headers: [(String, String)] = []
         for line in lines.dropFirst() {
@@ -297,7 +333,7 @@ private struct HTTPRequest {
         let bodyStart = headerEnd + 4
         let body: Data? = bodyStart < data.count ? data[bodyStart...] as Data : nil
 
-        return HTTPRequest(method: method, path: path, headers: headers, body: body)
+        return HTTPRequest(method: method, path: path, queryItems: queryItems, headers: headers, body: body)
     }
 }
 

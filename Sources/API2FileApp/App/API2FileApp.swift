@@ -23,6 +23,7 @@ final class AppState: ObservableObject {
     @Published var services: [ServiceInfo] = []
     @Published var isPaused: Bool = false
     @Published var config: GlobalConfig = .init()
+    @Published var recentActivity: [SyncHistoryEntry] = []
 
     private var syncEngine: SyncEngine?
     private var localServer: LocalServer?
@@ -93,6 +94,7 @@ final class AppState: ObservableObject {
                 await syncEngine?.triggerSync(serviceId: service.serviceId)
             }
             await refreshServices()
+            await refreshHistory()
         }
     }
 
@@ -100,6 +102,7 @@ final class AppState: ObservableObject {
         Task {
             await syncEngine?.triggerSync(serviceId: serviceId)
             await refreshServices()
+            await refreshHistory()
         }
     }
 
@@ -166,6 +169,24 @@ final class AppState: ObservableObject {
             }
             await refreshServices()
         }
+    }
+
+    func refreshHistory(serviceId: String? = nil) async {
+        guard let engine = syncEngine else { return }
+        let entries: [SyncHistoryEntry]
+        if let serviceId {
+            entries = await engine.getHistory(serviceId: serviceId, limit: 50)
+        } else {
+            entries = await engine.getAllHistory(limit: 50)
+        }
+        await MainActor.run {
+            self.recentActivity = entries
+        }
+    }
+
+    func getServiceHistory(serviceId: String, limit: Int = 10) async -> [SyncHistoryEntry] {
+        guard let engine = syncEngine else { return [] }
+        return await engine.getHistory(serviceId: serviceId, limit: limit)
     }
 
     private func refreshServices() async {

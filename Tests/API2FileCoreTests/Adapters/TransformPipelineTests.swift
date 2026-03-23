@@ -86,7 +86,7 @@ final class TransformPipelineTests: XCTestCase {
         let result = TransformPipeline.apply([op], to: data)
 
         XCTAssertEqual(result[0]["price"] as? Double, 9.99)
-        XCTAssertNil(result[0]["priceData"]) // top-level key removed
+        XCTAssertNotNil(result[0]["priceData"]) // parent key preserved for other renames
     }
 
     func testRenameNonexistentFieldDoesNothing() {
@@ -221,8 +221,8 @@ final class TransformPipelineTests: XCTestCase {
         XCTAssertEqual(result[0]["price"] as? Double, 29.99)
         XCTAssertNil(result[0]["_internal"])
         XCTAssertNil(result[0]["old_name"])
-        XCTAssertNil(result[0]["priceData"])
-        XCTAssertNil(result[0]["media"])
+        XCTAssertNotNil(result[0]["priceData"]) // parent key preserved
+        XCTAssertNil(result[0]["media"]) // flatten removes source
 
         let images = result[0]["images"] as? [Any]
         XCTAssertEqual(images?.count, 1)

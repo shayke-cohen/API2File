@@ -8,6 +8,7 @@ struct ServiceDetailView: View {
     @State private var showDisconnectAlert = false
     @State private var showReAuth = false
     @State private var newAPIKey = ""
+    @State private var recentHistory: [SyncHistoryEntry] = []
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -90,6 +91,21 @@ struct ServiceDetailView: View {
                 }
             }
 
+            // Recent Activity
+            if !recentHistory.isEmpty {
+                Divider()
+                    .padding(.bottom, 6)
+                Text("Recent Activity")
+                    .font(.caption)
+                    .fontWeight(.medium)
+                    .foregroundStyle(.secondary)
+                    .padding(.bottom, 4)
+
+                ForEach(recentHistory.prefix(10)) { entry in
+                    SyncHistoryRow(entry: entry, showServiceName: false)
+                }
+            }
+
             // Error
             if let errorMessage = service.errorMessage, service.status == .error {
                 Divider()
@@ -140,6 +156,9 @@ struct ServiceDetailView: View {
             .controlSize(.small)
         }
         .padding()
+        .task {
+            recentHistory = await appState.getServiceHistory(serviceId: service.serviceId, limit: 10)
+        }
         .alert("Disconnect \(service.displayName)?", isPresented: $showDisconnectAlert) {
             Button("Cancel", role: .cancel) {}
             Button("Disconnect", role: .destructive) {

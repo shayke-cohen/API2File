@@ -11,8 +11,11 @@ struct PreferencesView: View {
 
             ServicesTab(appState: appState)
                 .tabItem { Label("Services", systemImage: "cloud") }
+
+            ActivityTab(appState: appState)
+                .tabItem { Label("Activity", systemImage: "clock.arrow.circlepath") }
         }
-        .frame(width: 600, height: 400)
+        .frame(width: 600, height: 500)
     }
 }
 

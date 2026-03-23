@@ -316,11 +316,8 @@ public struct TransformPipeline {
             if let value = value {
                 result[to] = value
             }
-            // Remove the top-level source key used in the dot path
-            let topKey = String(from.split(separator: ".").first ?? "")
-            if !topKey.isEmpty {
-                result.removeValue(forKey: topKey)
-            }
+            // Don't remove the source key — other renames may need it.
+            // Use "omit" explicitly to clean up parent keys after all renames.
         } else {
             // Simple rename
             if let value = result.removeValue(forKey: from) {

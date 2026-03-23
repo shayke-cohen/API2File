@@ -59,7 +59,8 @@
       "Bash(ls -la /Users/shayco/API2File/Tests/API2FileCoreTests/Integration/AllFormats*)"
     ],
     "additionalDirectories": [
-      "/Users/shayco/API2File"
+      "/Users/shayco/API2File",
+      "/Users/shayco/API2File-Data/wix"
     ]
   }
 }

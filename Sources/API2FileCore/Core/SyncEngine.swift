@@ -13,6 +13,7 @@ public actor SyncEngine {
     private var syncStates: [String: SyncState] = [:]
     private var serviceInfos: [String: ServiceInfo] = [:]
     private var lastKnownRecords: [String: [[String: Any]]] = [:]
+    private var historyLogs: [String: SyncHistoryLog] = [:]
     private var _notificationManager: NotificationManager?
     private var notificationManager: NotificationManager {
         if _notificationManager == nil {
@@ -154,6 +155,10 @@ public actor SyncEngine {
         let state = (try? SyncState.load(from: stateURL)) ?? SyncState()
         syncStates[serviceId] = state
 
+        // Load or create sync history
+        let historyURL = serviceDir.appendingPathComponent(".api2file/sync-history.json")
+        historyLogs[serviceId] = (try? SyncHistoryLog.load(from: historyURL)) ?? SyncHistoryLog()
+
         // Init git if configured
         if self.config.gitAutoCommit {
             let git = GitManager(repoPath: serviceDir)
@@ -232,55 +237,90 @@ public actor SyncEngine {
 
     private func performPull(serviceId: String) async throws {
         guard let engine = adapterEngines[serviceId] else { return }
-        let files = try await engine.pullAll()
         let serviceDir = syncFolder.appendingPathComponent(serviceId)
+        let serviceName = serviceInfos[serviceId]?.displayName ?? serviceId
+        let startTime = Date()
 
-        // Write files to disk
-        for file in files {
-            let filePath = serviceDir.appendingPathComponent(file.relativePath)
-            try FileManager.default.createDirectory(at: filePath.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try file.content.write(to: filePath, options: .atomic)
+        do {
+            let files = try await engine.pullAll()
 
-            // Cache decoded records for collection-strategy files (for diffing on push)
-            if let resource = findResource(for: file.relativePath, in: engine.config),
-               resource.fileMapping.strategy == .collection {
-                let cacheKey = "\(serviceId):\(file.relativePath)"
-                if let records = try? FormatConverterFactory.decode(data: file.content, format: file.format, options: resource.fileMapping.formatOptions) {
-                    lastKnownRecords[cacheKey] = records
+            // Write files to disk
+            for file in files {
+                let filePath = serviceDir.appendingPathComponent(file.relativePath)
+                try FileManager.default.createDirectory(at: filePath.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try file.content.write(to: filePath, options: .atomic)
+
+                // Cache decoded records for collection-strategy files (for diffing on push)
+                if let resource = findResource(for: file.relativePath, in: engine.config),
+                   resource.fileMapping.strategy == .collection {
+                    let cacheKey = "\(serviceId):\(file.relativePath)"
+                    if let records = try? FormatConverterFactory.decode(data: file.content, format: file.format, options: resource.fileMapping.formatOptions) {
+                        lastKnownRecords[cacheKey] = records
+                    }
+                }
+
+                // Update sync state
+                if let remoteId = file.remoteId {
+                    syncStates[serviceId]?.files[file.relativePath] = FileSyncState(
+                        remoteId: remoteId,
+                        lastSyncedHash: file.contentHash,
+                        lastSyncTime: Date(),
+                        status: .synced
+                    )
                 }
             }
 
-            // Update sync state
-            if let remoteId = file.remoteId {
-                syncStates[serviceId]?.files[file.relativePath] = FileSyncState(
-                    remoteId: remoteId,
-                    lastSyncedHash: file.contentHash,
-                    lastSyncTime: Date(),
-                    status: .synced
-                )
+            // Save state
+            let stateURL = serviceDir.appendingPathComponent(".api2file/state.json")
+            try syncStates[serviceId]?.save(to: stateURL)
+
+            // Git commit
+            if config.gitAutoCommit, let git = gitManagers[serviceId] {
+                if try await git.hasChanges() {
+                    try await git.commitAll(message: "sync: pull \(serviceId) — updated \(files.count) files")
+                }
             }
-        }
 
-        // Save state
-        let stateURL = serviceDir.appendingPathComponent(".api2file/state.json")
-        try syncStates[serviceId]?.save(to: stateURL)
+            // Update file count
+            serviceInfos[serviceId]?.fileCount = syncStates[serviceId]?.files.count ?? 0
+            serviceInfos[serviceId]?.lastSyncTime = Date()
 
-        // Git commit
-        if config.gitAutoCommit, let git = gitManagers[serviceId] {
-            if try await git.hasChanges() {
-                try await git.commitAll(message: "sync: pull \(serviceId) — updated \(files.count) files")
+            // Log history entry
+            let fileChanges = files.map {
+                FileChange(path: $0.relativePath, action: .downloaded)
             }
+            let entry = SyncHistoryEntry(
+                serviceId: serviceId,
+                serviceName: serviceName,
+                direction: .pull,
+                status: .success,
+                duration: Date().timeIntervalSince(startTime),
+                files: fileChanges,
+                summary: "pulled \(files.count) files"
+            )
+            logHistory(entry, serviceId: serviceId, serviceDir: serviceDir)
+        } catch {
+            // Log error entry
+            let entry = SyncHistoryEntry(
+                serviceId: serviceId,
+                serviceName: serviceName,
+                direction: .pull,
+                status: .error,
+                duration: Date().timeIntervalSince(startTime),
+                files: [],
+                summary: "pull failed: \(error.localizedDescription)"
+            )
+            logHistory(entry, serviceId: serviceId, serviceDir: serviceDir)
+            throw error
         }
-
-        // Update file count
-        serviceInfos[serviceId]?.fileCount = syncStates[serviceId]?.files.count ?? 0
-        serviceInfos[serviceId]?.lastSyncTime = Date()
     }
 
     private func performPush(serviceId: String, filePath: String) async throws {
         guard let engine = adapterEngines[serviceId] else { return }
         let serviceDir = syncFolder.appendingPathComponent(serviceId)
+        let serviceName = serviceInfos[serviceId]?.displayName ?? serviceId
         let fullPath = serviceDir.appendingPathComponent(filePath)
+        let startTime = Date()
 
         // Find which resource this file belongs to
         guard let resource = findResource(for: filePath, in: engine.config) else { return }
@@ -293,39 +333,85 @@ public actor SyncEngine {
         guard FileManager.default.fileExists(atPath: fullPath.path, isDirectory: &isDir), !isDir.boolValue else { return }
         let content = try Data(contentsOf: fullPath)
 
-        // For collection-strategy files, use smart diffing to push only changes
-        if resource.fileMapping.strategy == .collection {
-            try await pushCollectionDiff(
-                serviceId: serviceId,
-                filePath: filePath,
-                content: content,
-                resource: resource,
-                engine: engine
-            )
-        } else {
-            let file = SyncableFile(
-                relativePath: filePath,
-                format: resource.fileMapping.format,
-                content: content,
-                remoteId: syncStates[serviceId]?.files[filePath]?.remoteId
-            )
-            try await engine.push(file: file, resource: resource)
-        }
+        do {
+            var fileChange: FileChange
 
-        // Update sync state
-        syncStates[serviceId]?.files[filePath]?.lastSyncedHash = content.sha256Hex
-        syncStates[serviceId]?.files[filePath]?.lastSyncTime = Date()
-        syncStates[serviceId]?.files[filePath]?.status = .synced
-
-        // Save state
-        let stateURL = serviceDir.appendingPathComponent(".api2file/state.json")
-        try syncStates[serviceId]?.save(to: stateURL)
-
-        // Git commit
-        if config.gitAutoCommit, let git = gitManagers[serviceId] {
-            if try await git.hasChanges() {
-                try await git.commitAll(message: "sync: push \(serviceId) — \(filePath)")
+            // For collection-strategy files, use smart diffing to push only changes
+            if resource.fileMapping.strategy == .collection {
+                let diff = try await pushCollectionDiff(
+                    serviceId: serviceId,
+                    filePath: filePath,
+                    content: content,
+                    resource: resource,
+                    engine: engine
+                )
+                fileChange = FileChange(
+                    path: filePath,
+                    action: .uploaded,
+                    recordsCreated: diff?.created.count ?? 0,
+                    recordsUpdated: diff?.updated.count ?? 0,
+                    recordsDeleted: diff?.deleted.count ?? 0
+                )
+            } else {
+                let file = SyncableFile(
+                    relativePath: filePath,
+                    format: resource.fileMapping.format,
+                    content: content,
+                    remoteId: syncStates[serviceId]?.files[filePath]?.remoteId
+                )
+                try await engine.push(file: file, resource: resource)
+                fileChange = FileChange(path: filePath, action: .uploaded)
             }
+
+            // Update sync state
+            syncStates[serviceId]?.files[filePath]?.lastSyncedHash = content.sha256Hex
+            syncStates[serviceId]?.files[filePath]?.lastSyncTime = Date()
+            syncStates[serviceId]?.files[filePath]?.status = .synced
+
+            // Save state
+            let stateURL = serviceDir.appendingPathComponent(".api2file/state.json")
+            try syncStates[serviceId]?.save(to: stateURL)
+
+            // Git commit
+            if config.gitAutoCommit, let git = gitManagers[serviceId] {
+                if try await git.hasChanges() {
+                    try await git.commitAll(message: "sync: push \(serviceId) — \(filePath)")
+                }
+            }
+
+            // Log history entry
+            let summary: String
+            if fileChange.recordsCreated + fileChange.recordsUpdated + fileChange.recordsDeleted > 0 {
+                var parts: [String] = []
+                if fileChange.recordsCreated > 0 { parts.append("\(fileChange.recordsCreated) created") }
+                if fileChange.recordsUpdated > 0 { parts.append("\(fileChange.recordsUpdated) updated") }
+                if fileChange.recordsDeleted > 0 { parts.append("\(fileChange.recordsDeleted) deleted") }
+                summary = "pushed \(filePath) (\(parts.joined(separator: ", ")))"
+            } else {
+                summary = "pushed \(filePath)"
+            }
+            let entry = SyncHistoryEntry(
+                serviceId: serviceId,
+                serviceName: serviceName,
+                direction: .push,
+                status: .success,
+                duration: Date().timeIntervalSince(startTime),
+                files: [fileChange],
+                summary: summary
+            )
+            logHistory(entry, serviceId: serviceId, serviceDir: serviceDir)
+        } catch {
+            let entry = SyncHistoryEntry(
+                serviceId: serviceId,
+                serviceName: serviceName,
+                direction: .push,
+                status: .error,
+                duration: Date().timeIntervalSince(startTime),
+                files: [FileChange(path: filePath, action: .error, errorMessage: error.localizedDescription)],
+                summary: "push failed: \(error.localizedDescription)"
+            )
+            logHistory(entry, serviceId: serviceId, serviceDir: serviceDir)
+            throw error
         }
     }
 
@@ -378,14 +464,16 @@ public actor SyncEngine {
 
     // MARK: - Collection Diff Push
 
-    /// Smart push for collection files: diff old vs new records, push only changes
+    /// Smart push for collection files: diff old vs new records, push only changes.
+    /// Returns the diff result (nil if no changes).
+    @discardableResult
     private func pushCollectionDiff(
         serviceId: String,
         filePath: String,
         content: Data,
         resource: ResourceConfig,
         engine: AdapterEngine
-    ) async throws {
+    ) async throws -> CollectionDiffer.DiffResult? {
         let cacheKey = "\(serviceId):\(filePath)"
         let idField = resource.fileMapping.idField ?? "id"
 
@@ -403,7 +491,7 @@ public actor SyncEngine {
         let diff = CollectionDiffer.diff(old: oldRecords, new: newRecords, idField: idField)
 
         if diff.isEmpty {
-            return // No actual changes
+            return nil // No actual changes
         }
 
         print("[SyncEngine] Collection diff for \(filePath): \(diff.summary)")
@@ -425,6 +513,8 @@ public actor SyncEngine {
 
         // Update cache with new records
         lastKnownRecords[cacheKey] = newRecords
+
+        return diff
     }
 
     // MARK: - Helpers
@@ -451,6 +541,13 @@ public actor SyncEngine {
     private func updateServiceStatus(_ serviceId: String, status: ServiceStatus, error: String? = nil) {
         serviceInfos[serviceId]?.status = status
         serviceInfos[serviceId]?.errorMessage = error
+    }
+
+    /// Append a history entry and save to disk
+    private func logHistory(_ entry: SyncHistoryEntry, serviceId: String, serviceDir: URL) {
+        historyLogs[serviceId]?.append(entry)
+        let historyURL = serviceDir.appendingPathComponent(".api2file/sync-history.json")
+        try? historyLogs[serviceId]?.save(to: historyURL)
     }
 
     private func generateGuides() throws {
@@ -494,6 +591,7 @@ public actor SyncEngine {
         syncStates.removeValue(forKey: serviceId)
         serviceInfos.removeValue(forKey: serviceId)
         gitManagers.removeValue(forKey: serviceId)
+        historyLogs.removeValue(forKey: serviceId)
 
         // Delete .api2file directory (adapter.json + state.json) but keep synced files
         let api2fileDir = syncFolder.appendingPathComponent(serviceId).appendingPathComponent(".api2file")
@@ -515,5 +613,18 @@ public actor SyncEngine {
         await coordinator.startService(serviceId: serviceId)
         try? await performPull(serviceId: serviceId)
         try? generateGuides()
+    }
+
+    // MARK: - History Accessors
+
+    /// Get sync history for a specific service
+    public func getHistory(serviceId: String, limit: Int = 50) -> [SyncHistoryEntry] {
+        Array(historyLogs[serviceId]?.entries.prefix(limit) ?? [])
+    }
+
+    /// Get sync history across all services, sorted by timestamp (newest first)
+    public func getAllHistory(limit: Int = 50) -> [SyncHistoryEntry] {
+        let all = historyLogs.values.flatMap(\.entries)
+        return Array(all.sorted { $0.timestamp > $1.timestamp }.prefix(limit))
     }
 }

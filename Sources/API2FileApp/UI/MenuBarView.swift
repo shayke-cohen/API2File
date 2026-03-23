@@ -28,6 +28,17 @@ struct MenuBarView: View {
         }
         .disabled(appState.isPaused || appState.services.isEmpty)
 
+        Menu("Recent Activity") {
+            if appState.recentActivity.isEmpty {
+                Text("No recent activity")
+            } else {
+                ForEach(appState.recentActivity.prefix(5)) { entry in
+                    Text("\(entry.direction == .pull ? "↓" : "↑") \(entry.serviceName) — \(entry.summary) — \(entry.timestamp.formatted(.relative(presentation: .named)))")
+                }
+            }
+        }
+        .disabled(appState.services.isEmpty)
+
         Button(appState.isPaused ? "Resume Syncing" : "Pause Syncing") {
             appState.togglePause()
         }
