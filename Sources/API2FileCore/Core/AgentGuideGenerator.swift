@@ -162,6 +162,7 @@ public enum AgentGuideGenerator {
         case .webloc:   return "Safari or any browser"
         case .xlsx:     return "Numbers or Excel"
         case .docx:     return "Pages or Word"
+        case .pptx:     return "Keynote or PowerPoint"
         }
     }
 

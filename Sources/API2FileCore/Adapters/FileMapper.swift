@@ -78,6 +78,7 @@ public enum FileMapper {
         case .webloc: return "webloc"
         case .xlsx: return "xlsx"
         case .docx: return "docx"
+        case .pptx: return "pptx"
         }
     }
 

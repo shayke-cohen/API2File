@@ -232,6 +232,7 @@ public enum FileFormat: String, Codable, Sendable {
     case webloc
     case xlsx
     case docx
+    case pptx
 }
 
 public struct FormatOptions: Codable, Sendable {

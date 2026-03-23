@@ -45,7 +45,8 @@
       "Bash(/dev/null echo:*)",
       "Bash(curl -s http://localhost:8089/api/tasks)",
       "Bash(sleep 20 echo '=== Debug log \\(tail\\) ===' tail -20 /tmp/api2file-debug.log 2)",
-      "Read(//Users/shayco/API2File/=== SVG/PNG/**)"
+      "Read(//Users/shayco/API2File/=== SVG/PNG/**)",
+      "Bash(grep -r \"import\" /Users/shayco/API2File/Sources/API2FileCore/Adapters/Formats/*.swift)"
     ]
   }
 }
