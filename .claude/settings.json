@@ -4,7 +4,8 @@
       "Bash(swift build:*)",
       "Bash(swift test:*)",
       "Bash(ls /Users/shayco/API2File/Sources/API2FileCore/Adapters/*.swift)",
-      "Bash(chmod +x /Users/shayco/API2File/scripts/demo-setup.sh)"
+      "Bash(chmod +x /Users/shayco/API2File/scripts/demo-setup.sh)",
+      "Bash(chmod +x /Users/shayco/API2File/scripts/demo-all-setup.sh)"
     ]
   }
 }

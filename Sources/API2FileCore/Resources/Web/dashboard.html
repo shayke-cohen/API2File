@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>API2File — Demo Dashboard</title>
+<style>
+  :root {
+    --bg: #0d1117; --surface: #161b22; --border: #30363d;
+    --text: #e6edf3; --text2: #8b949e; --accent: #58a6ff;
+    --green: #3fb950; --yellow: #d29922; --red: #f85149;
+    --purple: #bc8cff; --radius: 12px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'SF Pro', system-ui, sans-serif; background: var(--bg); color: var(--text); line-height: 1.5; }
+
+  /* Header */
+  header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 16px 24px; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 10; }
+  header h1 { font-size: 20px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+  header h1 .icon { font-size: 24px; }
+  .status-badge { display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 500; }
+  .status-badge.online { background: rgba(63,185,80,0.15); color: var(--green); }
+  .status-badge .dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; animation: pulse 2s infinite; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
+
+  /* Layout */
+  .container { max-width: 1200px; margin: 0 auto; padding: 24px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 16px; margin-bottom: 24px; }
+
+  /* Cards */
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; transition: border-color 0.2s; }
+  .card:hover { border-color: var(--accent); }
+  .card-header { padding: 16px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border); }
+  .card-header h2 { font-size: 15px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+  .card-header .format-tag { padding: 2px 8px; border-radius: 6px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+  .format-csv { background: rgba(88,166,255,0.15); color: var(--accent); }
+  .format-vcf { background: rgba(188,140,255,0.15); color: var(--purple); }
+  .format-ics { background: rgba(63,185,80,0.15); color: var(--green); }
+  .format-md { background: rgba(210,153,34,0.15); color: var(--yellow); }
+  .format-html { background: rgba(248,81,73,0.15); color: var(--red); }
+  .format-json { background: rgba(88,166,255,0.15); color: var(--accent); }
+  .card-body { padding: 0; max-height: 320px; overflow-y: auto; }
+  .card-footer { padding: 12px 16px; border-top: 1px solid var(--border); display: flex; gap: 8px; }
+
+  /* Tables */
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; padding: 8px 16px; color: var(--text2); font-weight: 500; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; background: rgba(0,0,0,0.2); position: sticky; top: 0; }
+  td { padding: 8px 16px; border-top: 1px solid var(--border); }
+  tr:hover td { background: rgba(88,166,255,0.04); }
+
+  /* Status pills */
+  .pill { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 500; }
+  .pill-todo { background: rgba(139,148,158,0.2); color: var(--text2); }
+  .pill-in-progress { background: rgba(88,166,255,0.15); color: var(--accent); }
+  .pill-done { background: rgba(63,185,80,0.15); color: var(--green); }
+  .pill-high { background: rgba(248,81,73,0.15); color: var(--red); }
+  .pill-medium { background: rgba(210,153,34,0.15); color: var(--yellow); }
+  .pill-low { background: rgba(139,148,158,0.2); color: var(--text2); }
+  .pill-confirmed { background: rgba(63,185,80,0.15); color: var(--green); }
+  .pill-tentative { background: rgba(210,153,34,0.15); color: var(--yellow); }
+  .pill-cancelled { background: rgba(248,81,73,0.15); color: var(--red); }
+  .pill-healthy { background: rgba(63,185,80,0.15); color: var(--green); }
+  .pill-degraded { background: rgba(210,153,34,0.15); color: var(--yellow); }
+
+  /* Buttons */
+  btn, .btn { display: inline-flex; align-items: center; gap: 4px; padding: 6px 12px; border-radius: 8px; font-size: 12px; font-weight: 500; border: 1px solid var(--border); background: var(--surface); color: var(--text); cursor: pointer; transition: all 0.15s; }
+  .btn:hover { border-color: var(--accent); color: var(--accent); }
+  .btn-primary { background: var(--accent); color: #000; border-color: var(--accent); }
+  .btn-primary:hover { opacity: 0.9; }
+  .btn-danger { color: var(--red); }
+  .btn-danger:hover { border-color: var(--red); background: rgba(248,81,73,0.1); }
+  .btn-sm { padding: 3px 8px; font-size: 11px; }
+
+  /* Config card */
+  .config-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--border); }
+  .config-item { background: var(--surface); padding: 12px 16px; }
+  .config-item label { display: block; font-size: 11px; color: var(--text2); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
+  .config-item .value { font-size: 14px; font-weight: 500; }
+
+  /* File path hint */
+  .file-hint { font-size: 11px; color: var(--text2); padding: 8px 16px; display: flex; align-items: center; gap: 4px; }
+  .file-hint code { background: rgba(0,0,0,0.3); padding: 1px 6px; border-radius: 4px; font-family: 'SF Mono', monospace; font-size: 11px; }
+
+  /* Modal */
+  .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 100; align-items: center; justify-content: center; }
+  .modal-overlay.active { display: flex; }
+  .modal { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); width: 420px; max-width: 90vw; }
+  .modal-header { padding: 16px; border-bottom: 1px solid var(--border); font-weight: 600; display: flex; justify-content: space-between; align-items: center; }
+  .modal-body { padding: 16px; }
+  .modal-footer { padding: 12px 16px; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 8px; }
+  .form-group { margin-bottom: 12px; }
+  .form-group label { display: block; font-size: 12px; color: var(--text2); margin-bottom: 4px; }
+  .form-group input, .form-group textarea, .form-group select { width: 100%; padding: 8px 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font-size: 13px; font-family: inherit; }
+  .form-group textarea { resize: vertical; min-height: 80px; }
+  .form-group input:focus, .form-group textarea:focus { outline: none; border-color: var(--accent); }
+
+  /* Markdown preview */
+  .md-preview { font-size: 13px; padding: 12px 16px; white-space: pre-wrap; font-family: inherit; }
+  .md-preview h1 { font-size: 16px; margin: 8px 0 4px; }
+  .md-preview h2 { font-size: 14px; margin: 8px 0 4px; color: var(--text2); }
+
+  /* Toast */
+  .toast { position: fixed; bottom: 24px; right: 24px; padding: 12px 20px; border-radius: 8px; font-size: 13px; z-index: 200; animation: slideIn 0.3s ease; }
+  .toast-success { background: var(--green); color: #000; }
+  .toast-error { background: var(--red); color: #fff; }
+  @keyframes slideIn { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+
+  /* Sync banner */
+  .sync-banner { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 24px; margin-bottom: 24px; display: flex; align-items: center; justify-content: space-between; }
+  .sync-info { display: flex; align-items: center; gap: 16px; }
+  .sync-info .label { font-size: 13px; color: var(--text2); }
+  .sync-info .value { font-size: 13px; font-weight: 500; font-family: 'SF Mono', monospace; }
+
+  /* Responsive */
+  @media (max-width: 768px) { .grid { grid-template-columns: 1fr; } .config-grid { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+
+<header>
+  <h1><span class="icon">&#9729;</span> API2File <span style="color:var(--text2);font-weight:400;font-size:14px">Demo Dashboard</span></h1>
+  <span class="status-badge online"><span class="dot"></span> Server Running</span>
+</header>
+
+<div class="container">
+  <div class="sync-banner">
+    <div class="sync-info">
+      <div><span class="label">Sync folder</span><br><span class="value">~/API2File/demo/</span></div>
+      <div><span class="label">Resources</span><br><span class="value" id="resource-count">6</span></div>
+      <div><span class="label">Last refresh</span><br><span class="value" id="last-refresh">—</span></div>
+    </div>
+    <div style="display:flex;gap:8px">
+      <button class="btn" onclick="refreshAll()">&#8635; Refresh</button>
+      <button class="btn btn-primary" onclick="showAddModal('task')">+ Add</button>
+    </div>
+  </div>
+
+  <div class="grid">
+    <!-- Tasks -->
+    <div class="card" id="tasks-card">
+      <div class="card-header">
+        <h2>&#9745; Tasks</h2>
+        <span class="format-tag format-csv">CSV</span>
+      </div>
+      <div class="file-hint">&#128196; <code>tasks.csv</code> &mdash; Opens in Numbers / Excel</div>
+      <div class="card-body"><table><thead><tr><th>Name</th><th>Status</th><th>Priority</th><th>Assignee</th><th></th></tr></thead><tbody id="tasks-tbody"></tbody></table></div>
+      <div class="card-footer"><button class="btn btn-sm" onclick="showAddModal('task')">+ Add Task</button></div>
+    </div>
+
+    <!-- Contacts -->
+    <div class="card" id="contacts-card">
+      <div class="card-header">
+        <h2>&#128101; Contacts</h2>
+        <span class="format-tag format-vcf">VCF</span>
+      </div>
+      <div class="file-hint">&#128196; <code>contacts/*.vcf</code> &mdash; Opens in Contacts.app</div>
+      <div class="card-body"><table><thead><tr><th>Name</th><th>Email</th><th>Company</th><th></th></tr></thead><tbody id="contacts-tbody"></tbody></table></div>
+      <div class="card-footer"><button class="btn btn-sm" onclick="showAddModal('contact')">+ Add Contact</button></div>
+    </div>
+
+    <!-- Events -->
+    <div class="card" id="events-card">
+      <div class="card-header">
+        <h2>&#128197; Events</h2>
+        <span class="format-tag format-ics">ICS</span>
+      </div>
+      <div class="file-hint">&#128196; <code>events/*.ics</code> &mdash; Opens in Calendar.app</div>
+      <div class="card-body"><table><thead><tr><th>Title</th><th>Date</th><th>Location</th><th>Status</th><th></th></tr></thead><tbody id="events-tbody"></tbody></table></div>
+      <div class="card-footer"><button class="btn btn-sm" onclick="showAddModal('event')">+ Add Event</button></div>
+    </div>
+
+    <!-- Notes -->
+    <div class="card" id="notes-card">
+      <div class="card-header">
+        <h2>&#128221; Notes</h2>
+        <span class="format-tag format-md">MD</span>
+      </div>
+      <div class="file-hint">&#128196; <code>notes/*.md</code> &mdash; Opens in any editor</div>
+      <div class="card-body"><table><thead><tr><th>Title</th><th>Preview</th><th></th></tr></thead><tbody id="notes-tbody"></tbody></table></div>
+      <div class="card-footer"><button class="btn btn-sm" onclick="showAddModal('note')">+ Add Note</button></div>
+    </div>
+
+    <!-- Pages -->
+    <div class="card" id="pages-card">
+      <div class="card-header">
+        <h2>&#127760; Pages</h2>
+        <span class="format-tag format-html">HTML</span>
+      </div>
+      <div class="file-hint">&#128196; <code>pages/*.html</code> &mdash; Opens in Safari</div>
+      <div class="card-body"><table><thead><tr><th>Title</th><th>Slug</th><th>Preview</th><th></th></tr></thead><tbody id="pages-tbody"></tbody></table></div>
+      <div class="card-footer"><button class="btn btn-sm" onclick="showAddModal('page')">+ Add Page</button></div>
+    </div>
+
+    <!-- Config -->
+    <div class="card" id="config-card">
+      <div class="card-header">
+        <h2>&#9881; Config</h2>
+        <span class="format-tag format-json">JSON</span>
+      </div>
+      <div class="file-hint">&#128196; <code>config.json</code> &mdash; Opens in VS Code</div>
+      <div class="card-body"><div class="config-grid" id="config-grid"></div></div>
+      <div class="card-footer"><button class="btn btn-sm" onclick="showEditConfig()">Edit Config</button></div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal -->
+<div class="modal-overlay" id="modal-overlay" onclick="if(event.target===this)closeModal()">
+  <div class="modal">
+    <div class="modal-header"><span id="modal-title">Add Item</span><button class="btn btn-sm" onclick="closeModal()">&times;</button></div>
+    <div class="modal-body" id="modal-body"></div>
+    <div class="modal-footer" id="modal-footer"></div>
+  </div>
+</div>
+
+<script>
+const API = '';
+
+// State
+let tasks = [], contacts = [], events = [], notes = [], pages = [], config = {};
+
+// Fetch helpers
+async function fetchJSON(path) {
+  const r = await fetch(API + path);
+  return r.json();
+}
+async function postJSON(path, data) {
+  const r = await fetch(API + path, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(data) });
+  return r.json();
+}
+async function putJSON(path, data) {
+  const r = await fetch(API + path, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(data) });
+  return r.json();
+}
+async function deleteJSON(path) {
+  const r = await fetch(API + path, { method: 'DELETE' });
+  return r.json();
+}
+
+function toast(msg, type='success') {
+  const t = document.createElement('div');
+  t.className = 'toast toast-' + type;
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 3000);
+}
+
+function pill(text) {
+  const cls = text ? text.toLowerCase().replace(/[\s_]/g, '-') : '';
+  return '<span class="pill pill-' + cls + '">' + (text||'') + '</span>';
+}
+
+function truncate(s, n) { return s && s.length > n ? s.substring(0, n) + '...' : (s||''); }
+function shortDate(s) { if (!s) return ''; try { return new Date(s).toLocaleDateString('en-US', {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}); } catch { return s; } }
+function escHtml(s) { const d=document.createElement('div'); d.textContent=s; return d.innerHTML; }
+
+// Render functions
+function renderTasks() {
+  document.getElementById('tasks-tbody').innerHTML = tasks.map(t =>
+    '<tr><td>' + escHtml(t.name) + '</td><td>' + pill(t.status) + '</td><td>' + pill(t.priority) + '</td><td>' + escHtml(t.assignee) + '</td><td><button class="btn btn-sm btn-danger" onclick="deleteItem(\'tasks\',' + t.id + ')">&#128465;</button></td></tr>'
+  ).join('');
+}
+
+function renderContacts() {
+  document.getElementById('contacts-tbody').innerHTML = contacts.map(c =>
+    '<tr><td>' + escHtml(c.firstName + ' ' + c.lastName) + '</td><td>' + escHtml(c.email) + '</td><td>' + escHtml(c.company) + '</td><td><button class="btn btn-sm btn-danger" onclick="deleteItem(\'contacts\',' + c.id + ')">&#128465;</button></td></tr>'
+  ).join('');
+}
+
+function renderEvents() {
+  document.getElementById('events-tbody').innerHTML = events.map(e =>
+    '<tr><td>' + escHtml(e.title) + '</td><td>' + shortDate(e.startDate) + '</td><td>' + escHtml(e.location) + '</td><td>' + pill(e.status) + '</td><td><button class="btn btn-sm btn-danger" onclick="deleteItem(\'events\',' + e.id + ')">&#128465;</button></td></tr>'
+  ).join('');
+}
+
+function renderNotes() {
+  document.getElementById('notes-tbody').innerHTML = notes.map(n =>
+    '<tr><td>' + escHtml(n.title) + '</td><td style="color:var(--text2)">' + escHtml(truncate(n.content, 50)) + '</td><td><button class="btn btn-sm btn-danger" onclick="deleteItem(\'notes\',' + n.id + ')">&#128465;</button></td></tr>'
+  ).join('');
+}
+
+function renderPages() {
+  document.getElementById('pages-tbody').innerHTML = pages.map(p =>
+    '<tr><td>' + escHtml(p.title) + '</td><td><code>' + escHtml(p.slug) + '</code></td><td style="color:var(--text2)">' + escHtml(truncate(p.content.replace(/<[^>]*>/g,''), 40)) + '</td><td><button class="btn btn-sm btn-danger" onclick="deleteItem(\'pages\',' + p.id + ')">&#128465;</button></td></tr>'
+  ).join('');
+}
+
+function renderConfig() {
+  const grid = document.getElementById('config-grid');
+  grid.innerHTML = Object.entries(config).map(([k,v]) =>
+    '<div class="config-item"><label>' + k + '</label><div class="value">' + (typeof v === 'boolean' ? (v ? '&#9989; Yes' : '&#10060; No') : escHtml(String(v))) + '</div></div>'
+  ).join('');
+}
+
+// Refresh all
+async function refreshAll() {
+  try {
+    [tasks, contacts, events, notes, pages, config] = await Promise.all([
+      fetchJSON('/api/tasks'), fetchJSON('/api/contacts'), fetchJSON('/api/events'),
+      fetchJSON('/api/notes'), fetchJSON('/api/pages'), fetchJSON('/api/config')
+    ]);
+    renderTasks(); renderContacts(); renderEvents(); renderNotes(); renderPages(); renderConfig();
+    document.getElementById('last-refresh').textContent = new Date().toLocaleTimeString();
+  } catch(e) { toast('Failed to refresh: ' + e.message, 'error'); }
+}
+
+// Delete
+async function deleteItem(resource, id) {
+  if (!confirm('Delete this item?')) return;
+  await deleteJSON('/api/' + resource + '/' + id);
+  toast('Deleted');
+  refreshAll();
+}
+
+// Modal
+function closeModal() { document.getElementById('modal-overlay').classList.remove('active'); }
+
+function showAddModal(type) {
+  const overlay = document.getElementById('modal-overlay');
+  const title = document.getElementById('modal-title');
+  const body = document.getElementById('modal-body');
+  const footer = document.getElementById('modal-footer');
+
+  const forms = {
+    task: { title: 'Add Task', fields: [
+      {name:'name',label:'Task Name',type:'text',placeholder:'Buy groceries'},
+      {name:'status',label:'Status',type:'select',options:['todo','in-progress','done']},
+      {name:'priority',label:'Priority',type:'select',options:['low','medium','high']},
+      {name:'assignee',label:'Assignee',type:'text',placeholder:'Alice'},
+      {name:'dueDate',label:'Due Date',type:'text',placeholder:'2026-04-01'},
+    ], endpoint: '/api/tasks' },
+    contact: { title: 'Add Contact', fields: [
+      {name:'firstName',label:'First Name',type:'text',placeholder:'Jane'},
+      {name:'lastName',label:'Last Name',type:'text',placeholder:'Doe'},
+      {name:'email',label:'Email',type:'text',placeholder:'jane@example.com'},
+      {name:'phone',label:'Phone',type:'text',placeholder:'+1-555-0104'},
+      {name:'company',label:'Company',type:'text',placeholder:'Acme Corp'},
+    ], endpoint: '/api/contacts' },
+    event: { title: 'Add Event', fields: [
+      {name:'title',label:'Title',type:'text',placeholder:'Team Meeting'},
+      {name:'startDate',label:'Start',type:'text',placeholder:'2026-04-01T10:00:00Z'},
+      {name:'endDate',label:'End',type:'text',placeholder:'2026-04-01T11:00:00Z'},
+      {name:'location',label:'Location',type:'text',placeholder:'Room 42'},
+      {name:'description',label:'Description',type:'text',placeholder:'Weekly sync'},
+      {name:'status',label:'Status',type:'select',options:['confirmed','tentative','cancelled']},
+    ], endpoint: '/api/events' },
+    note: { title: 'Add Note', fields: [
+      {name:'title',label:'Title',type:'text',placeholder:'Meeting Notes'},
+      {name:'content',label:'Content (Markdown)',type:'textarea',placeholder:'# Notes\n\n- Item 1\n- Item 2'},
+    ], endpoint: '/api/notes' },
+    page: { title: 'Add Page', fields: [
+      {name:'title',label:'Title',type:'text',placeholder:'Contact Us'},
+      {name:'slug',label:'Slug',type:'text',placeholder:'contact'},
+      {name:'content',label:'Content (HTML)',type:'textarea',placeholder:'<h1>Contact</h1>\n<p>Email us at hello@example.com</p>'},
+    ], endpoint: '/api/pages' },
+  };
+
+  const form = forms[type];
+  title.textContent = form.title;
+  body.innerHTML = form.fields.map(f => {
+    if (f.type === 'select') {
+      return '<div class="form-group"><label>' + f.label + '</label><select id="field-' + f.name + '">' + f.options.map(o => '<option value="' + o + '">' + o + '</option>').join('') + '</select></div>';
+    } else if (f.type === 'textarea') {
+      return '<div class="form-group"><label>' + f.label + '</label><textarea id="field-' + f.name + '" placeholder="' + (f.placeholder||'') + '"></textarea></div>';
+    }
+    return '<div class="form-group"><label>' + f.label + '</label><input type="text" id="field-' + f.name + '" placeholder="' + (f.placeholder||'') + '"></div>';
+  }).join('');
+  footer.innerHTML = '<button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="submitAdd(\'' + type + '\')">Create</button>';
+  overlay.classList.add('active');
+  setTimeout(() => document.querySelector('#modal-body input, #modal-body textarea')?.focus(), 100);
+}
+
+async function submitAdd(type) {
+  const forms = { task: '/api/tasks', contact: '/api/contacts', event: '/api/events', note: '/api/notes', page: '/api/pages' };
+  const fields = document.querySelectorAll('#modal-body input, #modal-body textarea, #modal-body select');
+  const data = {};
+  fields.forEach(f => { const key = f.id.replace('field-',''); if (f.value) data[key] = f.value; });
+  await postJSON(forms[type], data);
+  closeModal();
+  toast('Created!');
+  refreshAll();
+}
+
+function showEditConfig() {
+  const overlay = document.getElementById('modal-overlay');
+  document.getElementById('modal-title').textContent = 'Edit Config';
+  document.getElementById('modal-body').innerHTML = Object.entries(config).map(([k,v]) => {
+    if (typeof v === 'boolean') {
+      return '<div class="form-group"><label>' + k + '</label><select id="cfg-' + k + '"><option value="true"' + (v?' selected':'') + '>Yes</option><option value="false"' + (!v?' selected':'') + '>No</option></select></div>';
+    }
+    return '<div class="form-group"><label>' + k + '</label><input type="text" id="cfg-' + k + '" value="' + escHtml(String(v)) + '"></div>';
+  }).join('');
+  document.getElementById('modal-footer').innerHTML = '<button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="submitConfig()">Save</button>';
+  overlay.classList.add('active');
+}
+
+async function submitConfig() {
+  const data = {};
+  Object.keys(config).forEach(k => {
+    const el = document.getElementById('cfg-' + k);
+    if (el) {
+      if (el.tagName === 'SELECT' && (el.value === 'true' || el.value === 'false')) {
+        data[k] = el.value === 'true';
+      } else {
+        data[k] = el.value;
+      }
+    }
+  });
+  await putJSON('/api/config', data);
+  closeModal();
+  toast('Config saved!');
+  refreshAll();
+}
+
+// Auto-refresh every 10s
+refreshAll();
+setInterval(refreshAll, 10000);
+</script>
+</body>
+</html>

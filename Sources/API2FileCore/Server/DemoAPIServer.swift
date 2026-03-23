@@ -225,10 +225,46 @@ public actor DemoAPIServer {
             routeServices(method: method, path: path, body: body, connection: connection)
         } else if path == "/api/incidents" || path.hasPrefix("/api/incidents/") {
             routeIncidents(method: method, path: path, body: body, connection: connection)
+        } else if path == "/" || path == "/dashboard" {
+            serveDashboard(connection: connection)
         } else {
             sendJSON(statusCode: 404, body: ["error": "Not Found"], connection: connection)
         }
     }
+
+    // MARK: - Web Dashboard
+
+    private func serveDashboard(connection: NWConnection) {
+        let html = Self.dashboardHTML
+        let header = "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: \(html.count)\r\nConnection: close\r\n\r\n"
+        var data = Data(header.utf8)
+        data.append(Data(html.utf8))
+        connection.send(content: data, completion: .contentProcessed { _ in
+            connection.cancel()
+        })
+    }
+
+    private static let dashboardHTML: String = {
+        // Try to load from bundle first, fall back to embedded
+        if let url = Bundle.module.url(forResource: "dashboard", withExtension: "html", subdirectory: "Web"),
+           let html = try? String(contentsOf: url) {
+            return html
+        }
+        // Fallback: minimal dashboard
+        return """
+        <!DOCTYPE html><html><head><title>API2File Demo</title></head>
+        <body style="font-family:system-ui;background:#0d1117;color:#e6edf3;padding:40px">
+        <h1>API2File Demo Server</h1>
+        <p>Dashboard HTML not found in bundle. Try accessing the API directly:</p>
+        <ul><li><a href="/api/tasks">/api/tasks</a></li>
+        <li><a href="/api/contacts">/api/contacts</a></li>
+        <li><a href="/api/events">/api/events</a></li>
+        <li><a href="/api/notes">/api/notes</a></li>
+        <li><a href="/api/pages">/api/pages</a></li>
+        <li><a href="/api/config">/api/config</a></li></ul>
+        </body></html>
+        """
+    }()
 
     // MARK: - Tasks Routes
 
