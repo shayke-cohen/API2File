@@ -63,6 +63,29 @@ targets:
       base:
         PRODUCT_NAME: api2file-demo
 
+  API2FileFinderExtension:
+    type: app-extension
+    platform: macOS
+    sources:
+      - path: Sources/FinderExtension
+        excludes:
+          - "Info.plist"
+    info:
+      path: Sources/FinderExtension/Info.plist
+    entitlements:
+      path: Sources/FinderExtension/FinderExtension.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.com.api2file
+    dependencies:
+      - target: API2FileCore
+        embed: false
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.api2file.app.finder-extension
+        PRODUCT_NAME: API2FileFinderExtension
+        GENERATE_INFOPLIST_FILE: NO
+
   API2FileTests:
     type: bundle.unit-test
     platform: macOS

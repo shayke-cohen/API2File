@@ -2,6 +2,11 @@ import Foundation
 
 /// PPTX format converter — generates/parses minimal PowerPoint presentations (OOXML).
 /// Opens natively in Keynote and PowerPoint. Zero external dependencies.
+///
+/// Enhanced features:
+/// - Slide titles at 24pt (2400 hundredths-of-a-point) bold
+/// - Content lines rendered as bullet points
+/// - Slide numbers on each slide
 public enum PPTXFormat: FormatConverter {
     public static let format: FileFormat = .pptx
 
@@ -114,12 +119,13 @@ public enum PPTXFormat: FormatConverter {
         files["ppt/_rels/presentation.xml.rels"] = Data(presRels.utf8)
 
         // Generate each slide
+        let totalSlides = max(slides.count, 1)
         if slides.isEmpty {
-            files["ppt/slides/slide1.xml"] = Data(buildSlideXML(title: "", content: "").utf8)
+            files["ppt/slides/slide1.xml"] = Data(buildSlideXML(title: "", content: "", slideNumber: 1, totalSlides: 1).utf8)
             files["ppt/slides/_rels/slide1.xml.rels"] = Data(emptyRels.utf8)
         } else {
             for (i, slide) in slides.enumerated() {
-                files["ppt/slides/slide\(i + 1).xml"] = Data(buildSlideXML(title: slide.title, content: slide.content).utf8)
+                files["ppt/slides/slide\(i + 1).xml"] = Data(buildSlideXML(title: slide.title, content: slide.content, slideNumber: i + 1, totalSlides: totalSlides).utf8)
                 files["ppt/slides/_rels/slide\(i + 1).xml.rels"] = Data(emptyRels.utf8)
             }
         }
@@ -132,26 +138,43 @@ public enum PPTXFormat: FormatConverter {
         <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"/>
         """
 
-    private static func buildSlideXML(title: String, content: String) -> String {
-        // Title shape at top
+    private static func buildSlideXML(title: String, content: String, slideNumber: Int, totalSlides: Int) -> String {
+        // Title shape at top — 24pt (2400 hundredths-of-a-point), bold
         let titleShape = """
             <p:sp>
               <p:nvSpPr><p:cNvPr id="2" name="Title"/><p:cNvSpPr><a:spLocks noGrp="1"/></p:cNvSpPr><p:nvPr><p:ph type="title"/></p:nvPr></p:nvSpPr>
               <p:spPr><a:xfrm><a:off x="457200" y="274638"/><a:ext cx="8229600" cy="1143000"/></a:xfrm></p:spPr>
-              <p:txBody><a:bodyPr/><a:p><a:r><a:rPr lang="en-US" sz="3200" b="1"/><a:t>\(xmlEscape(title))</a:t></a:r></a:p></p:txBody>
+              <p:txBody><a:bodyPr/><a:p><a:r><a:rPr lang="en-US" sz="2400" b="1"/><a:t>\(xmlEscape(title))</a:t></a:r></a:p></p:txBody>
             </p:sp>
             """
 
-        // Content shape — split by newlines into paragraphs
-        let contentParas = content.components(separatedBy: "\n")
-            .map { "<a:p><a:r><a:rPr lang=\"en-US\" sz=\"1800\"/><a:t>\(xmlEscape($0))</a:t></a:r></a:p>" }
-            .joined(separator: "\n")
+        // Content shape — each line as a bullet point
+        let contentLines = content.components(separatedBy: "\n").filter { !$0.isEmpty }
+        var contentParas = ""
+        for line in contentLines {
+            // Each paragraph gets a bullet (buChar) and 18pt text
+            contentParas += """
+                <a:p><a:pPr marL="342900" indent="-342900"><a:buChar char="\u{2022}"/></a:pPr><a:r><a:rPr lang="en-US" sz="1800"/><a:t>\(xmlEscape(line))</a:t></a:r></a:p>
+                """
+        }
+        if contentParas.isEmpty {
+            contentParas = "<a:p><a:endParaRPr lang=\"en-US\"/></a:p>"
+        }
 
         let contentShape = """
             <p:sp>
               <p:nvSpPr><p:cNvPr id="3" name="Content"/><p:cNvSpPr><a:spLocks noGrp="1"/></p:cNvSpPr><p:nvPr><p:ph idx="1"/></p:nvPr></p:nvSpPr>
               <p:spPr><a:xfrm><a:off x="457200" y="1600200"/><a:ext cx="8229600" cy="4525963"/></a:xfrm></p:spPr>
               <p:txBody><a:bodyPr/>\(contentParas)</p:txBody>
+            </p:sp>
+            """
+
+        // Slide number shape — small text at bottom-right
+        let slideNumberShape = """
+            <p:sp>
+              <p:nvSpPr><p:cNvPr id="4" name="SlideNumber"/><p:cNvSpPr/><p:nvPr><p:ph type="sldNum" sz="quarter" idx="12"/></p:nvPr></p:nvSpPr>
+              <p:spPr><a:xfrm><a:off x="6553200" y="6356350"/><a:ext cx="2133600" cy="365125"/></a:xfrm></p:spPr>
+              <p:txBody><a:bodyPr/><a:p><a:fld id="{B6F15528-F159-4107-2D21-05BD64D2A5CF}" type="slidenum"><a:rPr lang="en-US" sz="1000"/><a:t>\(slideNumber)</a:t></a:fld><a:endParaRPr lang="en-US" sz="1000"/></a:p></p:txBody>
             </p:sp>
             """
 
@@ -165,6 +188,7 @@ public enum PPTXFormat: FormatConverter {
               <p:grpSpPr/>
               \(titleShape)
               \(contentShape)
+              \(slideNumberShape)
             </p:spTree></p:cSld>
             </p:sld>
             """
@@ -196,6 +220,10 @@ public enum PPTXFormat: FormatConverter {
             let shapeContent = nsXML.substring(with: shapeMatch.range(at: 1))
             let nsShape = shapeContent as NSString
             let isTitle = shapeContent.contains("ph type=\"title\"")
+            let isSlideNum = shapeContent.contains("ph type=\"sldNum\"")
+
+            // Skip slide number shapes in content extraction
+            if isSlideNum { continue }
 
             let textMatches = textRegex.matches(in: shapeContent, range: NSRange(location: 0, length: nsShape.length))
             let texts = textMatches.map { xmlUnescape(nsShape.substring(with: $0.range(at: 1))) }

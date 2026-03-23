@@ -51,14 +51,38 @@ public enum XLSXFormat: FormatConverter {
             }
         }
 
+        // Calculate column widths based on content length
+        var colWidths: [Int: Int] = [:]  // col index -> max character count
+        for (col, key) in keySet.enumerated() {
+            colWidths[col] = key.count
+        }
+        for record in records {
+            for (col, key) in keySet.enumerated() {
+                if let value = record[key] {
+                    let len = stringValue(value).count
+                    colWidths[col] = max(colWidths[col] ?? 0, len)
+                }
+            }
+        }
+
+        // Build column width XML
+        var colsXML = "<cols>"
+        for (col, _) in keySet.enumerated() {
+            let charWidth = colWidths[col] ?? 8
+            // Excel column width is roughly characters + 2 for padding, minimum 8
+            let width = max(Double(charWidth) + 2.0, 8.0)
+            colsXML += "<col min=\"\(col + 1)\" max=\"\(col + 1)\" width=\"\(width)\" bestFit=\"1\" customWidth=\"1\"/>"
+        }
+        colsXML += "</cols>"
+
         // Build sheet XML
         var sheetRows = ""
-        // Header row
+        // Header row — uses style index 1 (bold)
         sheetRows += "<row r=\"1\">"
         for (col, key) in keySet.enumerated() {
             let ref = cellRef(row: 1, col: col)
             let idx = stringIndex[key]!
-            sheetRows += "<c r=\"\(ref)\" t=\"s\"><v>\(idx)</v></c>"
+            sheetRows += "<c r=\"\(ref)\" t=\"s\" s=\"1\"><v>\(idx)</v></c>"
         }
         sheetRows += "</row>\n"
 
@@ -70,6 +94,7 @@ public enum XLSXFormat: FormatConverter {
                 let ref = cellRef(row: rowNum, col: col)
                 if let value = record[key] {
                     if isNumeric(value) {
+                        // Numeric values: no t attribute (defaults to number type)
                         sheetRows += "<c r=\"\(ref)\"><v>\(stringValue(value))</v></c>"
                     } else {
                         let str = stringValue(value)
@@ -89,6 +114,7 @@ public enum XLSXFormat: FormatConverter {
             <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
             <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
             <dimension ref="\(dimension)"/>
+            \(colsXML)
             <sheetData>
             \(sheetRows)</sheetData>
             </worksheet>
@@ -188,14 +214,25 @@ public enum XLSXFormat: FormatConverter {
             </Relationships>
             """
 
+        // Styles with bold font for header row:
+        // Font 0: Normal (Calibri 11)
+        // Font 1: Bold (Calibri 11 bold)
+        // cellXfs 0: default style (font 0)
+        // cellXfs 1: bold header style (font 1)
         let styles = """
             <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
             <styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
-            <fonts count="1"><font><sz val="11"/><name val="Calibri"/></font></fonts>
-            <fills count="1"><fill><patternFill patternType="none"/></fill></fills>
+            <fonts count="2">
+            <font><sz val="11"/><name val="Calibri"/></font>
+            <font><b/><sz val="11"/><name val="Calibri"/></font>
+            </fonts>
+            <fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills>
             <borders count="1"><border><left/><right/><top/><bottom/></border></borders>
-            <cellStyleXfs count="1"><xf/></cellStyleXfs>
-            <cellXfs count="1"><xf/></cellXfs>
+            <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
+            <cellXfs count="2">
+            <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
+            <xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/>
+            </cellXfs>
             </styleSheet>
             """
 

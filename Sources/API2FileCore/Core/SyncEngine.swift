@@ -13,6 +13,13 @@ public actor SyncEngine {
     private var syncStates: [String: SyncState] = [:]
     private var serviceInfos: [String: ServiceInfo] = [:]
     private var lastKnownRecords: [String: [[String: Any]]] = [:]
+    private var _notificationManager: NotificationManager?
+    private var notificationManager: NotificationManager {
+        if _notificationManager == nil {
+            _notificationManager = NotificationManager()
+        }
+        return _notificationManager!
+    }
 
     public init(config: GlobalConfig) {
         self.config = config
@@ -29,6 +36,11 @@ public actor SyncEngine {
     public func start() async throws {
         // Ensure sync folder exists
         try FileManager.default.createDirectory(at: syncFolder, withIntermediateDirectories: true)
+
+        // Request notification permission
+        if config.showNotifications {
+            notificationManager.requestPermission()
+        }
 
         // Start network monitoring
         networkMonitor.start()
@@ -63,6 +75,13 @@ public actor SyncEngine {
         for serviceId in serviceIds {
             do {
                 try await performPull(serviceId: serviceId)
+                let fileCount = serviceInfos[serviceId]?.fileCount ?? 0
+                if config.showNotifications {
+                    notificationManager.notifyConnected(
+                        service: serviceInfos[serviceId]?.displayName ?? serviceId,
+                        fileCount: fileCount
+                    )
+                }
                 print("[SyncEngine] Initial pull complete for \(serviceId)")
             } catch {
                 print("[SyncEngine] Initial pull failed for \(serviceId): \(error)")
@@ -165,6 +184,12 @@ public actor SyncEngine {
                 guard let self else { return }
                 if let error {
                     await self.updateServiceStatus(serviceId, status: .error, error: error.localizedDescription)
+                    if await self.config.showNotifications {
+                        await self.notificationManager.notifyError(
+                            service: config.displayName,
+                            message: error.localizedDescription
+                        )
+                    }
                 } else {
                     await self.updateServiceStatus(serviceId, status: .connected)
                 }
@@ -253,12 +278,13 @@ public actor SyncEngine {
     }
 
     private func performPush(serviceId: String, filePath: String) async throws {
-        guard let engine = adapterEngines[serviceId] else { return }
+        print("[SyncEngine] performPush called: service=\(serviceId), file=\(filePath)")
+        guard let engine = adapterEngines[serviceId] else { print("[SyncEngine]   -> no engine"); return }
         let serviceDir = syncFolder.appendingPathComponent(serviceId)
         let fullPath = serviceDir.appendingPathComponent(filePath)
 
         // Find which resource this file belongs to
-        guard let resource = findResource(for: filePath, in: engine.config) else { return }
+        guard let resource = findResource(for: filePath, in: engine.config) else { print("[SyncEngine]   -> no resource match for '\(filePath)'"); return }
 
         // Skip read-only resources
         if resource.fileMapping.readOnly == true { return }
@@ -267,18 +293,28 @@ public actor SyncEngine {
         var isDir: ObjCBool = false
         guard FileManager.default.fileExists(atPath: fullPath.path, isDirectory: &isDir), !isDir.boolValue else { return }
         let content = try Data(contentsOf: fullPath)
-        let file = SyncableFile(
-            relativePath: filePath,
-            format: resource.fileMapping.format,
-            content: content,
-            remoteId: syncStates[serviceId]?.files[filePath]?.remoteId
-        )
 
-        // Push to API
-        try await engine.push(file: file, resource: resource)
+        // For collection-strategy files, use smart diffing to push only changes
+        if resource.fileMapping.strategy == .collection {
+            try await pushCollectionDiff(
+                serviceId: serviceId,
+                filePath: filePath,
+                content: content,
+                resource: resource,
+                engine: engine
+            )
+        } else {
+            let file = SyncableFile(
+                relativePath: filePath,
+                format: resource.fileMapping.format,
+                content: content,
+                remoteId: syncStates[serviceId]?.files[filePath]?.remoteId
+            )
+            try await engine.push(file: file, resource: resource)
+        }
 
         // Update sync state
-        syncStates[serviceId]?.files[filePath]?.lastSyncedHash = file.contentHash
+        syncStates[serviceId]?.files[filePath]?.lastSyncedHash = content.sha256Hex
         syncStates[serviceId]?.files[filePath]?.lastSyncTime = Date()
         syncStates[serviceId]?.files[filePath]?.status = .synced
 
@@ -297,10 +333,15 @@ public actor SyncEngine {
     // MARK: - File Change Handling
 
     private func handleFileChanges(_ changes: [FileWatcher.FileChange]) {
+        print("[SyncEngine] handleFileChanges called with \(changes.count) change(s)")
         for change in changes {
             // Extract service ID and relative path from the full path
             let path = change.path
-            guard let relativeParts = extractServiceAndPath(from: path) else { continue }
+            print("[SyncEngine]   change path: \(path)")
+            guard let relativeParts = extractServiceAndPath(from: path) else {
+                print("[SyncEngine]   -> skipped (could not extract service/path, syncFolder=\(syncFolder.path))")
+                continue
+            }
             let (serviceId, filePath) = relativeParts
 
             // Skip internal and temp files
@@ -309,6 +350,7 @@ public actor SyncEngine {
             if filePath.hasPrefix(".") { continue } // .DS_Store, .dat.nosync*, etc.
             if filePath.contains("~$") { continue } // Office temp files
 
+            print("[SyncEngine]   -> queuing push: service=\(serviceId), file=\(filePath)")
             Task {
                 await coordinator.queuePush(serviceId: serviceId, filePath: filePath)
             }
@@ -316,10 +358,25 @@ public actor SyncEngine {
     }
 
     private func extractServiceAndPath(from fullPath: String) -> (serviceId: String, filePath: String)? {
+        // FSEvents on macOS reports canonical paths (e.g. /private/var/..., /private/tmp/...)
+        // while FileManager may return symlinked paths (e.g. /var/..., /tmp/...).
+        // Try the stored path first, then the canonical variant with /private prefix.
         let syncPath = syncFolder.path
-        guard fullPath.hasPrefix(syncPath) else { return nil }
+        let candidates = [
+            syncPath,
+            "/private" + syncPath,  // /var -> /private/var, /tmp -> /private/tmp
+        ]
 
-        let relative = String(fullPath.dropFirst(syncPath.count + 1)) // +1 for the /
+        var prefix: String?
+        for candidate in candidates {
+            if fullPath.hasPrefix(candidate + "/") {
+                prefix = candidate
+                break
+            }
+        }
+        guard let prefix else { return nil }
+
+        let relative = String(fullPath.dropFirst(prefix.count + 1)) // +1 for the /
         let components = relative.split(separator: "/", maxSplits: 1)
         guard components.count == 2 else { return nil }
 
@@ -381,7 +438,17 @@ public actor SyncEngine {
 
     private func findResource(for filePath: String, in config: AdapterConfig) -> ResourceConfig? {
         for resource in config.resources {
-            if filePath.hasPrefix(resource.fileMapping.directory) {
+            let dir = resource.fileMapping.directory
+            // "." means root of the service directory — matches any file at the top level
+            if dir == "." || filePath.hasPrefix(dir + "/") || filePath.hasPrefix(dir) {
+                // For collection strategy, also check filename match
+                if let filename = resource.fileMapping.filename,
+                   resource.fileMapping.strategy == .collection {
+                    if filePath == filename || filePath.hasSuffix("/\(filename)") {
+                        return resource
+                    }
+                    continue
+                }
                 return resource
             }
         }

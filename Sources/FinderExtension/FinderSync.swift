@@ -7,6 +7,13 @@ class API2FileFinder: FIFinderSync {
 
     let syncFolderURL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("API2File")
 
+    /// Shared UserDefaults via App Group for cross-process badge state communication.
+    /// The main app writes badge states here; the Finder extension reads them.
+    private let sharedDefaults = UserDefaults(suiteName: "group.com.api2file")
+
+    /// Key prefix for badge state entries in shared UserDefaults.
+    private static let badgeKeyPrefix = "badge."
+
     override init() {
         super.init()
 
@@ -100,32 +107,29 @@ class API2FileFinder: FIFinderSync {
     // MARK: - Helpers
 
     private func lookupSyncStatus(for url: URL) -> String {
-        // Check for .conflict file
+        // Check for .conflict file first
         let conflictPath = conflictFilePath(for: url)
         if FileManager.default.fileExists(atPath: conflictPath.path) {
             return "conflict"
         }
 
-        // Read sync state from .api2file/state.json
-        guard let serviceId = extractServiceId(from: url) else { return "" }
-        let stateURL = syncFolderURL
-            .appendingPathComponent(serviceId)
-            .appendingPathComponent(".api2file/state.json")
+        // Build a relative path key from the sync folder root
+        let syncPath = syncFolderURL.path
+        guard url.path.hasPrefix(syncPath) else { return "" }
+        let relativePath = String(url.path.dropFirst(syncPath.count + 1))
 
-        guard let data = try? Data(contentsOf: stateURL),
-              let state = try? JSONDecoder().decode(SyncStateCompact.self, from: data) else {
-            return ""
+        // Read badge state from shared App Group UserDefaults
+        let key = Self.badgeKeyPrefix + relativePath
+        if let status = sharedDefaults?.string(forKey: key), !status.isEmpty {
+            return status
         }
 
-        // Get relative path within service
-        let servicePath = syncFolderURL.appendingPathComponent(serviceId).path
-        let relativePath = String(url.path.dropFirst(servicePath.count + 1))
-
-        if let fileState = state.files[relativePath] {
-            return fileState.status
+        // Fallback: check if the file exists in the sync folder at all
+        if FileManager.default.fileExists(atPath: url.path) {
+            return "synced"
         }
 
-        return "synced" // Default to synced if file exists but not in state
+        return ""
     }
 
     private func extractServiceId(from url: URL) -> String? {
@@ -146,13 +150,32 @@ class API2FileFinder: FIFinderSync {
         let dir = url.deletingLastPathComponent()
         return dir.appendingPathComponent("\(nameWithoutExt).conflict.\(ext)")
     }
-}
 
-// Compact state model for Finder extension (avoids importing full API2FileCore)
-private struct SyncStateCompact: Codable {
-    let files: [String: FileStateCompact]
-}
+    // MARK: - Public API for Main App
 
-private struct FileStateCompact: Codable {
-    let status: String
+    /// Convenience method for the main app to write badge state into shared UserDefaults.
+    /// Call from the main app process to update badge overlays visible in Finder.
+    ///
+    /// - Parameters:
+    ///   - status: Badge identifier ("synced", "syncing", "conflict", "error", or "" to clear)
+    ///   - relativePath: File path relative to the ~/API2File/ sync folder
+    static func setBadgeState(_ status: String, forRelativePath relativePath: String) {
+        guard let defaults = UserDefaults(suiteName: "group.com.api2file") else { return }
+        let key = badgeKeyPrefix + relativePath
+        if status.isEmpty {
+            defaults.removeObject(forKey: key)
+        } else {
+            defaults.set(status, forKey: key)
+        }
+    }
+
+    /// Convenience method to read the current badge state for a file.
+    ///
+    /// - Parameter relativePath: File path relative to the ~/API2File/ sync folder
+    /// - Returns: Badge identifier string, or nil if not set
+    static func badgeState(forRelativePath relativePath: String) -> String? {
+        guard let defaults = UserDefaults(suiteName: "group.com.api2file") else { return nil }
+        let key = badgeKeyPrefix + relativePath
+        return defaults.string(forKey: key)
+    }
 }
