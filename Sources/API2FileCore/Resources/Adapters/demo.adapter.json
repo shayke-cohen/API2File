@@ -240,6 +240,137 @@
         "interval": 10,
         "debounceMs": 500
       }
+    },
+    {
+      "name": "services",
+      "description": "Microservice health status (JSON, one file per service)",
+
+      "pull": {
+        "method": "GET",
+        "url": "http://localhost:8089/api/services",
+        "dataPath": "$"
+      },
+
+      "push": {
+        "create": { "method": "POST", "url": "http://localhost:8089/api/services" },
+        "update": { "method": "PUT", "url": "http://localhost:8089/api/services/{id}" },
+        "delete": { "method": "DELETE", "url": "http://localhost:8089/api/services/{id}" }
+      },
+
+      "fileMapping": {
+        "strategy": "one-per-record",
+        "directory": "services",
+        "filename": "{name|slugify}.json",
+        "format": "json",
+        "idField": "id"
+      },
+
+      "sync": { "interval": 10, "debounceMs": 500 }
+    },
+    {
+      "name": "incidents",
+      "description": "Operational incidents log (CSV)",
+
+      "pull": {
+        "method": "GET",
+        "url": "http://localhost:8089/api/incidents",
+        "dataPath": "$"
+      },
+
+      "push": {
+        "create": { "method": "POST", "url": "http://localhost:8089/api/incidents" },
+        "update": { "method": "PUT", "url": "http://localhost:8089/api/incidents/{id}" },
+        "delete": { "method": "DELETE", "url": "http://localhost:8089/api/incidents/{id}" }
+      },
+
+      "fileMapping": {
+        "strategy": "collection",
+        "directory": ".",
+        "filename": "incidents.csv",
+        "format": "csv",
+        "idField": "id"
+      },
+
+      "sync": { "interval": 10, "debounceMs": 500 }
+    },
+    {
+      "name": "logos",
+      "description": "SVG vector logos — opens in Preview",
+
+      "pull": {
+        "method": "GET",
+        "url": "http://localhost:8089/api/logos",
+        "dataPath": "$"
+      },
+
+      "push": {
+        "create": { "method": "POST", "url": "http://localhost:8089/api/logos" },
+        "update": { "method": "PUT", "url": "http://localhost:8089/api/logos/{id}" },
+        "delete": { "method": "DELETE", "url": "http://localhost:8089/api/logos/{id}" }
+      },
+
+      "fileMapping": {
+        "strategy": "one-per-record",
+        "directory": "logos",
+        "filename": "{name|slugify}.svg",
+        "format": "svg",
+        "idField": "id",
+        "contentField": "content"
+      },
+
+      "sync": { "interval": 10, "debounceMs": 500 }
+    },
+    {
+      "name": "photos",
+      "description": "PNG images (base64) — opens in Preview",
+
+      "pull": {
+        "method": "GET",
+        "url": "http://localhost:8089/api/photos",
+        "dataPath": "$"
+      },
+
+      "push": {
+        "create": { "method": "POST", "url": "http://localhost:8089/api/photos" },
+        "update": { "method": "PUT", "url": "http://localhost:8089/api/photos/{id}" },
+        "delete": { "method": "DELETE", "url": "http://localhost:8089/api/photos/{id}" }
+      },
+
+      "fileMapping": {
+        "strategy": "one-per-record",
+        "directory": "photos",
+        "filename": "{name|slugify}.png",
+        "format": "raw",
+        "idField": "id"
+      },
+
+      "sync": { "interval": 10, "debounceMs": 500 }
+    },
+    {
+      "name": "documents",
+      "description": "PDF documents (base64) — opens in Preview",
+
+      "pull": {
+        "method": "GET",
+        "url": "http://localhost:8089/api/documents",
+        "dataPath": "$"
+      },
+
+      "push": {
+        "create": { "method": "POST", "url": "http://localhost:8089/api/documents" },
+        "update": { "method": "PUT", "url": "http://localhost:8089/api/documents/{id}" },
+        "delete": { "method": "DELETE", "url": "http://localhost:8089/api/documents/{id}" }
+      },
+
+      "fileMapping": {
+        "strategy": "one-per-record",
+        "directory": "documents",
+        "filename": "{name|slugify}.pdf",
+        "format": "raw",
+        "idField": "id"
+      },
+
+      "sync": { "interval": 10, "debounceMs": 500 }
     }
   ]
 }
