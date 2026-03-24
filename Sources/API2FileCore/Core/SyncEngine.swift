@@ -659,6 +659,7 @@ public actor SyncEngine {
             if filePath == "CLAUDE.md" { continue }
             if filePath.contains("~$") { continue } // Office temp files
             if filePath.contains(".dat.nosync") { continue } // macOS temp files
+            if filePath.contains(".tmp.") { continue } // atomic-write temp files (e.g. file.csv.tmp.PID.N)
             if filePath.contains(".objects/") || filePath.contains(".objects") { continue } // object files (not yet supported)
             if filePath.hasPrefix(".") || filePath.contains("/.") { continue } // hidden files
 
@@ -880,11 +881,15 @@ public actor SyncEngine {
         }
 
         // Push updates (with inverse transform merging)
+        // GraphQL mutations use explicit {field} template substitution with user-facing names,
+        // so inverse transforms (which relocate flat fields like boardId → board.boardId) must
+        // be skipped — the mutation template would fail to find {boardId} at the top level.
+        let isUpdateGraphQL = resource.push?.update?.type == .graphql
         for (id, record) in diff.updated {
             let pushRecord: [String: Any]
-            if shouldInverse, let rawRecord = rawLookup[id] {
+            if !isUpdateGraphQL && shouldInverse, let rawRecord = rawLookup[id] {
                 pushRecord = InverseTransformPipeline.apply(inverseOps: inverseOps, editedRecord: record, rawRecord: rawRecord)
-            } else if shouldInverse {
+            } else if !isUpdateGraphQL && shouldInverse {
                 pushRecord = InverseTransformPipeline.applyMechanical(inverseOps: inverseOps, editedRecord: record)
             } else {
                 pushRecord = record
