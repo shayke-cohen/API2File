@@ -24,6 +24,9 @@ let package = Package(
             targets: ["API2FileCLI"]
         ),
     ],
+    dependencies: [
+        .package(path: "../appxray/packages/sdk-ios"),
+    ],
     targets: [
         .target(
             name: "API2FileCore",
@@ -32,7 +35,10 @@ let package = Package(
         ),
         .executableTarget(
             name: "API2FileApp",
-            dependencies: ["API2FileCore"],
+            dependencies: [
+                "API2FileCore",
+                .product(name: "AppXray", package: "sdk-ios"),
+            ],
             path: "Sources/API2FileApp"
         ),
         .executableTarget(

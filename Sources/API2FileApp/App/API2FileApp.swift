@@ -1,13 +1,33 @@
 import SwiftUI
 import API2FileCore
+#if DEBUG
+import AppXray
+#endif
 
 @main
 struct API2FileApp: App {
     @StateObject private var appState = AppState()
 
+    init() {
+        #if DEBUG
+        AppXray.shared.start(config: AppXrayConfig(
+            appName: "API2File",
+            platform: AppXrayConfig.macos,
+            port: 19420
+        ))
+        #endif
+    }
+
     var body: some Scene {
         MenuBarExtra {
             MenuBarView(appState: appState)
+                .onAppear {
+                    #if DEBUG
+                    AppXray.shared.registerObservableObject(appState, name: "appState", setters: [
+                        "isPaused": { appState.isPaused = $0 as! Bool }
+                    ])
+                    #endif
+                }
         } label: {
             Image(systemName: appState.menuBarIcon)
         }
