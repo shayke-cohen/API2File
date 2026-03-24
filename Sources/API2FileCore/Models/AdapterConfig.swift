@@ -108,8 +108,11 @@ public struct PullConfig: Codable, Sendable {
     public let dataPath: String?
     public let pagination: PaginationConfig?
     public let mediaConfig: MediaConfig?
+    public let updatedSinceField: String?      // URL param name (e.g. "since")
+    public let updatedSinceBodyPath: String?   // body field path for date filter
+    public let updatedSinceDateFormat: String? // "iso8601" (default) or "epoch"
 
-    public init(method: String? = nil, url: String, type: APIType? = nil, query: String? = nil, body: JSONValue? = nil, dataPath: String? = nil, pagination: PaginationConfig? = nil, mediaConfig: MediaConfig? = nil) {
+    public init(method: String? = nil, url: String, type: APIType? = nil, query: String? = nil, body: JSONValue? = nil, dataPath: String? = nil, pagination: PaginationConfig? = nil, mediaConfig: MediaConfig? = nil, updatedSinceField: String? = nil, updatedSinceBodyPath: String? = nil, updatedSinceDateFormat: String? = nil) {
         self.method = method
         self.url = url
         self.type = type
@@ -118,6 +121,9 @@ public struct PullConfig: Codable, Sendable {
         self.dataPath = dataPath
         self.pagination = pagination
         self.mediaConfig = mediaConfig
+        self.updatedSinceField = updatedSinceField
+        self.updatedSinceBodyPath = updatedSinceBodyPath
+        self.updatedSinceDateFormat = updatedSinceDateFormat
     }
 }
 
@@ -153,11 +159,37 @@ public struct PaginationConfig: Codable, Sendable {
     public let type: PaginationType
     public let nextCursorPath: String?
     public let pageSize: Int?
+    public let maxRecords: Int?          // safety cap, default 10000
+    public let cursorField: String?      // body path for cursor (type: body)
+    public let offsetField: String?      // body path for offset (type: body)
+    public let limitField: String?       // body path for limit (type: body)
+    public let queryTemplate: String?    // GraphQL template with {cursor}/{limit} placeholders
+    public let paramNames: PaginationParamNames?  // custom URL param names
 
-    public init(type: PaginationType, nextCursorPath: String? = nil, pageSize: Int? = nil) {
+    public init(type: PaginationType, nextCursorPath: String? = nil, pageSize: Int? = nil, maxRecords: Int? = nil, cursorField: String? = nil, offsetField: String? = nil, limitField: String? = nil, queryTemplate: String? = nil, paramNames: PaginationParamNames? = nil) {
         self.type = type
         self.nextCursorPath = nextCursorPath
         self.pageSize = pageSize
+        self.maxRecords = maxRecords
+        self.cursorField = cursorField
+        self.offsetField = offsetField
+        self.limitField = limitField
+        self.queryTemplate = queryTemplate
+        self.paramNames = paramNames
+    }
+}
+
+public struct PaginationParamNames: Codable, Sendable {
+    public let limit: String?
+    public let offset: String?
+    public let page: String?
+    public let cursor: String?
+
+    public init(limit: String? = nil, offset: String? = nil, page: String? = nil, cursor: String? = nil) {
+        self.limit = limit
+        self.offset = offset
+        self.page = page
+        self.cursor = cursor
     }
 }
 
@@ -165,6 +197,7 @@ public enum PaginationType: String, Codable, Sendable {
     case cursor
     case offset
     case page
+    case body  // pagination params go in JSON request body
 }
 
 // MARK: - Push
@@ -346,10 +379,12 @@ public struct TransformOp: Codable, Sendable {
 public struct SyncConfig: Codable, Sendable {
     public let interval: Int?
     public let debounceMs: Int?
+    public let fullSyncEvery: Int?  // do full re-sync every N intervals (default 10)
 
-    public init(interval: Int? = nil, debounceMs: Int? = nil) {
+    public init(interval: Int? = nil, debounceMs: Int? = nil, fullSyncEvery: Int? = nil) {
         self.interval = interval
         self.debounceMs = debounceMs
+        self.fullSyncEvery = fullSyncEvery
     }
 
     public var intervalSeconds: TimeInterval {

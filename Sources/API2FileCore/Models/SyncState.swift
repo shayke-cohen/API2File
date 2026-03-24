@@ -3,9 +3,15 @@ import Foundation
 /// Persistent sync state for a service — stored in .api2file/state.json
 public struct SyncState: Codable, Sendable {
     public var files: [String: FileSyncState]
+    /// Last full sync time per resource name — used to compute updatedSince for incremental pulls
+    public var resourceSyncTimes: [String: Date]
+    /// Count of sync intervals since last full sync per resource name
+    public var syncCounts: [String: Int]
 
-    public init(files: [String: FileSyncState] = [:]) {
+    public init(files: [String: FileSyncState] = [:], resourceSyncTimes: [String: Date] = [:], syncCounts: [String: Int] = [:]) {
         self.files = files
+        self.resourceSyncTimes = resourceSyncTimes
+        self.syncCounts = syncCounts
     }
 
     // MARK: - Persistence

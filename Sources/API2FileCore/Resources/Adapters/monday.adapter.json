@@ -32,6 +32,13 @@
         "dataPath": "$.data.boards"
       },
 
+      "pagination": {
+        "type": "cursor",
+        "pageSize": 200,
+        "queryTemplate": "{ boards(limit: 50) { id name description state board_kind groups { id title } items_page(limit: {limit}, after: \"{cursor}\") { cursor items { id name group { id title } column_values { id title text type } } } } }",
+        "nextCursorPath": "$.data.boards[0].items_page.cursor"
+      },
+
       "push": {
         "create": {
           "url": "https://api.monday.com/v2",

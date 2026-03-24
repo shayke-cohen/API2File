@@ -76,11 +76,18 @@ public actor AdapterEngine {
     // MARK: - Pull Single Resource
 
     /// Pull a single resource from the API and return PullResult with files and raw records.
-    /// - Parameter resource: The resource configuration
+    /// - Parameters:
+    ///   - resource: The resource configuration
+    ///   - updatedSince: If set, only fetch records updated after this date (incremental sync)
     /// - Returns: PullResult containing files and raw API records
-    public func pull(resource: ResourceConfig) async throws -> PullResult {
-        guard let pullConfig = resource.pull else {
+    public func pull(resource: ResourceConfig, updatedSince: Date? = nil) async throws -> PullResult {
+        guard var pullConfig = resource.pull else {
             throw AdapterError.noPullConfig(resource.name)
+        }
+
+        // Inject updatedSince into the pull config if supported
+        if let since = updatedSince {
+            pullConfig = injectUpdatedSince(since, into: pullConfig)
         }
 
         // Fetch all records (handles pagination)
@@ -324,23 +331,50 @@ public actor AdapterEngine {
         var offset: Int = 0
         var page: Int = 1
         let pageSize = pullConfig.pagination?.pageSize ?? 100
+        let maxRecords = pullConfig.pagination?.maxRecords ?? 10000
 
         repeat {
             // Build the request URL with template variables and pagination params
             var url = resolveURL(pullConfig.url)
-
-            // Inject pagination into URL query parameters
-            if let pagination = pullConfig.pagination {
-                url = appendPaginationParams(to: url, pagination: pagination, cursor: cursor, offset: offset, page: page, pageSize: pageSize)
-            }
-
             let method = HTTPMethod(rawValue: pullConfig.method?.uppercased() ?? "GET") ?? .GET
             var headers = config.globals?.headers ?? [:]
             headers["Content-Type"] = headers["Content-Type"] ?? "application/json"
-
             var body: Data? = nil
-            if let bodyValue = pullConfig.body {
-                body = try JSONSerialization.data(withJSONObject: jsonValueToAny(bodyValue))
+
+            if let pagination = pullConfig.pagination {
+                switch pagination.type {
+                case .body:
+                    // Inject pagination into request body
+                    body = injectBodyPagination(
+                        bodyValue: pullConfig.body,
+                        pagination: pagination,
+                        cursor: cursor,
+                        offset: offset,
+                        pageSize: pageSize
+                    )
+                case .cursor where pagination.queryTemplate != nil:
+                    // GraphQL: render query from template
+                    var template = pagination.queryTemplate!
+                    template = template.replacingOccurrences(of: "{limit}", with: "\(pageSize)")
+                    if let c = cursor {
+                        template = template.replacingOccurrences(of: "{cursor}", with: c)
+                    } else {
+                        // First page: remove cursor argument
+                        template = template.replacingOccurrences(of: ", after: \"{cursor}\"", with: "")
+                    }
+                    let queryBody: [String: Any] = ["query": template]
+                    body = try JSONSerialization.data(withJSONObject: queryBody)
+                default:
+                    // URL query param pagination (existing behavior)
+                    url = appendPaginationParams(to: url, pagination: pagination, cursor: cursor, offset: offset, page: page, pageSize: pageSize)
+                    if let bodyValue = pullConfig.body {
+                        body = try JSONSerialization.data(withJSONObject: jsonValueToAny(bodyValue))
+                    }
+                }
+            } else {
+                if let bodyValue = pullConfig.body {
+                    body = try JSONSerialization.data(withJSONObject: jsonValueToAny(bodyValue))
+                }
             }
 
             let request = APIRequest(
@@ -381,6 +415,12 @@ public actor AdapterEngine {
             let records = normalizeRecords(extracted)
             allRecords.append(contentsOf: records)
 
+            // Max records safety cap
+            if allRecords.count >= maxRecords {
+                print("[AdapterEngine] Max records limit (\(maxRecords)) reached, stopping pagination")
+                break
+            }
+
             // Check for next page
             guard let pagination = pullConfig.pagination else { break }
 
@@ -409,6 +449,22 @@ public actor AdapterEngine {
                     return allRecords
                 }
                 page += 1
+            case .body:
+                // Body pagination: use cursor if cursorField is set, otherwise use offset
+                if pagination.cursorField != nil {
+                    if let next = nextCursor, !next.isEmpty {
+                        cursor = next
+                    } else {
+                        return allRecords
+                    }
+                } else if pagination.offsetField != nil {
+                    if records.count < pageSize {
+                        return allRecords
+                    }
+                    offset += records.count
+                } else {
+                    return allRecords
+                }
             }
         } while true
 
@@ -578,7 +634,11 @@ public actor AdapterEngine {
             query: pullConfig.query,
             body: pullConfig.body,
             dataPath: pullConfig.dataPath,
-            pagination: pullConfig.pagination
+            pagination: pullConfig.pagination,
+            mediaConfig: pullConfig.mediaConfig,
+            updatedSinceField: pullConfig.updatedSinceField,
+            updatedSinceBodyPath: pullConfig.updatedSinceBodyPath,
+            updatedSinceDateFormat: pullConfig.updatedSinceDateFormat
         )
 
         let records = try await fetchAllRecords(pullConfig: pullConfig)
@@ -628,20 +688,160 @@ public actor AdapterEngine {
 
         switch pagination.type {
         case .cursor:
-            queryItems.append(URLQueryItem(name: "limit", value: "\(pageSize)"))
+            let limitName = pagination.paramNames?.limit ?? "limit"
+            let cursorName = pagination.paramNames?.cursor ?? "cursor"
+            queryItems.append(URLQueryItem(name: limitName, value: "\(pageSize)"))
             if let cursor = cursor {
-                queryItems.append(URLQueryItem(name: "cursor", value: cursor))
+                queryItems.append(URLQueryItem(name: cursorName, value: cursor))
             }
         case .offset:
-            queryItems.append(URLQueryItem(name: "limit", value: "\(pageSize)"))
-            queryItems.append(URLQueryItem(name: "offset", value: "\(offset)"))
+            let limitName = pagination.paramNames?.limit ?? "limit"
+            let offsetName = pagination.paramNames?.offset ?? "offset"
+            queryItems.append(URLQueryItem(name: limitName, value: "\(pageSize)"))
+            queryItems.append(URLQueryItem(name: offsetName, value: "\(offset)"))
         case .page:
-            queryItems.append(URLQueryItem(name: "per_page", value: "\(pageSize)"))
-            queryItems.append(URLQueryItem(name: "page", value: "\(page)"))
+            let limitName = pagination.paramNames?.limit ?? "per_page"
+            let pageName = pagination.paramNames?.page ?? "page"
+            queryItems.append(URLQueryItem(name: limitName, value: "\(pageSize)"))
+            queryItems.append(URLQueryItem(name: pageName, value: "\(page)"))
+        case .body:
+            break  // handled in body injection, not URL
         }
 
         components.queryItems = queryItems
         return components.string ?? url
+    }
+
+    // MARK: - Private — Body Pagination
+
+    /// Inject pagination parameters into the request body using dot-path resolution.
+    private func injectBodyPagination(
+        bodyValue: JSONValue?,
+        pagination: PaginationConfig,
+        cursor: String?,
+        offset: Int,
+        pageSize: Int
+    ) -> Data? {
+        // Convert JSONValue to mutable dict
+        var bodyDict: [String: Any] = [:]
+        if let bodyValue {
+            bodyDict = jsonValueToAny(bodyValue) as? [String: Any] ?? [:]
+        }
+
+        // Inject limit
+        if let limitPath = pagination.limitField {
+            setNestedValue(pageSize, atPath: limitPath, in: &bodyDict)
+        }
+
+        // Inject cursor or offset
+        if let cursorPath = pagination.cursorField, let cursor {
+            setNestedValue(cursor, atPath: cursorPath, in: &bodyDict)
+        } else if let offsetPath = pagination.offsetField {
+            setNestedValue(offset, atPath: offsetPath, in: &bodyDict)
+        }
+
+        return try? JSONSerialization.data(withJSONObject: bodyDict)
+    }
+
+    /// Set a value at a dot-separated path in a nested dictionary.
+    private func setNestedValue(_ value: Any, atPath path: String, in dict: inout [String: Any]) {
+        let components = path.split(separator: ".").map(String.init)
+        guard !components.isEmpty else { return }
+        if components.count == 1 {
+            dict[components[0]] = value
+            return
+        }
+        let topKey = components[0]
+        var nested = dict[topKey] as? [String: Any] ?? [:]
+        let remaining = components.dropFirst().joined(separator: ".")
+        setNestedValue(value, atPath: remaining, in: &nested)
+        dict[topKey] = nested
+    }
+
+    // MARK: - Private — Incremental Sync
+
+    /// Inject an updatedSince date into a PullConfig by modifying the URL or body.
+    /// Returns a new PullConfig with the date filter applied.
+    private func injectUpdatedSince(_ date: Date, into pullConfig: PullConfig) -> PullConfig {
+        let dateString = formatUpdatedSinceDate(date, format: pullConfig.updatedSinceDateFormat)
+
+        var newURL = pullConfig.url
+        var newBody = pullConfig.body
+
+        // URL param injection (e.g., ?since=2024-01-01T00:00:00Z)
+        if let field = pullConfig.updatedSinceField {
+            if var components = URLComponents(string: newURL) {
+                var items = components.queryItems ?? []
+                items.append(URLQueryItem(name: field, value: dateString))
+                components.queryItems = items
+                newURL = components.string ?? newURL
+            } else {
+                // Fallback: simple string append
+                let separator = newURL.contains("?") ? "&" : "?"
+                newURL = "\(newURL)\(separator)\(field)=\(dateString)"
+            }
+        }
+
+        // Body path injection (e.g., set "filter.updatedAfter" in request body)
+        if let bodyPath = pullConfig.updatedSinceBodyPath {
+            newBody = injectDateIntoBody(dateString, atPath: bodyPath, body: newBody)
+        }
+
+        return PullConfig(
+            method: pullConfig.method,
+            url: newURL,
+            type: pullConfig.type,
+            query: pullConfig.query,
+            body: newBody,
+            dataPath: pullConfig.dataPath,
+            pagination: pullConfig.pagination,
+            mediaConfig: pullConfig.mediaConfig,
+            updatedSinceField: pullConfig.updatedSinceField,
+            updatedSinceBodyPath: pullConfig.updatedSinceBodyPath,
+            updatedSinceDateFormat: pullConfig.updatedSinceDateFormat
+        )
+    }
+
+    /// Format a date for the updatedSince parameter based on the configured format.
+    private func formatUpdatedSinceDate(_ date: Date, format: String?) -> String {
+        switch format {
+        case "epoch":
+            return "\(Int(date.timeIntervalSince1970))"
+        case "epoch_ms":
+            return "\(Int(date.timeIntervalSince1970 * 1000))"
+        default:
+            // ISO 8601 (default)
+            let formatter = ISO8601DateFormatter()
+            formatter.formatOptions = [.withInternetDateTime]
+            return formatter.string(from: date)
+        }
+    }
+
+    /// Inject a date string at a dot-path location in a JSONValue body.
+    private func injectDateIntoBody(_ dateString: String, atPath path: String, body: JSONValue?) -> JSONValue {
+        var bodyDict: [String: Any] = [:]
+        if let body {
+            bodyDict = jsonValueToAny(body) as? [String: Any] ?? [:]
+        }
+        setNestedValue(dateString, atPath: path, in: &bodyDict)
+        return anyToJSONValue(bodyDict)
+    }
+
+    /// Convert a Foundation value back to JSONValue.
+    private func anyToJSONValue(_ value: Any) -> JSONValue {
+        switch value {
+        case let s as String: return .string(s)
+        case let n as Int: return .number(Double(n))
+        case let n as Double: return .number(n)
+        case let b as Bool: return .bool(b)
+        case is NSNull: return .null
+        case let arr as [Any]: return .array(arr.map { anyToJSONValue($0) })
+        case let dict as [String: Any]:
+            var obj: [String: JSONValue] = [:]
+            for (k, v) in dict { obj[k] = anyToJSONValue(v) }
+            return .object(obj)
+        default: return .string("\(value)")
+        }
     }
 
     // MARK: - Private — Helpers

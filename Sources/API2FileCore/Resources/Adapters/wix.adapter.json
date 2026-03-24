@@ -35,7 +35,16 @@
             }
           }
         },
-        "dataPath": "$.contacts"
+        "dataPath": "$.contacts",
+        "updatedSinceBodyPath": "query.filter.updatedDate.$gt"
+      },
+
+      "pagination": {
+        "type": "body",
+        "pageSize": 100,
+        "limitField": "query.paging.limit",
+        "cursorField": "query.paging.cursor",
+        "nextCursorPath": "$.pagingMetadata.cursors.next"
       },
 
       "push": {
@@ -90,7 +99,16 @@
             }
           }
         },
-        "dataPath": "$.posts"
+        "dataPath": "$.posts",
+        "updatedSinceBodyPath": "query.filter.updatedDate.$gt"
+      },
+
+      "pagination": {
+        "type": "body",
+        "pageSize": 50,
+        "limitField": "query.paging.limit",
+        "cursorField": "query.paging.cursor",
+        "nextCursorPath": "$.pagingMetadata.cursors.next"
       },
 
       "push": {
@@ -140,7 +158,16 @@
           },
           "includeVariants": true
         },
-        "dataPath": "$.products"
+        "dataPath": "$.products",
+        "updatedSinceBodyPath": "query.filter.updatedDate.$gt"
+      },
+
+      "pagination": {
+        "type": "body",
+        "pageSize": 100,
+        "limitField": "query.paging.limit",
+        "cursorField": "query.paging.cursor",
+        "nextCursorPath": "$.pagingMetadata.cursors.next"
       },
 
       "push": {

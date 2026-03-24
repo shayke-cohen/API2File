@@ -388,14 +388,14 @@ public actor DemoAPIServer {
     // MARK: - Request Processing
 
     private func processRequest(data: Data, connection: NWConnection) {
-        guard let (method, path, body) = parseHTTPRequest(data) else {
+        guard let (method, path, queryString, body) = parseHTTPRequest(data) else {
             sendJSON(statusCode: 400, body: ["error": "Bad Request"], connection: connection)
             return
         }
 
         // Route to resource handlers
         if path == "/api/tasks" || path.hasPrefix("/api/tasks/") {
-            routeTasks(method: method, path: path, body: body, connection: connection)
+            routeTasks(method: method, path: path, queryString: queryString, body: body, connection: connection)
         } else if path == "/api/contacts" || path.hasPrefix("/api/contacts/") {
             routeContacts(method: method, path: path, body: body, connection: connection)
         } else if path == "/api/events" || path.hasPrefix("/api/events/") {
@@ -511,10 +511,20 @@ public actor DemoAPIServer {
 
     // MARK: - Tasks Routes
 
-    private func routeTasks(method: String, path: String, body: Data?, connection: NWConnection) {
+    private func routeTasks(method: String, path: String, queryString: String?, body: Data?, connection: NWConnection) {
         switch (method, path) {
         case ("GET", "/api/tasks"):
-            let tasksJSON = tasks.map { $0.toDict() }
+            var tasksJSON = tasks.map { $0.toDict() }
+
+            // Support pagination via limit/offset query params
+            let params = parseQueryParams(queryString)
+            if let limitStr = params["limit"], let limit = Int(limitStr) {
+                let offset = Int(params["offset"] ?? "0") ?? 0
+                let start = min(offset, tasksJSON.count)
+                let end = min(start + limit, tasksJSON.count)
+                tasksJSON = Array(tasksJSON[start..<end])
+            }
+
             sendJSONArray(statusCode: 200, body: tasksJSON, connection: connection)
 
         case ("GET", _):
@@ -1503,7 +1513,19 @@ public actor DemoAPIServer {
 
     // MARK: - HTTP Helpers
 
-    private func parseHTTPRequest(_ data: Data) -> (method: String, path: String, body: Data?)? {
+    private func parseQueryParams(_ queryString: String?) -> [String: String] {
+        guard let qs = queryString, !qs.isEmpty else { return [:] }
+        var params: [String: String] = [:]
+        for pair in qs.split(separator: "&") {
+            let kv = pair.split(separator: "=", maxSplits: 1)
+            if kv.count == 2 {
+                params[String(kv[0])] = String(kv[1])
+            }
+        }
+        return params
+    }
+
+    private func parseHTTPRequest(_ data: Data) -> (method: String, path: String, queryString: String?, body: Data?)? {
         guard let headerEnd = data.findDemoHeaderEnd() else { return nil }
         let headerData = data[data.startIndex..<headerEnd]
         guard let headerString = String(data: headerData, encoding: .utf8) else { return nil }
@@ -1515,12 +1537,14 @@ public actor DemoAPIServer {
 
         let method = String(parts[0])
         let rawPath = String(parts[1])
-        let path = rawPath.split(separator: "?", maxSplits: 1).first.map(String.init) ?? rawPath
+        let pathParts = rawPath.split(separator: "?", maxSplits: 1)
+        let path = String(pathParts[0])
+        let queryString = pathParts.count > 1 ? String(pathParts[1]) : nil
 
         let bodyStart = headerEnd + 4
         let body: Data? = bodyStart < data.count ? Data(data[bodyStart...]) : nil
 
-        return (method, path, body)
+        return (method, path, queryString, body)
     }
 
     private func sendJSON(statusCode: Int, body: [String: String], connection: NWConnection) {

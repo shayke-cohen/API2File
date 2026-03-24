@@ -87,6 +87,18 @@ public actor SyncEngine {
                 print("[SyncEngine] Initial pull complete for \(serviceId)")
             } catch {
                 print("[SyncEngine] Initial pull failed for \(serviceId): \(error)")
+                // Write to log file for debugging
+                let logDir = syncFolder.appendingPathComponent(".api2file/logs")
+                try? FileManager.default.createDirectory(at: logDir, withIntermediateDirectories: true)
+                let logFile = logDir.appendingPathComponent("sync-errors.log")
+                let entry = "[\(Date())] PULL FAILED \(serviceId): \(error)\n"
+                if let handle = try? FileHandle(forWritingTo: logFile) {
+                    handle.seekToEndOfFile()
+                    handle.write(entry.data(using: .utf8)!)
+                    handle.closeFile()
+                } else {
+                    try? entry.write(to: logFile, atomically: true, encoding: .utf8)
+                }
             }
         }
 
@@ -129,6 +141,7 @@ public actor SyncEngine {
 
     /// Register a single service
     private func registerService(_ serviceId: String) async throws {
+        print("[SyncEngine] Registering service: \(serviceId)")
         let serviceDir = syncFolder.appendingPathComponent(serviceId)
         let config = try AdapterEngine.loadConfig(from: serviceDir)
         let httpClient = HTTPClient()
@@ -243,54 +256,129 @@ public actor SyncEngine {
         let startTime = Date()
 
         do {
-            let pullResult = try await engine.pullAll()
+            // Determine if any resource supports incremental sync
+            let hasIncrementalSupport = engine.config.resources.contains { r in
+                r.pull?.updatedSinceField != nil || r.pull?.updatedSinceBodyPath != nil
+            }
+
+            var pullResult: PullResult
+            var isIncremental = false
+
+            if hasIncrementalSupport {
+                // Pull resources individually with incremental support
+                var allFiles: [SyncableFile] = []
+                var allRawRecords: [String: [[String: Any]]] = [:]
+
+                for resource in engine.config.resources {
+                    let needsFullSync = shouldDoFullSync(serviceId: serviceId, resource: resource)
+                    let lastSync = syncStates[serviceId]?.resourceSyncTimes[resource.name]
+                    let updatedSince = (!needsFullSync && lastSync != nil) ? lastSync : nil
+
+                    let result = try await engine.pull(resource: resource, updatedSince: updatedSince)
+                    allFiles.append(contentsOf: result.files)
+                    allRawRecords.merge(result.rawRecordsByFile) { _, new in new }
+
+                    if updatedSince != nil {
+                        isIncremental = true
+                    }
+                }
+                pullResult = PullResult(files: allFiles, rawRecordsByFile: allRawRecords)
+            } else {
+                pullResult = try await engine.pullAll()
+            }
+
             let files = pullResult.files
 
-            // Write files to disk
-            for file in files {
-                let filePath = serviceDir.appendingPathComponent(file.relativePath)
-                try FileManager.default.createDirectory(at: filePath.deletingLastPathComponent(), withIntermediateDirectories: true)
+            if isIncremental {
+                // MERGE: update existing records with incremental changes
+                for file in files {
+                    let filePath = serviceDir.appendingPathComponent(file.relativePath)
+                    try FileManager.default.createDirectory(at: filePath.deletingLastPathComponent(), withIntermediateDirectories: true)
 
-                // Suppress file watcher for user files we're about to write
-                suppressedPaths.insert(file.relativePath)
-                try file.content.write(to: filePath, options: .atomic)
+                    if let resource = findResource(for: file.relativePath, in: engine.config),
+                       resource.fileMapping.strategy == .collection {
+                        // Merge incremental records with cached records
+                        let newRecords = pullResult.rawRecordsByFile[file.relativePath] ?? []
+                        let mergedRaw = mergeIncrementalRecords(
+                            serviceId: serviceId,
+                            filePath: file.relativePath,
+                            newRecords: newRecords,
+                            resource: resource
+                        )
 
-                // Write object file with raw API records
-                if let rawRecords = pullResult.rawRecordsByFile[file.relativePath],
-                   let resource = findResource(for: file.relativePath, in: engine.config) {
-                    let objectPath = ObjectFileManager.objectFilePath(
-                        forUserFile: file.relativePath,
-                        strategy: resource.fileMapping.strategy
-                    )
-                    let objectURL = serviceDir.appendingPathComponent(objectPath)
-                    suppressedPaths.insert(objectPath)
+                        // Apply transforms and re-encode merged records
+                        let transforms = resource.fileMapping.transforms?.pull ?? []
+                        let transformed = transforms.isEmpty ? mergedRaw : TransformPipeline.apply(transforms, to: mergedRaw)
+                        let mergedContent = try FormatConverterFactory.encode(
+                            records: transformed,
+                            format: file.format,
+                            options: resource.fileMapping.formatOptions
+                        )
 
-                    if resource.fileMapping.strategy == .onePerRecord {
-                        if let record = rawRecords.first {
-                            try ObjectFileManager.writeRecordObjectFile(record: record, to: objectURL)
-                        }
+                        suppressedPaths.insert(file.relativePath)
+                        try mergedContent.write(to: filePath, options: .atomic)
+
+                        // Update object file with merged raw records
+                        let objectPath = ObjectFileManager.objectFilePath(
+                            forUserFile: file.relativePath,
+                            strategy: resource.fileMapping.strategy
+                        )
+                        let objectURL = serviceDir.appendingPathComponent(objectPath)
+                        suppressedPaths.insert(objectPath)
+                        try ObjectFileManager.writeCollectionObjectFile(records: mergedRaw, to: objectURL)
+
+                        // Update cache
+                        let cacheKey = "\(serviceId):\(file.relativePath)"
+                        lastKnownRecords[cacheKey] = transformed
                     } else {
-                        try ObjectFileManager.writeCollectionObjectFile(records: rawRecords, to: objectURL)
+                        // Non-collection or no resource match: write as full (same as non-incremental)
+                        suppressedPaths.insert(file.relativePath)
+                        try file.content.write(to: filePath, options: .atomic)
+                        writeObjectFile(file: file, pullResult: pullResult, serviceId: serviceId, serviceDir: serviceDir, engine: engine)
+                        cacheCollectionRecords(file: file, serviceId: serviceId, engine: engine)
+                    }
+
+                    // Update sync state
+                    if let remoteId = file.remoteId {
+                        syncStates[serviceId]?.files[file.relativePath] = FileSyncState(
+                            remoteId: remoteId,
+                            lastSyncedHash: file.contentHash,
+                            lastSyncTime: Date(),
+                            status: .synced
+                        )
                     }
                 }
+            } else {
+                // FULL: write all files (existing behavior)
+                for file in files {
+                    let filePath = serviceDir.appendingPathComponent(file.relativePath)
+                    try FileManager.default.createDirectory(at: filePath.deletingLastPathComponent(), withIntermediateDirectories: true)
 
-                // Cache decoded records for collection-strategy files (for diffing on push)
-                if let resource = findResource(for: file.relativePath, in: engine.config),
-                   resource.fileMapping.strategy == .collection {
-                    let cacheKey = "\(serviceId):\(file.relativePath)"
-                    if let records = try? FormatConverterFactory.decode(data: file.content, format: file.format, options: resource.fileMapping.formatOptions) {
-                        lastKnownRecords[cacheKey] = records
+                    suppressedPaths.insert(file.relativePath)
+                    try file.content.write(to: filePath, options: .atomic)
+                    writeObjectFile(file: file, pullResult: pullResult, serviceId: serviceId, serviceDir: serviceDir, engine: engine)
+                    cacheCollectionRecords(file: file, serviceId: serviceId, engine: engine)
+
+                    // Update sync state
+                    if let remoteId = file.remoteId {
+                        syncStates[serviceId]?.files[file.relativePath] = FileSyncState(
+                            remoteId: remoteId,
+                            lastSyncedHash: file.contentHash,
+                            lastSyncTime: Date(),
+                            status: .synced
+                        )
                     }
                 }
+            }
 
-                // Update sync state
-                if let remoteId = file.remoteId {
-                    syncStates[serviceId]?.files[file.relativePath] = FileSyncState(
-                        remoteId: remoteId,
-                        lastSyncedHash: file.contentHash,
-                        lastSyncTime: Date(),
-                        status: .synced
-                    )
+            // Update sync counters for incremental tracking
+            for resource in engine.config.resources {
+                let name = resource.name
+                if shouldDoFullSync(serviceId: serviceId, resource: resource) {
+                    syncStates[serviceId]?.resourceSyncTimes[name] = Date()
+                    syncStates[serviceId]?.syncCounts[name] = 0
+                } else {
+                    syncStates[serviceId]?.syncCounts[name] = (syncStates[serviceId]?.syncCounts[name] ?? 0) + 1
                 }
             }
 
@@ -301,7 +389,8 @@ public actor SyncEngine {
             // Git commit
             if config.gitAutoCommit, let git = gitManagers[serviceId] {
                 if try await git.hasChanges() {
-                    try await git.commitAll(message: "sync: pull \(serviceId) — updated \(files.count) files")
+                    let syncType = isIncremental ? "incremental pull" : "pull"
+                    try await git.commitAll(message: "sync: \(syncType) \(serviceId) — updated \(files.count) files")
                 }
             }
 
@@ -313,6 +402,7 @@ public actor SyncEngine {
             let fileChanges = files.map {
                 FileChange(path: $0.relativePath, action: .downloaded)
             }
+            let syncType = isIncremental ? "incremental pull" : "pulled"
             let entry = SyncHistoryEntry(
                 serviceId: serviceId,
                 serviceName: serviceName,
@@ -320,7 +410,7 @@ public actor SyncEngine {
                 status: .success,
                 duration: Date().timeIntervalSince(startTime),
                 files: fileChanges,
-                summary: "pulled \(files.count) files"
+                summary: "\(syncType) \(files.count) files"
             )
             logHistory(entry, serviceId: serviceId, serviceDir: serviceDir)
         } catch {
@@ -448,25 +538,16 @@ public actor SyncEngine {
             guard let relativeParts = extractServiceAndPath(from: path) else { continue }
             let (serviceId, filePath) = relativeParts
 
-            // Skip internal and temp files
+            // Skip internal, temp, and hidden files
             if filePath.hasPrefix(".api2file/") || filePath.hasPrefix(".git/") { continue }
             if filePath == "CLAUDE.md" { continue }
             if filePath.contains("~$") { continue } // Office temp files
+            if filePath.contains(".dat.nosync") { continue } // macOS temp files
+            if filePath.contains(".objects/") || filePath.contains(".objects") { continue } // object files (not yet supported)
+            if filePath.hasPrefix(".") || filePath.contains("/.") { continue } // hidden files
 
             // Skip suppressed paths (written by pull or regeneration — prevents loops)
             if suppressedPaths.remove(filePath) != nil { continue }
-
-            // Check if this is an object file change (agent editing raw records)
-            if ObjectFileManager.isObjectFile(filePath) {
-                Task { [weak self] in
-                    guard let self else { return }
-                    await self.performObjectPush(serviceId: serviceId, objectFilePath: filePath)
-                }
-                continue
-            }
-
-            // Skip other hidden files (.DS_Store, etc.) — but not object files (handled above)
-            if filePath.hasPrefix(".") || filePath.contains("/.") { continue }
 
             Task {
                 await coordinator.queuePush(serviceId: serviceId, filePath: filePath)
@@ -707,6 +788,92 @@ public actor SyncEngine {
             }
         }
         return nil
+    }
+
+    // MARK: - Incremental Sync Helpers
+
+    /// Determine if this resource needs a full sync or can do incremental.
+    /// Full sync if: never synced before, or enough intervals have passed since last full sync.
+    private func shouldDoFullSync(serviceId: String, resource: ResourceConfig) -> Bool {
+        let fullSyncEvery = resource.sync?.fullSyncEvery ?? 10
+        let count = syncStates[serviceId]?.syncCounts[resource.name] ?? 0
+        let hasLastSync = syncStates[serviceId]?.resourceSyncTimes[resource.name] != nil
+
+        // Full sync if: never synced, or it's time for periodic full re-sync
+        return !hasLastSync || count >= fullSyncEvery
+    }
+
+    /// Merge incremental (partial) records into the existing cached records.
+    /// Matches by idField — updates existing records and appends new ones.
+    private func mergeIncrementalRecords(
+        serviceId: String,
+        filePath: String,
+        newRecords: [[String: Any]],
+        resource: ResourceConfig
+    ) -> [[String: Any]] {
+        let cacheKey = "\(serviceId):\(filePath)"
+        let idField = resource.fileMapping.idField ?? "id"
+        var existing = lastKnownRecords[cacheKey] ?? []
+
+        for newRecord in newRecords {
+            let newId = stringifyId(newRecord[idField])
+            if let idx = existing.firstIndex(where: { stringifyId($0[idField]) == newId && newId != nil }) {
+                existing[idx] = newRecord  // Update existing record
+            } else {
+                existing.append(newRecord)  // Append new record
+            }
+        }
+
+        return existing
+    }
+
+    /// Stringify an ID value for comparison during merge.
+    private func stringifyId(_ value: Any?) -> String? {
+        guard let value = value else { return nil }
+        switch value {
+        case let s as String: return s
+        case let n as Int: return "\(n)"
+        case let n as Double:
+            if n == n.rounded() && n < 1e15 { return "\(Int(n))" }
+            return "\(n)"
+        default: return "\(value)"
+        }
+    }
+
+    /// Write object file with raw API records for a pulled file.
+    private func writeObjectFile(file: SyncableFile, pullResult: PullResult, serviceId: String, serviceDir: URL, engine: AdapterEngine) {
+        guard let rawRecords = pullResult.rawRecordsByFile[file.relativePath],
+              let resource = findResource(for: file.relativePath, in: engine.config) else { return }
+
+        let objectPath = ObjectFileManager.objectFilePath(
+            forUserFile: file.relativePath,
+            strategy: resource.fileMapping.strategy
+        )
+        let objectURL = serviceDir.appendingPathComponent(objectPath)
+        suppressedPaths.insert(objectPath)
+
+        do {
+            if resource.fileMapping.strategy == .onePerRecord {
+                if let record = rawRecords.first {
+                    try ObjectFileManager.writeRecordObjectFile(record: record, to: objectURL)
+                }
+            } else {
+                try ObjectFileManager.writeCollectionObjectFile(records: rawRecords, to: objectURL)
+            }
+        } catch {
+            print("[SyncEngine] Failed to write object file \(objectPath): \(error)")
+        }
+    }
+
+    /// Cache decoded records for collection-strategy files (used for diffing on push).
+    private func cacheCollectionRecords(file: SyncableFile, serviceId: String, engine: AdapterEngine) {
+        guard let resource = findResource(for: file.relativePath, in: engine.config),
+              resource.fileMapping.strategy == .collection else { return }
+
+        let cacheKey = "\(serviceId):\(file.relativePath)"
+        if let records = try? FormatConverterFactory.decode(data: file.content, format: file.format, options: resource.fileMapping.formatOptions) {
+            lastKnownRecords[cacheKey] = records
+        }
     }
 
     // MARK: - Helpers

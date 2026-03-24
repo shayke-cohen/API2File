@@ -13,7 +13,13 @@ public final class NotificationManager: NSObject, @unchecked Sendable, UNUserNot
     /// Shared singleton instance.
     public static let shared = NotificationManager()
 
-    private let center = UNUserNotificationCenter.current()
+    /// Whether notifications are available (requires proper app bundle)
+    private let isAvailable: Bool
+
+    private var center: UNUserNotificationCenter? {
+        guard isAvailable else { return nil }
+        return UNUserNotificationCenter.current()
+    }
 
     // MARK: - Category Identifiers
 
@@ -27,16 +33,20 @@ public final class NotificationManager: NSObject, @unchecked Sendable, UNUserNot
     // MARK: - Init
 
     override init() {
+        // Check if we have a proper app bundle (UNUserNotificationCenter crashes without one)
+        self.isAvailable = Bundle.main.bundleIdentifier != nil
         super.init()
-        center.delegate = self
-        registerCategories()
+        if isAvailable {
+            center?.delegate = self
+            registerCategories()
+        }
     }
 
     // MARK: - Public API
 
     /// Request notification permission from the user.
     public func requestPermission() {
-        center.requestAuthorization(options: [.alert, .sound, .badge]) { granted, error in
+        center?.requestAuthorization(options: [.alert, .sound, .badge]) { granted, error in
             if let error {
                 print("[NotificationManager] Permission error: \(error.localizedDescription)")
             } else if !granted {
@@ -67,7 +77,7 @@ public final class NotificationManager: NSObject, @unchecked Sendable, UNUserNot
             trigger: nil
         )
 
-        center.add(request) { error in
+        center?.add(request) { error in
             if let error {
                 print("[NotificationManager] Failed to deliver notification: \(error.localizedDescription)")
             }
@@ -93,7 +103,7 @@ public final class NotificationManager: NSObject, @unchecked Sendable, UNUserNot
             trigger: nil
         )
 
-        center.add(request) { error in
+        center?.add(request) { error in
             if let error {
                 print("[NotificationManager] Failed to deliver conflict notification: \(error.localizedDescription)")
             }
@@ -119,7 +129,7 @@ public final class NotificationManager: NSObject, @unchecked Sendable, UNUserNot
             trigger: nil
         )
 
-        center.add(request) { error in
+        center?.add(request) { error in
             if let error {
                 print("[NotificationManager] Failed to deliver error notification: \(error.localizedDescription)")
             }
@@ -145,7 +155,7 @@ public final class NotificationManager: NSObject, @unchecked Sendable, UNUserNot
             trigger: nil
         )
 
-        center.add(request) { error in
+        center?.add(request) { error in
             if let error {
                 print("[NotificationManager] Failed to deliver connected notification: \(error.localizedDescription)")
             }
@@ -223,7 +233,7 @@ public final class NotificationManager: NSObject, @unchecked Sendable, UNUserNot
             options: []
         )
 
-        center.setNotificationCategories([
+        center?.setNotificationCategories([
             conflictCategory,
             errorCategory,
             connectedCategory,

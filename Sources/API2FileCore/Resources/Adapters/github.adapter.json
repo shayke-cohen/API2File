@@ -67,7 +67,8 @@
         "pagination": {
           "type": "page",
           "pageSize": 50
-        }
+        },
+        "updatedSinceField": "since"
       },
 
       "push": {
@@ -157,7 +158,8 @@
         "pagination": {
           "type": "page",
           "pageSize": 50
-        }
+        },
+        "updatedSinceField": "since"
       },
 
       "fileMapping": {
