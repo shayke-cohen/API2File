@@ -2,6 +2,7 @@
   "service": "mediamanager",
   "displayName": "MediaManager — Digital Asset Manager",
   "version": "1.0",
+  "hidden": true,
 
   "auth": {
     "type": "bearer",

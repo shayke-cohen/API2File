@@ -8,14 +8,54 @@ public struct AdapterConfig: Codable, Sendable {
     public let auth: AuthConfig
     public let globals: GlobalsConfig?
     public let resources: [ResourceConfig]
+    /// SF Symbol name shown in the Add Service wizard (e.g. "globe")
+    public let icon: String?
+    /// One-line description shown in the Add Service wizard picker
+    public let wizardDescription: String?
+    /// Extra input fields the wizard collects before writing the adapter config
+    public let setupFields: [SetupField]?
+    /// If true, this adapter is hidden from the Add Service wizard
+    public let hidden: Bool?
 
-    public init(service: String, displayName: String, version: String, auth: AuthConfig, globals: GlobalsConfig? = nil, resources: [ResourceConfig]) {
+    public init(service: String, displayName: String, version: String, auth: AuthConfig, globals: GlobalsConfig? = nil, resources: [ResourceConfig], icon: String? = nil, wizardDescription: String? = nil, setupFields: [SetupField]? = nil, hidden: Bool? = nil) {
         self.service = service
         self.displayName = displayName
         self.version = version
         self.auth = auth
         self.globals = globals
         self.resources = resources
+        self.icon = icon
+        self.wizardDescription = wizardDescription
+        self.setupFields = setupFields
+        self.hidden = hidden
+    }
+}
+
+// MARK: - Wizard Setup Fields
+
+/// An extra input field shown in the Add Service wizard.
+/// The collected value replaces `templateKey` in the raw adapter JSON before writing to disk.
+public struct SetupField: Codable, Sendable {
+    /// Unique key used to store the collected value (e.g. "wix-site-id")
+    public let key: String
+    /// Human-readable label shown in the wizard (e.g. "Site ID")
+    public let label: String
+    /// Placeholder text in the text field (e.g. "abc123-def456-...")
+    public let placeholder: String?
+    /// The literal string in the adapter JSON that gets replaced with the collected value
+    public let templateKey: String
+    /// Optional help text shown below the field
+    public let helpText: String?
+    /// If true, rendered as a SecureField
+    public let isSecure: Bool?
+
+    public init(key: String, label: String, placeholder: String? = nil, templateKey: String, helpText: String? = nil, isSecure: Bool? = nil) {
+        self.key = key
+        self.label = label
+        self.placeholder = placeholder
+        self.templateKey = templateKey
+        self.helpText = helpText
+        self.isSecure = isSecure
     }
 }
 

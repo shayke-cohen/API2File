@@ -2,6 +2,7 @@
   "service": "pagecraft",
   "displayName": "PageCraft — CMS & Website Builder",
   "version": "1.0",
+  "hidden": true,
 
   "auth": {
     "type": "bearer",

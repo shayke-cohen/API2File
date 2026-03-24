@@ -2,6 +2,7 @@
   "service": "teamboard",
   "displayName": "TeamBoard — Project Management",
   "version": "1.0",
+  "hidden": true,
 
   "auth": {
     "type": "bearer",

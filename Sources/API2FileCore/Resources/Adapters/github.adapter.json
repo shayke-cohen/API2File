@@ -2,6 +2,8 @@
   "service": "github",
   "displayName": "GitHub — Repositories & Issues",
   "version": "1.0",
+  "icon": "chevron.left.forwardslash.chevron.right",
+  "wizardDescription": "Repos, issues, gists, notifications",
 
   "auth": {
     "type": "bearer",

@@ -58,6 +58,9 @@ final class AppState: ObservableObject {
 
         Task {
             do {
+                // Seed bundled adapters into ~/.api2file/adapters/ before starting
+                try? await AdapterStore.shared.seedIfNeeded()
+
                 try await engine.start()
 
                 // Start local REST server

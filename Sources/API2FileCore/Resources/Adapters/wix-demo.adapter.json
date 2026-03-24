@@ -2,6 +2,7 @@
   "service": "wix-demo",
   "displayName": "Wix Demo — Local Mock Server",
   "version": "1.0",
+  "hidden": true,
 
   "auth": {
     "type": "bearer",

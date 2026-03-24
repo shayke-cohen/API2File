@@ -2,6 +2,7 @@
   "service": "calsync",
   "displayName": "CalSync — Calendar & Scheduling",
   "version": "1.0",
+  "hidden": true,
 
   "auth": {
     "type": "bearer",

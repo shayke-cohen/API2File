@@ -2,6 +2,24 @@
   "service": "airtable",
   "displayName": "Airtable — Spreadsheet Database",
   "version": "1.0",
+  "icon": "tablecells",
+  "wizardDescription": "Records and bases as JSON files",
+  "setupFields": [
+    {
+      "key": "base-id",
+      "label": "Base ID",
+      "placeholder": "appXXXXXXXXXX",
+      "templateKey": "BASE_ID",
+      "helpText": "Find in the Airtable URL: airtable.com/appXXX/..."
+    },
+    {
+      "key": "table-name",
+      "label": "Table Name",
+      "placeholder": "My Table",
+      "templateKey": "TABLE_NAME",
+      "helpText": "The name of the table you want to sync"
+    }
+  ],
 
   "auth": {
     "type": "bearer",

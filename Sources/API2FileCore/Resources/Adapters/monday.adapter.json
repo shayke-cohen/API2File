@@ -2,6 +2,8 @@
   "service": "monday",
   "displayName": "Monday.com",
   "version": "1.0",
+  "icon": "calendar.badge.checkmark",
+  "wizardDescription": "Boards and items as CSV files",
 
   "auth": {
     "type": "bearer",

@@ -2,6 +2,7 @@
   "service": "devops",
   "displayName": "DevOps — Infrastructure Monitoring",
   "version": "1.0",
+  "hidden": true,
 
   "auth": {
     "type": "bearer",

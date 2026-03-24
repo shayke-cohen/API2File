@@ -2,6 +2,17 @@
   "service": "wix",
   "displayName": "Wix — Website & Business Platform",
   "version": "1.0",
+  "icon": "globe",
+  "wizardDescription": "Contacts, products, blog posts, bookings",
+  "setupFields": [
+    {
+      "key": "wix-site-id",
+      "label": "Site ID",
+      "placeholder": "abc123-def456-...",
+      "templateKey": "YOUR_SITE_ID_HERE",
+      "helpText": "Find in your Wix dashboard URL after /dashboard/"
+    }
+  ],
 
   "auth": {
     "type": "apiKey",

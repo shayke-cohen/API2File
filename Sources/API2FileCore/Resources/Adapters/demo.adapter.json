@@ -1,7 +1,9 @@
 {
   "service": "demo",
-  "displayName": "Demo API",
+  "displayName": "Demo Tasks API",
   "version": "1.0",
+  "icon": "laptopcomputer",
+  "wizardDescription": "Local demo server — no account needed",
 
   "auth": {
     "type": "bearer",

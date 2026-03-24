@@ -21,10 +21,26 @@ struct PreferencesView: View {
 
 struct GeneralTab: View {
     @Binding var config: GlobalConfig
+    @State private var hasPendingAdapterUpdates = false
 
     var body: some View {
         Form {
             TextField("Sync Folder:", text: $config.syncFolder)
+            HStack {
+                Text("Adapters Folder:")
+                Spacer()
+                Text("~/.api2file/adapters")
+                    .foregroundStyle(.secondary)
+                if hasPendingAdapterUpdates {
+                    Circle()
+                        .fill(.yellow)
+                        .frame(width: 8, height: 8)
+                        .help("Adapter updates available — check for *.adapter_new.json files in ~/.api2file/adapters/")
+                }
+                Button("Reveal") {
+                    NSWorkspace.shared.open(AdapterStore.userAdaptersURL)
+                }
+            }
             Toggle("Launch at login", isOn: $config.launchAtLogin)
             Toggle("Auto-commit to git", isOn: $config.gitAutoCommit)
             TextField("Commit message format:", text: $config.commitMessageFormat)
@@ -34,6 +50,9 @@ struct GeneralTab: View {
             Stepper("Server port: \(config.serverPort)", value: $config.serverPort, in: 1024...65535)
         }
         .padding()
+        .task {
+            hasPendingAdapterUpdates = await AdapterStore.shared.hasPendingUpdates()
+        }
     }
 }
 

@@ -2,6 +2,7 @@
   "service": "peoplehub",
   "displayName": "PeopleHub — CRM & Contacts",
   "version": "1.0",
+  "hidden": true,
 
   "auth": {
     "type": "bearer",
