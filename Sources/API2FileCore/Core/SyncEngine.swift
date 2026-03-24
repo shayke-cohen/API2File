@@ -263,6 +263,10 @@ public actor SyncEngine {
                 } else {
                     await self.updateServiceStatus(serviceId, status: .connected)
                 }
+            },
+            onPushAbandoned: { [weak self] svcId, filePath, error in
+                guard let self else { return }
+                await self.handlePushAbandoned(serviceId: svcId, filePath: filePath, error: error)
             }
         )
         await coordinator.register(serviceId: serviceId, context: context)
@@ -1234,6 +1238,21 @@ public actor SyncEngine {
     private func updateServiceStatus(_ serviceId: String, status: ServiceStatus, error: String? = nil) {
         serviceInfos[serviceId]?.status = status
         serviceInfos[serviceId]?.errorMessage = error
+    }
+
+    /// Called when a push has been abandoned after max retries.
+    /// Resets the file's synced hash to current content so it stops retrying.
+    private func handlePushAbandoned(serviceId: String, filePath: String, error: Error) async {
+        await ActivityLogger.shared.warn(.sync, "↑ Push abandoned for \(serviceId)/\(filePath) after max retries — \(error.localizedDescription)")
+
+        let serviceDir = syncFolder.appendingPathComponent(serviceId)
+        let fileURL = serviceDir.appendingPathComponent(filePath)
+        if let data = try? Data(contentsOf: fileURL) {
+            syncStates[serviceId]?.files[filePath]?.lastSyncedHash = data.sha256Hex
+            syncStates[serviceId]?.files[filePath]?.status = .synced
+            let stateURL = serviceDir.appendingPathComponent(".api2file/state.json")
+            try? syncStates[serviceId]?.save(to: stateURL)
+        }
     }
 
     /// Append a history entry and save to disk

@@ -7,6 +7,10 @@ public actor SyncCoordinator {
     private var syncTimers: [String: Task<Void, Never>] = [:]
     private var isPaused = false
     private var isFlushingPushes: [String: Bool] = [:]
+    private var pushFailureCounts: [String: [String: Int]] = [:] // serviceId -> [filePath -> failureCount]
+
+    /// Max consecutive push failures before a file is dropped from the queue
+    private static let maxPushRetries = 3
 
     public init() {}
 
@@ -128,14 +132,34 @@ public actor SyncCoordinator {
     private func performSync(serviceId: String, context: ServiceSyncContext) async {
         await context.onSyncStart?()
 
-        do {
-            let pushes = pendingPushes[serviceId] ?? [:]
-            for (filePath, _) in pushes {
+        // Process pushes individually — a single push failure must not block others or the pull
+        let pushes = pendingPushes[serviceId] ?? [:]
+        for (filePath, _) in pushes {
+            do {
                 try await context.pushHandler?(filePath)
                 pendingPushes[serviceId]?.removeValue(forKey: filePath)
-            }
+                pushFailureCounts[serviceId]?.removeValue(forKey: filePath)
+            } catch {
+                // Track consecutive failures per file
+                if pushFailureCounts[serviceId] == nil {
+                    pushFailureCounts[serviceId] = [:]
+                }
+                let count = (pushFailureCounts[serviceId]?[filePath] ?? 0) + 1
+                pushFailureCounts[serviceId]?[filePath] = count
 
+                if count >= Self.maxPushRetries {
+                    // Give up on this file — remove from queue so it doesn't block the service
+                    pendingPushes[serviceId]?.removeValue(forKey: filePath)
+                    pushFailureCounts[serviceId]?.removeValue(forKey: filePath)
+                    await context.onPushAbandoned?(serviceId, filePath, error)
+                }
+            }
+        }
+
+        // Always attempt pull, even if some pushes failed
+        do {
             try await context.pullHandler?()
+            // Service is healthy if the pull succeeded (push errors are per-file, not service-wide)
             await context.onSyncComplete?(nil)
         } catch {
             await context.onSyncComplete?(error)
@@ -152,19 +176,23 @@ public struct ServiceSyncContext: Sendable {
     public let pushHandler: (@Sendable (String) async throws -> Void)?
     public let onSyncStart: (@Sendable () async -> Void)?
     public let onSyncComplete: (@Sendable (Error?) async -> Void)?
+    /// Called when a file's push is abandoned after max retries (serviceId, filePath, lastError)
+    public let onPushAbandoned: (@Sendable (String, String, Error) async -> Void)?
 
     public init(
         syncInterval: TimeInterval = 60,
         pullHandler: (@Sendable () async throws -> Void)? = nil,
         pushHandler: (@Sendable (String) async throws -> Void)? = nil,
         onSyncStart: (@Sendable () async -> Void)? = nil,
-        onSyncComplete: (@Sendable (Error?) async -> Void)? = nil
+        onSyncComplete: (@Sendable (Error?) async -> Void)? = nil,
+        onPushAbandoned: (@Sendable (String, String, Error) async -> Void)? = nil
     ) {
         self.syncInterval = syncInterval
         self.pullHandler = pullHandler
         self.pushHandler = pushHandler
         self.onSyncStart = onSyncStart
         self.onSyncComplete = onSyncComplete
+        self.onPushAbandoned = onPushAbandoned
     }
 }
 
