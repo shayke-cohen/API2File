@@ -447,6 +447,9 @@ public actor SyncEngine {
         // Skip read-only resources
         if resource.fileMapping.effectivePushMode == .readOnly { return }
 
+        // Skip if no push config (prevents errors for pull-only resources like blog-posts)
+        if resource.push == nil { return }
+
         // Handle file deletion — if file is gone, optionally delete from API
         var isDir: ObjCBool = false
         guard FileManager.default.fileExists(atPath: fullPath.path, isDirectory: &isDir), !isDir.boolValue else {
@@ -701,11 +704,18 @@ public actor SyncEngine {
         let idField = resource.fileMapping.idField ?? "id"
 
         // Decode new records from the edited file
-        let newRecords = try FormatConverterFactory.decode(
-            data: content,
-            format: resource.fileMapping.format,
-            options: resource.fileMapping.formatOptions
-        )
+        // If decode fails (e.g., OOXML unzip issue), skip this push gracefully
+        let newRecords: [[String: Any]]
+        do {
+            newRecords = try FormatConverterFactory.decode(
+                data: content,
+                format: resource.fileMapping.format,
+                options: resource.fileMapping.formatOptions
+            )
+        } catch {
+            print("[SyncEngine] Skipping push for \(filePath): decode failed (\(error.localizedDescription))")
+            return nil
+        }
 
         // Get old records (from cache or empty if first push)
         let oldRecords = lastKnownRecords[cacheKey] ?? []
