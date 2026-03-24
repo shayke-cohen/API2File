@@ -24,6 +24,10 @@ public actor SyncEngine {
         return _notificationManager!
     }
 
+    /// Gates all remote deletions. If nil, deletions proceed immediately (existing behaviour).
+    /// AppState sets this at startup to show a confirmation dialog.
+    public var deletionConfirmationHandler: (@Sendable (DeletionInfo) async -> Bool)?
+
     public init(config: GlobalConfig) {
         self.config = config
         self.syncFolder = config.resolvedSyncFolder
@@ -77,6 +81,28 @@ public actor SyncEngine {
             }
         }
 
+        // Queue pushes for files modified while the app was offline
+        // (files whose on-disk hash differs from lastSyncedHash but had no FSEvent since startup)
+        for serviceId in serviceIds {
+            guard let engine = adapterEngines[serviceId] else { continue }
+            let serviceDir = syncFolder.appendingPathComponent(serviceId)
+            let state = syncStates[serviceId] ?? SyncState()
+            for (filePath, fileState) in state.files {
+                guard let lastHash = fileState.lastSyncedHash else { continue }
+                // Skip files in hidden directories (.api2file, .objects, etc.)
+                if filePath.hasPrefix(".") || filePath.contains("/.") { continue }
+                // Skip read-only resources
+                if let resource = findResource(for: filePath, in: engine.config),
+                   resource.fileMapping.effectivePushMode == .readOnly { continue }
+                let fileURL = serviceDir.appendingPathComponent(filePath)
+                guard let data = try? Data(contentsOf: fileURL) else { continue }
+                if data.sha256Hex != lastHash {
+                    await coordinator.queuePush(serviceId: serviceId, filePath: filePath)
+                    await ActivityLogger.shared.info(.sync, "↑ Queuing offline-modified file: \(serviceId) — \(filePath)")
+                }
+            }
+        }
+
         // NOW start file watcher (after initial pulls are done)
         let watchDirs = serviceIds.map { syncFolder.appendingPathComponent($0).path }
         fileWatcher.start(directories: watchDirs) { [weak self] changes in
@@ -108,6 +134,10 @@ public actor SyncEngine {
         configWatcher.stop()
         networkMonitor.stop()
         await coordinator.stopAll()
+    }
+
+    public func setDeletionConfirmationHandler(_ handler: (@Sendable (DeletionInfo) async -> Bool)?) {
+        self.deletionConfirmationHandler = handler
     }
 
     // MARK: - Service Discovery
@@ -544,6 +574,29 @@ public actor SyncEngine {
         guard FileManager.default.fileExists(atPath: fullPath.path, isDirectory: &isDir), !isDir.boolValue else {
             let shouldDelete = resource.fileMapping.deleteFromAPI ?? config.deleteFromAPI
             if shouldDelete {
+                if let handler = deletionConfirmationHandler {
+                    let cacheKey = "\(serviceId):\(filePath)"
+                    let knownCount: Int?
+                    switch resource.fileMapping.strategy {
+                    case .collection:
+                        knownCount = lastKnownRecords[cacheKey]?.count
+                    case .onePerRecord, .mirror:
+                        knownCount = syncStates[serviceId]?.files[filePath]?.remoteId != nil ? 1 : nil
+                    }
+                    let info = DeletionInfo(
+                        serviceName: serviceInfos[serviceId]?.displayName ?? serviceId,
+                        serviceId: serviceId,
+                        filePath: filePath,
+                        recordCount: knownCount,
+                        kind: .fileDeletion
+                    )
+                    let confirmed = await handler(info)
+                    if !confirmed {
+                        await ActivityLogger.shared.info(.sync, "↺ File deletion cancelled by user — triggering pull: \(filePath)")
+                        Task { try? await self.performPull(serviceId: serviceId) }
+                        return
+                    }
+                }
                 try await handleFileDeletion(serviceId: serviceId, filePath: filePath, resource: resource, engine: engine)
             }
             return
