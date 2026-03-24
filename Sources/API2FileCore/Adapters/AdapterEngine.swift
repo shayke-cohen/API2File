@@ -488,7 +488,8 @@ public actor AdapterEngine {
         }
 
         guard let endpoint = endpoint else {
-            throw AdapterError.noPushConfig("missing \(isUpdate ? "update" : "create") endpoint")
+            // No endpoint for this action — skip silently (e.g., no create endpoint for a read-mostly resource)
+            return
         }
 
         // Resolve URL templates

@@ -461,6 +461,12 @@ public actor SyncEngine {
         }
         let content = try Data(contentsOf: fullPath)
 
+        // Skip if file content matches last synced hash (no actual change — e.g., file written by pull)
+        let currentHash = content.sha256Hex
+        if let lastHash = syncStates[serviceId]?.files[filePath]?.lastSyncedHash, lastHash == currentHash {
+            return // File unchanged since last sync, skip push
+        }
+
         do {
             var fileChange: FileChange
 
