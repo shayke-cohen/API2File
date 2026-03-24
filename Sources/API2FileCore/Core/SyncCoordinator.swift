@@ -6,6 +6,7 @@ public actor SyncCoordinator {
     private var pendingPushes: [String: [String: PendingPush]] = [:] // serviceId -> [filePath -> push]
     private var syncTimers: [String: Task<Void, Never>] = [:]
     private var isPaused = false
+    private var isFlushingPushes: [String: Bool] = [:]
 
     public init() {}
 
@@ -76,6 +77,16 @@ public actor SyncCoordinator {
         )
 
         // The actual push happens on the next sync cycle or can be triggered explicitly
+    }
+
+    /// Immediately flush all pending pushes for a service, then pull.
+    /// No-ops if a flush is already in progress for the service.
+    public func flushPendingPushes(serviceId: String) async {
+        guard isFlushingPushes[serviceId] != true else { return }
+        guard let context = services[serviceId] else { return }
+        isFlushingPushes[serviceId] = true
+        await performSync(serviceId: serviceId, context: context)
+        isFlushingPushes[serviceId] = false
     }
 
     /// Get all pending pushes for a service

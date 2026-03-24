@@ -275,6 +275,45 @@ final class LiveAutoPushE2ETests: XCTestCase {
     }
 
     // ======================================================================
+    // MARK: - TEST 1b: Immediate Push — Change Reaches API in Under 2.5 Seconds
+    // ======================================================================
+    // Without the flushPendingPushes call in handleFileChanges, the push waits for
+    // the next polling interval (5 s in this test setup). This test would FAIL with
+    // the old code because it only waits 2.5 s — proving immediacy.
+
+    func testImmediatePush_FileChangeReachesAPIWithinTwoAndAHalfSeconds() async throws {
+        try await startEngine()
+        try await Task.sleep(nanoseconds: 2_000_000_000) // wait for initial pull
+
+        XCTAssertTrue(tasksCSVExists(), "tasks.csv must exist after initial pull")
+
+        // Read and modify task 1's name
+        let csvData = try Data(contentsOf: serviceDir.appendingPathComponent("tasks.csv"))
+        var records = try CSVFormat.decode(data: csvData, options: nil)
+        guard let idx = records.firstIndex(where: {
+            ($0["id"] as? String) == "1" || ($0["id"] as? Int) == 1
+        }) else {
+            XCTFail("Task with id 1 not found in CSV"); return
+        }
+        records[idx]["name"] = "Immediate push verified"
+
+        let modified = try CSVFormat.encode(records: records, options: nil)
+        try writeTasksCSVTriggeringFSEvents(String(data: modified, encoding: .utf8)!)
+
+        // Wait 2.5 s — well below the 5 s polling interval.
+        // Without immediate flush this would time out; with it the push fires within ~1 s.
+        try await Task.sleep(nanoseconds: 2_500_000_000)
+
+        let apiTasks = try await getTasksFromAPI()
+        let task1 = apiTasks.first(where: { ($0["id"] as? Int) == 1 })
+        XCTAssertEqual(
+            task1?["name"] as? String,
+            "Immediate push verified",
+            "API should reflect the local edit within 2.5 s (immediate push, not next poll cycle)"
+        )
+    }
+
+    // ======================================================================
     // MARK: - TEST 2: Live Auto-Pull — Server Change Appears in File
     // ======================================================================
 

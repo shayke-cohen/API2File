@@ -219,6 +219,57 @@ final class SyncCoordinatorTests: XCTestCase {
         XCTAssertTrue(registered.contains("svc"))
     }
 
+    // MARK: - flushPendingPushes
+
+    func testFlushPendingPushesRunsPushAndPullHandlers() async {
+        let pushExp = expectation(description: "push handler called")
+        let pullExp = expectation(description: "pull handler called")
+        let coordinator = SyncCoordinator()
+        let context = ServiceSyncContext(
+            syncInterval: 600,
+            pullHandler: { pullExp.fulfill() },
+            pushHandler: { _ in pushExp.fulfill() }
+        )
+        await coordinator.register(serviceId: "svc", context: context)
+        await coordinator.queuePush(serviceId: "svc", filePath: "data.csv")
+        await coordinator.flushPendingPushes(serviceId: "svc")
+        await fulfillment(of: [pushExp, pullExp], timeout: 3.0)
+    }
+
+    func testFlushPendingPushesClearsPendingQueue() async {
+        let coordinator = SyncCoordinator()
+        let context = ServiceSyncContext(
+            syncInterval: 600,
+            pullHandler: {},
+            pushHandler: { _ in }
+        )
+        await coordinator.register(serviceId: "svc", context: context)
+        await coordinator.queuePush(serviceId: "svc", filePath: "a.csv")
+        await coordinator.queuePush(serviceId: "svc", filePath: "b.csv")
+        await coordinator.flushPendingPushes(serviceId: "svc")
+        let pending = await coordinator.getPendingPushes(serviceId: "svc")
+        XCTAssertTrue(pending.isEmpty, "pending queue should be drained after flush")
+    }
+
+    func testFlushPendingPushesIsNoOpForUnregisteredService() async {
+        let coordinator = SyncCoordinator()
+        // Should not crash or hang
+        await coordinator.flushPendingPushes(serviceId: "nonexistent")
+    }
+
+    func testFlushPendingPushesWithNoPendingPushesStillPulls() async {
+        let pullExp = expectation(description: "pull called even with no pending pushes")
+        let coordinator = SyncCoordinator()
+        let context = ServiceSyncContext(
+            syncInterval: 600,
+            pullHandler: { pullExp.fulfill() }
+        )
+        await coordinator.register(serviceId: "svc", context: context)
+        // No queuePush — flush should still trigger a pull
+        await coordinator.flushPendingPushes(serviceId: "svc")
+        await fulfillment(of: [pullExp], timeout: 3.0)
+    }
+
     // MARK: - Unregister cleans up pending pushes
 
     func testUnregisterCleansPendingPushes() async {
