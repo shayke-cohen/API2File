@@ -58,6 +58,7 @@ struct AddServiceView: View {
             Text("Add Service")
                 .font(.title2)
                 .fontWeight(.bold)
+                .testId("wizard-title")
 
             Text("Choose a cloud service to sync:")
                 .foregroundStyle(.secondary)
@@ -65,6 +66,7 @@ struct AddServiceView: View {
             if templates.isEmpty {
                 ProgressView()
                     .padding()
+                    .testId("wizard-loading")
             } else {
                 ForEach(templates, id: \.config.service) { template in
                     Button {
@@ -90,11 +92,13 @@ struct AddServiceView: View {
                         .background(RoundedRectangle(cornerRadius: 8).fill(.quaternary))
                     }
                     .buttonStyle(.plain)
+                    .testId("wizard-service-\(template.config.service)")
                 }
             }
 
             Spacer()
         }
+        .testId("wizard-step-select")
     }
 
     private var enterCredentialsStep: some View {
@@ -102,6 +106,7 @@ struct AddServiceView: View {
             Text("Connect \(selectedTemplate?.config.displayName ?? "")")
                 .font(.title2)
                 .fontWeight(.bold)
+                .testId("wizard-credentials-title")
 
             if let template = selectedTemplate {
                 Text(template.config.auth.setup?.instructions ?? "")
@@ -110,10 +115,12 @@ struct AddServiceView: View {
 
                 if let urlString = template.config.auth.setup?.url, let url = URL(string: urlString) {
                     Link("Get your API key", destination: url)
+                        .testId("wizard-api-key-link")
                 }
 
                 SecureField("API Key or Token", text: $apiKey)
                     .textFieldStyle(.roundedBorder)
+                    .testId("wizard-api-key-field")
 
                 // Service-specific extra fields from adapter config
                 ForEach(template.config.setupFields ?? [], id: \.key) { field in
@@ -121,9 +128,11 @@ struct AddServiceView: View {
                         if field.isSecure == true {
                             SecureField(field.label, text: extraFieldBinding(for: field.key))
                                 .textFieldStyle(.roundedBorder)
+                                .testId("wizard-field-\(field.key)")
                         } else {
                             TextField(field.label, text: extraFieldBinding(for: field.key))
                                 .textFieldStyle(.roundedBorder)
+                                .testId("wizard-field-\(field.key)")
                         }
                         if let help = field.helpText {
                             Text(help)
@@ -137,6 +146,7 @@ struct AddServiceView: View {
                     Text(error)
                         .foregroundStyle(.red)
                         .font(.caption)
+                        .testId("wizard-error-message")
                 }
             }
 
@@ -145,6 +155,7 @@ struct AddServiceView: View {
                     step = .selectService
                     error = nil
                 }
+                .testId("wizard-back")
 
                 Spacer()
 
@@ -153,16 +164,21 @@ struct AddServiceView: View {
                 }
                 .disabled(!canConnect)
                 .keyboardShortcut(.defaultAction)
+                .testId("wizard-connect")
             }
         }
+        .testId("wizard-step-credentials")
     }
 
     private var connectingStep: some View {
         VStack(spacing: 16) {
             ProgressView()
                 .scaleEffect(1.5)
+                .testId("wizard-connecting-spinner")
             Text("Connecting to \(selectedTemplate?.config.displayName ?? "")...")
+                .testId("wizard-connecting-label")
         }
+        .testId("wizard-step-connecting")
     }
 
     private var doneStep: some View {
@@ -170,10 +186,12 @@ struct AddServiceView: View {
             Image(systemName: "checkmark.circle.fill")
                 .font(.system(size: 48))
                 .foregroundStyle(.green)
+                .testId("wizard-done-icon")
 
             Text("Connected!")
                 .font(.title2)
                 .fontWeight(.bold)
+                .testId("wizard-done-title")
 
             Text("\(selectedTemplate?.config.displayName ?? "") is now syncing to ~/API2File/\(selectedTemplate?.config.service ?? "")/")
                 .foregroundStyle(.secondary)
@@ -185,7 +203,9 @@ struct AddServiceView: View {
                 NSApp.keyWindow?.close()
             }
             .keyboardShortcut(.defaultAction)
+            .testId("wizard-done-button")
         }
+        .testId("wizard-step-done")
     }
 
     // MARK: - Helpers

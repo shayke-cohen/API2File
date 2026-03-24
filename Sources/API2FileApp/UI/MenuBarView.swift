@@ -8,9 +8,11 @@ struct MenuBarView: View {
         // Services section
         if appState.services.isEmpty {
             Text("No services connected")
+                .testId("menubar-empty-label")
             Button("Add Your First Service...") {
                 appState.openAddServiceWindow()
             }
+            .testId("menubar-add-first-service")
         } else {
             ForEach(appState.services, id: \.serviceId) { service in
                 serviceMenu(service)
@@ -22,11 +24,13 @@ struct MenuBarView: View {
         Button("Add Service...") {
             appState.openAddServiceWindow()
         }
+        .testId("menubar-add-service")
 
         Button("Sync Now") {
             appState.syncNow()
         }
         .disabled(appState.isPaused || appState.services.isEmpty)
+        .testId("menubar-sync-now")
 
         Menu("Recent Activity") {
             if appState.recentActivity.isEmpty {
@@ -38,11 +42,13 @@ struct MenuBarView: View {
             }
         }
         .disabled(appState.services.isEmpty)
+        .testId("menubar-recent-activity")
 
         Button(appState.isPaused ? "Resume Syncing" : "Pause Syncing") {
             appState.togglePause()
         }
         .disabled(appState.services.isEmpty)
+        .testId("menubar-toggle-pause")
 
         Divider()
 
@@ -50,19 +56,23 @@ struct MenuBarView: View {
             let url = appState.config.resolvedSyncFolder
             NSWorkspace.shared.open(url)
         }
+        .testId("menubar-open-folder")
 
         Button("Open Logs") {
             appState.openLogs()
         }
+        .testId("menubar-open-logs")
 
         if #available(macOS 14.0, *) {
             SettingsLink {
                 Text("Preferences...")
             }
+            .testId("menubar-preferences")
         } else {
             Button("Preferences...") {
                 NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
             }
+            .testId("menubar-preferences")
         }
 
         Divider()
@@ -71,6 +81,7 @@ struct MenuBarView: View {
             NSApplication.shared.terminate(nil)
         }
         .keyboardShortcut("q")
+        .testId("menubar-quit")
     }
 
     @ViewBuilder
@@ -80,12 +91,14 @@ struct MenuBarView: View {
                 appState.syncService(serviceId: service.serviceId)
             }
             .disabled(service.status == .syncing)
+            .testId("menubar-service-sync-\(service.serviceId)")
 
             Button("Open Folder") {
                 let url = appState.config.resolvedSyncFolder
                     .appendingPathComponent(service.serviceId)
                 NSWorkspace.shared.open(url)
             }
+            .testId("menubar-service-folder-\(service.serviceId)")
 
             if let time = service.lastSyncTime {
                 Divider()
@@ -97,6 +110,7 @@ struct MenuBarView: View {
             let icon = statusIcon(service.status)
             Text("\(icon) \(service.displayName) — \(statusText(service))")
         }
+        .testId("menubar-service-\(service.serviceId)")
     }
 
     private func statusIcon(_ status: ServiceStatus) -> String {

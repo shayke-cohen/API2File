@@ -19,6 +19,7 @@ struct ActivityTab: View {
                     }
                 }
                 .frame(maxWidth: 200)
+                .testId("activity-service-filter")
 
                 // Direction filter
                 Picker("Direction", selection: $directionFilter) {
@@ -27,6 +28,7 @@ struct ActivityTab: View {
                     Text("↑ Push").tag(SyncDirection.push as SyncDirection?)
                 }
                 .frame(maxWidth: 120)
+                .testId("activity-direction-filter")
 
                 Spacer()
             }
@@ -44,11 +46,13 @@ struct ActivityTab: View {
                         ForEach(filteredActivity) { entry in
                             SyncHistoryRow(entry: entry, showServiceName: serviceFilter == nil)
                                 .padding(.horizontal)
+                                .testId("activity-row-\(entry.id)")
                             Divider()
                                 .padding(.leading, 30)
                         }
                     }
                 }
+                .testId("activity-scroll-view")
             }
         }
         .task {
@@ -90,5 +94,6 @@ struct ActivityTab: View {
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .testId("activity-empty-state")
     }
 }

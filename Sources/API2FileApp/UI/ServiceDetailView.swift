@@ -17,9 +17,11 @@ struct ServiceDetailView: View {
                 Circle()
                     .fill(statusColor)
                     .frame(width: 10, height: 10)
+                    .testId("detail-status-dot")
                 Text(service.displayName)
                     .font(.title3)
                     .fontWeight(.semibold)
+                    .testId("detail-service-name")
                 Spacer()
                 Text(statusText)
                     .font(.caption)
@@ -27,6 +29,7 @@ struct ServiceDetailView: View {
                     .padding(.horizontal, 8)
                     .padding(.vertical, 3)
                     .background(Capsule().fill(statusColor.opacity(0.15)))
+                    .testId("detail-status-badge")
             }
             .padding(.bottom, 12)
 
@@ -42,10 +45,12 @@ struct ServiceDetailView: View {
                         Text("Never").foregroundStyle(.secondary)
                     }
                 }
+                .testId("detail-last-synced")
 
                 LabeledContent("Files") {
                     Text("\(service.fileCount)")
                 }
+                .testId("detail-file-count")
 
                 LabeledContent("Folder") {
                     Button("~/API2File/\(service.serviceId)/") {
@@ -54,6 +59,7 @@ struct ServiceDetailView: View {
                         NSWorkspace.shared.open(url)
                     }
                     .buttonStyle(.link)
+                    .testId("detail-folder-link")
                 }
             }
             .formStyle(.columns)
@@ -118,6 +124,7 @@ struct ServiceDetailView: View {
                         .font(.caption)
                         .foregroundStyle(.red)
                 }
+                .testId("detail-error-message")
             }
 
             Spacer()
@@ -133,6 +140,7 @@ struct ServiceDetailView: View {
                     Label("Sync Now", systemImage: "arrow.triangle.2.circlepath")
                 }
                 .disabled(service.status == .syncing)
+                .testId("detail-sync-now")
 
                 Button {
                     let url = appState.config.resolvedSyncFolder
@@ -141,6 +149,7 @@ struct ServiceDetailView: View {
                 } label: {
                     Label("Open Folder", systemImage: "folder")
                 }
+                .testId("detail-open-folder")
 
                 Spacer()
 
@@ -148,10 +157,12 @@ struct ServiceDetailView: View {
                     newAPIKey = ""
                     showReAuth = true
                 }
+                .testId("detail-update-key")
 
                 Button("Disconnect...", role: .destructive) {
                     showDisconnectAlert = true
                 }
+                .testId("detail-disconnect")
             }
             .controlSize(.small)
         }
@@ -171,12 +182,15 @@ struct ServiceDetailView: View {
             VStack(spacing: 16) {
                 Text("Update API Key")
                     .font(.headline)
+                    .testId("reauth-title")
                 Text("Enter a new API key for \(service.displayName)")
                     .foregroundStyle(.secondary)
                 SecureField("New API Key", text: $newAPIKey)
                     .textFieldStyle(.roundedBorder)
+                    .testId("reauth-key-field")
                 HStack {
                     Button("Cancel") { showReAuth = false }
+                        .testId("reauth-cancel")
                     Spacer()
                     Button("Save") {
                         appState.updateAPIKey(serviceId: service.serviceId, newKey: newAPIKey)
@@ -184,10 +198,12 @@ struct ServiceDetailView: View {
                     }
                     .disabled(newAPIKey.isEmpty)
                     .keyboardShortcut(.defaultAction)
+                    .testId("reauth-save")
                 }
             }
             .padding()
             .frame(width: 320)
+            .testId("reauth-sheet")
         }
     }
 

@@ -14,22 +14,26 @@ struct SyncHistoryRow: View {
                 Image(systemName: entry.direction == .pull ? "arrow.down.circle.fill" : "arrow.up.circle.fill")
                     .foregroundStyle(entry.direction == .pull ? .blue : .green)
                     .font(.caption)
+                    .testId("history-direction-\(entry.id)")
 
                 if showServiceName {
                     Text(entry.serviceName)
                         .font(.caption)
                         .fontWeight(.medium)
+                        .testId("history-service-\(entry.id)")
                 }
 
                 Text(entry.summary)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
+                    .testId("history-summary-\(entry.id)")
 
                 Spacer()
 
                 // Status badge
                 statusBadge
+                    .testId("history-status-\(entry.id)")
 
                 Text(entry.timestamp, style: .relative)
                     .font(.caption2)
@@ -40,6 +44,7 @@ struct SyncHistoryRow: View {
                     Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
+                        .testId("history-expand-\(entry.id)")
                 }
             }
             .contentShape(Rectangle())
@@ -50,6 +55,7 @@ struct SyncHistoryRow: View {
                     }
                 }
             }
+            .testId("history-row-\(entry.id)")
 
             // Expanded file breakdown
             if isExpanded {
