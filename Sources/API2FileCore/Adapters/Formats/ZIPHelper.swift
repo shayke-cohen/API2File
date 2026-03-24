@@ -8,12 +8,13 @@ enum ZIPHelper {
     static func createZIP(files: [String: Data]) throws -> Data {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("api2file-zip-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        let contentDir = tempDir.appendingPathComponent("content")
+        try FileManager.default.createDirectory(at: contentDir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
-        // Write all files to temp directory
+        // Write all files to content subdirectory
         for (path, content) in files {
-            let fileURL = tempDir.appendingPathComponent(path)
+            let fileURL = contentDir.appendingPathComponent(path)
             try FileManager.default.createDirectory(
                 at: fileURL.deletingLastPathComponent(),
                 withIntermediateDirectories: true
@@ -21,14 +22,13 @@ enum ZIPHelper {
             try content.write(to: fileURL)
         }
 
-        // Create ZIP using /usr/bin/zip
-        let zipPath = tempDir.appendingPathComponent("__output.zip")
-        let relativePaths = files.keys.sorted()
+        // Create ZIP using /usr/bin/zip — zip "." to avoid argument count limits
+        let zipPath = tempDir.appendingPathComponent("output.zip")
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/zip")
-        process.arguments = ["-r", "-q", zipPath.path] + relativePaths
-        process.currentDirectoryURL = tempDir
+        process.arguments = ["-r", "-q", zipPath.path, "."]
+        process.currentDirectoryURL = contentDir
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
 
