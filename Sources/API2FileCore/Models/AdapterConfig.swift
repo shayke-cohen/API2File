@@ -286,8 +286,15 @@ public struct EndpointConfig: Codable, Sendable {
     public let bodyWrapper: String?
     public let bodyType: String?
     public let contentTypeFromExtension: Bool?
+    /// Fields to hoist from the record to the root body level, outside of `bodyWrapper`.
+    /// E.g. `["dataCollectionId"]` produces `{"dataCollectionId":"X","dataItem":{...}}`
+    public let bodyRootFields: [String]?
+    /// Optional follow-up request made after the main request succeeds.
+    /// Used for two-step operations like Wix Blog's PATCH draft → POST publish.
+    /// The follow-up URL is rendered with the same template vars as the main request (including `id`).
+    public let followup: FollowupConfig?
 
-    public init(method: String? = nil, url: String, type: APIType? = nil, query: String? = nil, mutation: String? = nil, bodyWrapper: String? = nil, bodyType: String? = nil, contentTypeFromExtension: Bool? = nil) {
+    public init(method: String? = nil, url: String, type: APIType? = nil, query: String? = nil, mutation: String? = nil, bodyWrapper: String? = nil, bodyType: String? = nil, contentTypeFromExtension: Bool? = nil, bodyRootFields: [String]? = nil, followup: FollowupConfig? = nil) {
         self.method = method
         self.url = url
         self.type = type
@@ -296,6 +303,19 @@ public struct EndpointConfig: Codable, Sendable {
         self.bodyWrapper = bodyWrapper
         self.bodyType = bodyType
         self.contentTypeFromExtension = contentTypeFromExtension
+        self.bodyRootFields = bodyRootFields
+        self.followup = followup
+    }
+}
+
+/// A lightweight follow-up HTTP request made after the main push request succeeds.
+public struct FollowupConfig: Codable, Sendable {
+    public let method: String?
+    public let url: String
+
+    public init(method: String? = nil, url: String) {
+        self.method = method
+        self.url = url
     }
 }
 

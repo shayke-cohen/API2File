@@ -40,6 +40,11 @@ public actor SyncEngine {
         // Ensure sync folder exists
         try FileManager.default.createDirectory(at: syncFolder, withIntermediateDirectories: true)
 
+        // Configure activity logger — writes to {syncFolder}/logs/
+        let logDir = syncFolder.appendingPathComponent("logs")
+        await ActivityLogger.shared.configure(logDirectory: logDir)
+        await ActivityLogger.shared.info(.system, "SyncEngine starting — syncFolder: \(syncFolder.path)")
+
         // Request notification permission
         if config.showNotifications {
             notificationManager.requestPermission()
@@ -66,21 +71,9 @@ public actor SyncEngine {
                         fileCount: fileCount
                     )
                 }
-                print("[SyncEngine] Initial pull complete for \(serviceId)")
+                await ActivityLogger.shared.info(.sync, "Initial pull complete for \(serviceId) — \(fileCount) files")
             } catch {
-                print("[SyncEngine] Initial pull failed for \(serviceId): \(error)")
-                // Write to log file for debugging
-                let logDir = syncFolder.appendingPathComponent(".api2file/logs")
-                try? FileManager.default.createDirectory(at: logDir, withIntermediateDirectories: true)
-                let logFile = logDir.appendingPathComponent("sync-errors.log")
-                let entry = "[\(Date())] PULL FAILED \(serviceId): \(error)\n"
-                if let handle = try? FileHandle(forWritingTo: logFile) {
-                    handle.seekToEndOfFile()
-                    handle.write(entry.data(using: .utf8)!)
-                    handle.closeFile()
-                } else {
-                    try? entry.write(to: logFile, atomically: true, encoding: .utf8)
-                }
+                await ActivityLogger.shared.error(.sync, "Initial pull FAILED for \(serviceId) — \(error.localizedDescription)")
             }
         }
 
@@ -106,7 +99,7 @@ public actor SyncEngine {
         // Generate CLAUDE.md guides
         try generateGuides()
 
-        print("[SyncEngine] Started with \(serviceIds.count) service(s)")
+        await ActivityLogger.shared.info(.system, "SyncEngine started with \(serviceIds.count) service(s)")
     }
 
     /// Stop the sync engine
@@ -139,15 +132,28 @@ public actor SyncEngine {
 
     /// Register a single service
     private func registerService(_ serviceId: String) async throws {
-        print("[SyncEngine] Registering service: \(serviceId)")
+        await ActivityLogger.shared.info(.system, "Registering service: \(serviceId)")
         let serviceDir = syncFolder.appendingPathComponent(serviceId)
         let config = try AdapterEngine.loadConfig(from: serviceDir)
         let httpClient = HTTPClient()
 
-        // Load auth token from Keychain and set on HTTP client
-        let keychain = KeychainManager()
-        if let token = await keychain.load(key: config.auth.keychainKey) {
-            switch config.auth.type {
+        // Load auth token from Keychain in background — don't block startup.
+        // securityd initialization on first access from a new process can take 30-150s on macOS.
+        // Retry up to 10 times (5 minutes total) to handle slow first-access or user dialogs.
+        let keychainKey = config.auth.keychainKey
+        let authType = config.auth.type
+        Task { [weak httpClient] in
+            let keychain = KeychainManager()
+            var token: String? = nil
+            for attempt in 1...10 {
+                token = await keychain.load(key: keychainKey)
+                if token != nil { break }
+                if attempt < 10 {
+                    try? await Task.sleep(nanoseconds: 30_000_000_000) // 30s between retries
+                }
+            }
+            guard let token, let httpClient else { return }
+            switch authType {
             case .bearer:
                 await httpClient.setAuthHeader("Authorization", value: "Bearer \(token)")
             case .apiKey:
@@ -157,6 +163,7 @@ public actor SyncEngine {
             case .oauth2:
                 await httpClient.setAuthHeader("Authorization", value: "Bearer \(token)")
             }
+            await ActivityLogger.shared.info(.system, "Auth loaded for \(serviceId)")
         }
 
         let engine = AdapterEngine(config: config, serviceDir: serviceDir, httpClient: httpClient)
@@ -239,9 +246,9 @@ public actor SyncEngine {
             try await registerService(serviceId)
             await coordinator.startService(serviceId: serviceId)
             try generateGuides()
-            print("[SyncEngine] Reloaded config for \(serviceId)")
+            await ActivityLogger.shared.info(.system, "Reloaded config for \(serviceId)")
         } catch {
-            print("[SyncEngine] Failed to reload \(serviceId): \(error)")
+            await ActivityLogger.shared.error(.system, "Failed to reload \(serviceId) — \(error.localizedDescription)")
         }
     }
 
@@ -252,6 +259,7 @@ public actor SyncEngine {
         let serviceDir = syncFolder.appendingPathComponent(serviceId)
         let serviceName = serviceInfos[serviceId]?.displayName ?? serviceId
         let startTime = Date()
+        await ActivityLogger.shared.info(.sync, "↓ PULL START \(serviceId) [\(serviceName)]")
 
         // Work with a LOCAL copy of sync state to avoid exclusive access violations
         // across await points. Write back at the end.
@@ -376,6 +384,27 @@ public actor SyncEngine {
                 }
             }
 
+            // Stale file cleanup — for full pulls, remove local files that are no longer in the API
+            // (only applies to one-per-record resources where each API record = one local file)
+            if !isIncremental {
+                let newFilePaths = Set(files.map { $0.relativePath })
+                var staleFilePaths: [String] = []
+                for (filePath, _) in localState.files {
+                    if !newFilePaths.contains(filePath),
+                       let resource = findResource(for: filePath, in: engine.config),
+                       resource.fileMapping.strategy == .onePerRecord {
+                        staleFilePaths.append(filePath)
+                    }
+                }
+                for filePath in staleFilePaths {
+                    let fileURL = serviceDir.appendingPathComponent(filePath)
+                    try? FileManager.default.removeItem(at: fileURL)
+                    suppressedPaths.insert(filePath)
+                    localState.files.removeValue(forKey: filePath)
+                    await ActivityLogger.shared.info(.sync, "↓ Removed stale local file: \(filePath) (deleted from API)")
+                }
+            }
+
             // Update sync counters for incremental tracking
             for resource in engine.config.resources {
                 let name = resource.name
@@ -408,6 +437,8 @@ public actor SyncEngine {
                 FileChange(path: $0.relativePath, action: .downloaded)
             }
             let syncType = isIncremental ? "incremental pull" : "pulled"
+            let ms = Int(Date().timeIntervalSince(startTime) * 1000)
+            await ActivityLogger.shared.info(.sync, "↓ PULL OK \(serviceId) — \(syncType) \(files.count) file(s) (\(ms)ms)")
             let entry = SyncHistoryEntry(
                 serviceId: serviceId,
                 serviceName: serviceName,
@@ -419,6 +450,8 @@ public actor SyncEngine {
             )
             logHistory(entry, serviceId: serviceId, serviceDir: serviceDir)
         } catch {
+            let ms = Int(Date().timeIntervalSince(startTime) * 1000)
+            await ActivityLogger.shared.error(.sync, "↓ PULL FAILED \(serviceId) — \(error.localizedDescription) (\(ms)ms)")
             // Log error entry
             let entry = SyncHistoryEntry(
                 serviceId: serviceId,
@@ -440,6 +473,7 @@ public actor SyncEngine {
         let serviceName = serviceInfos[serviceId]?.displayName ?? serviceId
         let fullPath = serviceDir.appendingPathComponent(filePath)
         let startTime = Date()
+        await ActivityLogger.shared.info(.sync, "↑ PUSH START \(serviceId) — \(filePath)")
 
         // Find which resource this file belongs to
         guard let resource = findResource(for: filePath, in: engine.config) else { return }
@@ -524,6 +558,8 @@ public actor SyncEngine {
             } else {
                 summary = "pushed \(filePath)"
             }
+            let ms = Int(Date().timeIntervalSince(startTime) * 1000)
+            await ActivityLogger.shared.info(.sync, "↑ PUSH OK \(serviceId) — \(summary) (\(ms)ms)")
             let entry = SyncHistoryEntry(
                 serviceId: serviceId,
                 serviceName: serviceName,
@@ -535,6 +571,8 @@ public actor SyncEngine {
             )
             logHistory(entry, serviceId: serviceId, serviceDir: serviceDir)
         } catch {
+            let ms = Int(Date().timeIntervalSince(startTime) * 1000)
+            await ActivityLogger.shared.error(.sync, "↑ PUSH FAILED \(serviceId) — \(filePath): \(error.localizedDescription) (\(ms)ms)")
             let entry = SyncHistoryEntry(
                 serviceId: serviceId,
                 serviceName: serviceName,
@@ -626,7 +664,7 @@ public actor SyncEngine {
                     try await engine.delete(remoteId: remoteId, resource: resource)
                     syncStates[serviceId]?.files.removeValue(forKey: filePath)
                     deletedCount = 1
-                    print("[SyncEngine] Deleted record \(remoteId) from API (file removed: \(filePath))")
+                    await ActivityLogger.shared.info(.sync, "DELETE record \(remoteId) from API (file removed: \(filePath))")
                 }
 
             case .collection:
@@ -645,7 +683,7 @@ public actor SyncEngine {
                 }
                 lastKnownRecords.removeValue(forKey: cacheKey)
                 syncStates[serviceId]?.files.removeValue(forKey: filePath)
-                print("[SyncEngine] Deleted \(deletedCount) records from API (file removed: \(filePath))")
+                await ActivityLogger.shared.info(.sync, "DELETE \(deletedCount) records from API (file removed: \(filePath))")
 
             case .mirror:
                 if let remoteId = syncStates[serviceId]?.files[filePath]?.remoteId {
@@ -719,7 +757,7 @@ public actor SyncEngine {
                 options: resource.fileMapping.formatOptions
             )
         } catch {
-            print("[SyncEngine] Skipping push for \(filePath): decode failed (\(error.localizedDescription))")
+            await ActivityLogger.shared.warn(.sync, "Skipping push for \(filePath) — decode failed: \(error.localizedDescription)")
             return nil
         }
 
@@ -733,7 +771,7 @@ public actor SyncEngine {
             return nil // No actual changes
         }
 
-        print("[SyncEngine] Collection diff for \(filePath): \(diff.summary)")
+        await ActivityLogger.shared.debug(.sync, "Collection diff for \(filePath): \(diff.summary)")
 
         // Load raw records from object file for inverse transforms
         let serviceDir = syncFolder.appendingPathComponent(serviceId)
@@ -826,7 +864,7 @@ public actor SyncEngine {
         do {
             // Find which resource this object file belongs to
             guard let (resource, userFilePath) = findResourceForObjectFile(objectFilePath, in: engine.config) else {
-                print("[SyncEngine] No resource found for object file: \(objectFilePath)")
+                await ActivityLogger.shared.warn(.sync, "No resource found for object file: \(objectFilePath)")
                 return
             }
 
@@ -888,10 +926,10 @@ public actor SyncEngine {
             // Update lastKnownRecords cache
             lastKnownRecords["\(serviceId):\(userFilePath)"] = transformed
 
-            print("[SyncEngine] Object file push: \(objectFilePath) → regenerated \(userFilePath)")
+            await ActivityLogger.shared.debug(.sync, "Object file push: \(objectFilePath) → regenerated \(userFilePath)")
 
         } catch {
-            print("[SyncEngine] Object file push failed for \(objectFilePath): \(error)")
+            await ActivityLogger.shared.error(.sync, "Object file push failed for \(objectFilePath) — \(error.localizedDescription)")
         }
     }
 
@@ -980,7 +1018,7 @@ public actor SyncEngine {
                 try ObjectFileManager.writeCollectionObjectFile(records: rawRecords, to: objectURL)
             }
         } catch {
-            print("[SyncEngine] Failed to write object file \(objectPath): \(error)")
+            Task { await ActivityLogger.shared.warn(.sync, "Failed to write object file \(objectPath) — \(error.localizedDescription)") }
         }
     }
 

@@ -46,7 +46,11 @@ public enum FileMapper {
             let fileURL = directory.appendingPathComponent(file.relativePath)
             let parentDir = fileURL.deletingLastPathComponent()
             try fm.createDirectory(at: parentDir, withIntermediateDirectories: true)
+            let existed = fm.fileExists(atPath: fileURL.path)
             try file.content.write(to: fileURL, options: .atomic)
+            let action = existed ? "UPDATE" : "CREATE"
+            let size = ActivityLogger.formatBytes(file.content.count)
+            Task { await ActivityLogger.shared.info(.fileOp, "\(action) \(file.relativePath) (\(size))") }
         }
     }
 
@@ -56,7 +60,16 @@ public enum FileMapper {
     ///   - format: The expected file format (for future validation)
     /// - Returns: The file content as Data
     public static func readFile(at path: URL, format: FileFormat) throws -> Data {
-        return try Data(contentsOf: path)
+        let data = try Data(contentsOf: path)
+        let size = ActivityLogger.formatBytes(data.count)
+        Task { await ActivityLogger.shared.debug(.fileOp, "READ \(path.lastPathComponent) (\(size))") }
+        return data
+    }
+
+    /// Deletes a file from disk and logs the operation.
+    public static func deleteFile(at path: URL) throws {
+        try FileManager.default.removeItem(at: path)
+        Task { await ActivityLogger.shared.info(.fileOp, "DELETE \(path.lastPathComponent)") }
     }
 
     // MARK: - Private helpers

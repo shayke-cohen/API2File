@@ -201,8 +201,10 @@ public actor AdapterEngine {
             return
         }
 
-        let url = resolveURL(deleteConfig.url)
-            .replacingOccurrences(of: "{id}", with: remoteId)
+        var urlVars: [String: Any] = [:]
+        if let baseUrl = config.globals?.baseUrl { urlVars["baseUrl"] = baseUrl }
+        urlVars["id"] = remoteId
+        let url = TemplateEngine.render(deleteConfig.url, with: urlVars)
 
         let method = HTTPMethod(rawValue: deleteConfig.method?.uppercased() ?? "DELETE") ?? .DELETE
         var headers = config.globals?.headers ?? [:]
@@ -524,7 +526,20 @@ public actor AdapterEngine {
         // Build request body
         var bodyDict: Any = record
         if let wrapper = endpoint.bodyWrapper {
-            bodyDict = [wrapper: record]
+            if let rootFields = endpoint.bodyRootFields, !rootFields.isEmpty {
+                // Hoist specified fields to root level, wrap remainder
+                var outerBody: [String: Any] = [:]
+                var innerRecord = record
+                for field in rootFields {
+                    if let value = innerRecord.removeValue(forKey: field) {
+                        outerBody[field] = value
+                    }
+                }
+                outerBody[wrapper] = innerRecord
+                bodyDict = outerBody
+            } else {
+                bodyDict = [wrapper: record]
+            }
         }
         let body = try JSONSerialization.data(withJSONObject: bodyDict)
 
@@ -536,6 +551,14 @@ public actor AdapterEngine {
         )
 
         _ = try await httpClient.request(request)
+
+        // Execute follow-up request if configured (e.g. Wix Blog draft → publish)
+        if let followup = endpoint.followup {
+            let followupURL = TemplateEngine.render(followup.url, with: templateVars)
+            let followupMethod = HTTPMethod(rawValue: followup.method?.uppercased() ?? "POST") ?? .POST
+            let followupRequest = APIRequest(method: followupMethod, url: followupURL, headers: headers, body: nil)
+            _ = try await httpClient.request(followupRequest)
+        }
     }
 
     // MARK: - Private — File Mapping

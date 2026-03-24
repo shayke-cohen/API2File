@@ -46,8 +46,8 @@ public actor KeychainManager {
     }
 
     /// Load a string value from the keychain for the given key.
-    public func load(key: String) -> String? {
-        guard let data = loadData(key: key) else { return nil }
+    public func load(key: String) async -> String? {
+        guard let data = await loadData(key: key) else { return nil }
         return String(data: data, encoding: .utf8)
     }
 
@@ -82,8 +82,8 @@ public actor KeychainManager {
     }
 
     /// Load an OAuth2 token set from the keychain.
-    public func loadOAuth2Token(key: String) -> OAuth2Token? {
-        guard let data = loadData(key: key) else { return nil }
+    public func loadOAuth2Token(key: String) async -> OAuth2Token? {
+        guard let data = await loadData(key: key) else { return nil }
         return try? JSONDecoder().decode(OAuth2Token.self, from: data)
     }
 
@@ -103,6 +103,8 @@ public actor KeychainManager {
         ]
         let attributes: [String: Any] = [
             kSecValueData as String: data,
+            // Use iOS-style accessibility — bypasses per-app ACL dialogs on macOS
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock,
         ]
 
         let updateStatus = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
@@ -113,24 +115,72 @@ public actor KeychainManager {
         // Item doesn't exist yet — add it.
         var addQuery = query
         addQuery[kSecValueData as String] = data
+        addQuery[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
         let addStatus = SecItemAdd(addQuery as CFDictionary, nil)
         return addStatus == errSecSuccess
     }
 
-    private func loadData(key: String) -> Data? {
+    private func loadData(key: String) async -> Data? {
+        let account = namespacedKey(key)
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrAccount as String: namespacedKey(key),
+            kSecAttrAccount as String: account,
             kSecReturnData as String: true,
             kSecMatchLimit as String: kSecMatchLimitOne,
         ]
+        // Try SecItemCopyMatching first with a 5-second timeout.
+        // If it returns nil (ACL dialog blocked, securityd cold, or not found),
+        // fall back to the `security` CLI which is always trusted and returns promptly.
+        let apiResult = await withCheckedContinuation { (continuation: CheckedContinuation<Data?, Never>) in
+            let lock = NSLock()
+            var resumed = false
 
-        var result: AnyObject?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
+            let finish: (Data?) -> Void = { data in
+                lock.lock()
+                defer { lock.unlock() }
+                guard !resumed else { return }
+                resumed = true
+                continuation.resume(returning: data)
+            }
 
-        guard status == errSecSuccess, let data = result as? Data else {
-            return nil
+            // Short timeout — if the Keychain API doesn't respond quickly, use the CLI fallback
+            DispatchQueue.global().asyncAfter(deadline: .now() + 5) { finish(nil) }
+
+            DispatchQueue.global(qos: .utility).async {
+                var result: AnyObject?
+                let status = SecItemCopyMatching(query as CFDictionary, &result)
+                if status == errSecSuccess, let data = result as? Data {
+                    finish(data)
+                } else {
+                    finish(nil)
+                }
+            }
         }
-        return data
+        if let apiResult { return apiResult }
+
+        // Fallback: use the `security` CLI which is always trusted by the login keychain ACL
+        return await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .utility).async {
+                let process = Process()
+                process.executableURL = URL(fileURLWithPath: "/usr/bin/security")
+                process.arguments = ["find-generic-password", "-a", account, "-w"]
+                let outPipe = Pipe()
+                process.standardOutput = outPipe
+                process.standardError = Pipe()
+                do {
+                    try process.run()
+                    process.waitUntilExit()
+                    if process.terminationStatus == 0 {
+                        var output = outPipe.fileHandleForReading.readDataToEndOfFile()
+                        if output.last == 10 { output.removeLast() } // strip trailing newline
+                        continuation.resume(returning: output.isEmpty ? nil : output)
+                    } else {
+                        continuation.resume(returning: nil)
+                    }
+                } catch {
+                    continuation.resume(returning: nil)
+                }
+            }
+        }
     }
 }

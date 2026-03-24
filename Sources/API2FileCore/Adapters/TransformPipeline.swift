@@ -278,6 +278,9 @@ public struct TransformPipeline {
         case "keyBy":
             guard let path = op.path, let key = op.key, let value = op.value, let to = op.to else { return records }
             return records.map { keyBy(path: path, key: key, value: value, to: to, in: $0) }
+        case "set":
+            guard let field = op.field, let value = op.value else { return records }
+            return records.map { set(field: field, value: value, in: $0) }
         default:
             return records
         }
@@ -300,9 +303,26 @@ public struct TransformPipeline {
     private static func omit(fields: [String], from record: [String: Any]) -> [String: Any] {
         var result = record
         for field in fields {
-            result.removeValue(forKey: field)
+            if field.contains(".") {
+                let components = field.split(separator: ".").map(String.init)
+                removeNestedField(atPath: components, in: &result)
+            } else {
+                result.removeValue(forKey: field)
+            }
         }
         return result
+    }
+
+    private static func removeNestedField(atPath components: [String], in dict: inout [String: Any]) {
+        guard !components.isEmpty else { return }
+        if components.count == 1 {
+            dict.removeValue(forKey: components[0])
+            return
+        }
+        let key = components[0]
+        guard var nested = dict[key] as? [String: Any] else { return }
+        removeNestedField(atPath: Array(components.dropFirst()), in: &nested)
+        dict[key] = nested
     }
 
     // MARK: - Rename
@@ -310,21 +330,40 @@ public struct TransformPipeline {
     private static func rename(from: String, to: String, in record: [String: Any]) -> [String: Any] {
         var result = record
 
+        // Extract value (supports nested from-path)
+        let value: Any?
         if from.contains(".") {
-            // Dot-path: extract nested value
-            let value = resolveDotPath(from, in: record)
-            if let value = value {
-                result[to] = value
-            }
+            value = resolveDotPath(from, in: record)
             // Don't remove the source key — other renames may need it.
             // Use "omit" explicitly to clean up parent keys after all renames.
         } else {
-            // Simple rename
-            if let value = result.removeValue(forKey: from) {
-                result[to] = value
-            }
+            value = result.removeValue(forKey: from)
         }
 
+        guard let value = value else { return result }
+
+        // Write value (supports nested to-path)
+        if to.contains(".") {
+            result = setDotPath(to, value: value, in: result)
+        } else {
+            result[to] = value
+        }
+
+        return result
+    }
+
+    /// Set a value at a dot-path like "name.first", creating intermediate dicts as needed.
+    private static func setDotPath(_ path: String, value: Any, in record: [String: Any]) -> [String: Any] {
+        var result = record
+        let components = path.split(separator: ".").map(String.init)
+        guard let first = components.first else { return result }
+        if components.count == 1 {
+            result[first] = value
+        } else {
+            var nested = result[first] as? [String: Any] ?? [:]
+            nested = setDotPath(components.dropFirst().joined(separator: "."), value: value, in: nested)
+            result[first] = nested
+        }
         return result
     }
 
@@ -375,6 +414,14 @@ public struct TransformPipeline {
             result.removeValue(forKey: topKey)
         }
 
+        return result
+    }
+
+    // MARK: - Set
+
+    private static func set(field: String, value: String, in record: [String: Any]) -> [String: Any] {
+        var result = record
+        result[field] = value
         return result
     }
 

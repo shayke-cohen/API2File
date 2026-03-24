@@ -111,14 +111,11 @@ public struct InverseTransformPipeline {
         for op in inverseOps {
             switch op {
             case .rename(let from, let to):
-                // Rename field back
-                if from.contains(".") {
-                    // Re-nest into dot-path
-                    if let value = result.removeValue(forKey: from) {
+                // Rename field back — use setNestedValue whenever `to` has a dot-path
+                if let value = result.removeValue(forKey: from) {
+                    if to.contains(".") {
                         setNestedValue(value, atPath: to, in: &result)
-                    }
-                } else {
-                    if let value = result.removeValue(forKey: from) {
+                    } else {
                         result[to] = value
                     }
                 }

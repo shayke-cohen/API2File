@@ -161,6 +161,14 @@ final class AppState: ObservableObject {
         }
     }
 
+    func openLogs() {
+        Task {
+            if let logDir = await ActivityLogger.shared.logDirectoryURL() {
+                NSWorkspace.shared.open(logDir)
+            }
+        }
+    }
+
     func updateAPIKey(serviceId: String, newKey: String) {
         Task {
             let keychainKey = "api2file.\(serviceId).key"

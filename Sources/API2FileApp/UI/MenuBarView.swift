@@ -51,6 +51,10 @@ struct MenuBarView: View {
             NSWorkspace.shared.open(url)
         }
 
+        Button("Open Logs") {
+            appState.openLogs()
+        }
+
         if #available(macOS 14.0, *) {
             SettingsLink {
                 Text("Preferences...")
