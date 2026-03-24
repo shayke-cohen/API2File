@@ -46,6 +46,7 @@ final class AppState: ObservableObject {
     }
 
     func startEngine() {
+        print("[AppState] startEngine called")
         guard !engineStarted else { return }
         engineStarted = true
         print("[API2File] Starting sync engine...")

@@ -254,8 +254,9 @@ public struct FileMappingConfig: Codable, Sendable {
     public let preserveExtension: Bool?
     public let transforms: TransformConfig?
     public let pushMode: PushMode?
+    public let deleteFromAPI: Bool?
 
-    public init(strategy: MappingStrategy, directory: String, filename: String? = nil, format: FileFormat = .json, formatOptions: FormatOptions? = nil, idField: String? = nil, contentField: String? = nil, readOnly: Bool? = nil, preserveExtension: Bool? = nil, transforms: TransformConfig? = nil, pushMode: PushMode? = nil) {
+    public init(strategy: MappingStrategy, directory: String, filename: String? = nil, format: FileFormat = .json, formatOptions: FormatOptions? = nil, idField: String? = nil, contentField: String? = nil, readOnly: Bool? = nil, preserveExtension: Bool? = nil, transforms: TransformConfig? = nil, pushMode: PushMode? = nil, deleteFromAPI: Bool? = nil) {
         self.strategy = strategy
         self.directory = directory
         self.filename = filename
@@ -267,6 +268,7 @@ public struct FileMappingConfig: Codable, Sendable {
         self.preserveExtension = preserveExtension
         self.transforms = transforms
         self.pushMode = pushMode
+        self.deleteFromAPI = deleteFromAPI
     }
 
     /// Resolve the effective push mode based on config and transforms.

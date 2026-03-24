@@ -14,6 +14,7 @@ public actor SyncEngine {
     private var serviceInfos: [String: ServiceInfo] = [:]
     private var lastKnownRecords: [String: [[String: Any]]] = [:]
     private var suppressedPaths: Set<String> = []
+    private var isPulling: [String: Bool] = [:]  // per-service pull lock
     private var historyLogs: [String: SyncHistoryLog] = [:]
     private var _notificationManager: NotificationManager?
     private var notificationManager: NotificationManager {
@@ -53,27 +54,8 @@ public actor SyncEngine {
             try await registerService(serviceId)
         }
 
-        // Start file watcher
-        let watchDirs = serviceIds.map { syncFolder.appendingPathComponent($0).path }
-        fileWatcher.start(directories: watchDirs) { [weak self] changes in
-            guard let self else { return }
-            Task {
-                await self.handleFileChanges(changes)
-            }
-        }
-
-        // Start config watcher — auto-reload when adapter.json changes
-        let configPaths = serviceIds.map {
-            syncFolder.appendingPathComponent($0).appendingPathComponent(".api2file").path
-        }
-        configWatcher.start(directories: configPaths) { [weak self] serviceId in
-            guard let self else { return }
-            Task {
-                await self.reloadService(serviceId)
-            }
-        }
-
-        // Initial pull for all services (so files appear immediately)
+        // Initial pull for all services BEFORE starting file watcher
+        // (prevents FSEvents from triggering pushes while pull is writing files)
         for serviceId in serviceIds {
             do {
                 try await performPull(serviceId: serviceId)
@@ -100,6 +82,22 @@ public actor SyncEngine {
                     try? entry.write(to: logFile, atomically: true, encoding: .utf8)
                 }
             }
+        }
+
+        // NOW start file watcher (after initial pulls are done)
+        let watchDirs = serviceIds.map { syncFolder.appendingPathComponent($0).path }
+        fileWatcher.start(directories: watchDirs) { [weak self] changes in
+            guard let self else { return }
+            Task { await self.handleFileChanges(changes) }
+        }
+
+        // Start config watcher
+        let configPaths = serviceIds.map {
+            syncFolder.appendingPathComponent($0).appendingPathComponent(".api2file").path
+        }
+        configWatcher.start(directories: configPaths) { [weak self] serviceId in
+            guard let self else { return }
+            Task { await self.reloadService(serviceId) }
         }
 
         // Start sync coordinator (periodic polling)
@@ -255,6 +253,10 @@ public actor SyncEngine {
         let serviceName = serviceInfos[serviceId]?.displayName ?? serviceId
         let startTime = Date()
 
+        // Work with a LOCAL copy of sync state to avoid exclusive access violations
+        // across await points. Write back at the end.
+        var localState = syncStates[serviceId] ?? SyncState()
+
         do {
             // Determine if any resource supports incremental sync
             let hasIncrementalSupport = engine.config.resources.contains { r in
@@ -269,9 +271,12 @@ public actor SyncEngine {
                 var allFiles: [SyncableFile] = []
                 var allRawRecords: [String: [[String: Any]]] = [:]
 
+                // Snapshot sync state before async loop to avoid concurrent access
+                let stateSnapshot = localState
+
                 for resource in engine.config.resources {
                     let needsFullSync = shouldDoFullSync(serviceId: serviceId, resource: resource)
-                    let lastSync = syncStates[serviceId]?.resourceSyncTimes[resource.name]
+                    let lastSync = stateSnapshot.resourceSyncTimes[resource.name]
                     let updatedSince = (!needsFullSync && lastSync != nil) ? lastSync : nil
 
                     let result = try await engine.pull(resource: resource, updatedSince: updatedSince)
@@ -340,7 +345,7 @@ public actor SyncEngine {
 
                     // Update sync state
                     if let remoteId = file.remoteId {
-                        syncStates[serviceId]?.files[file.relativePath] = FileSyncState(
+                        localState.files[file.relativePath] = FileSyncState(
                             remoteId: remoteId,
                             lastSyncedHash: file.contentHash,
                             lastSyncTime: Date(),
@@ -361,7 +366,7 @@ public actor SyncEngine {
 
                     // Update sync state
                     if let remoteId = file.remoteId {
-                        syncStates[serviceId]?.files[file.relativePath] = FileSyncState(
+                        localState.files[file.relativePath] = FileSyncState(
                             remoteId: remoteId,
                             lastSyncedHash: file.contentHash,
                             lastSyncTime: Date(),
@@ -375,17 +380,17 @@ public actor SyncEngine {
             for resource in engine.config.resources {
                 let name = resource.name
                 if shouldDoFullSync(serviceId: serviceId, resource: resource) {
-                    syncStates[serviceId]?.resourceSyncTimes[name] = Date()
-                    syncStates[serviceId]?.syncCounts[name] = 0
+                    localState.resourceSyncTimes[name] = Date()
+                    localState.syncCounts[name] = 0
                 } else {
-                    syncStates[serviceId]?.syncCounts[name] = (syncStates[serviceId]?.syncCounts[name] ?? 0) + 1
+                    localState.syncCounts[name] = (localState.syncCounts[name] ?? 0) + 1
                 }
             }
 
             // Save state
             let stateURL = serviceDir.appendingPathComponent(".api2file/state.json")
-            try syncStates[serviceId]?.save(to: stateURL)
-
+            try localState.save(to: stateURL)
+            syncStates[serviceId] = localState
             // Git commit
             if config.gitAutoCommit, let git = gitManagers[serviceId] {
                 if try await git.hasChanges() {
@@ -395,7 +400,7 @@ public actor SyncEngine {
             }
 
             // Update file count
-            serviceInfos[serviceId]?.fileCount = syncStates[serviceId]?.files.count ?? 0
+            serviceInfos[serviceId]?.fileCount = localState.files.count ?? 0
             serviceInfos[serviceId]?.lastSyncTime = Date()
 
             // Log history entry
@@ -442,9 +447,15 @@ public actor SyncEngine {
         // Skip read-only resources
         if resource.fileMapping.effectivePushMode == .readOnly { return }
 
-        // Skip if file was deleted or is a directory
+        // Handle file deletion — if file is gone, optionally delete from API
         var isDir: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: fullPath.path, isDirectory: &isDir), !isDir.boolValue else { return }
+        guard FileManager.default.fileExists(atPath: fullPath.path, isDirectory: &isDir), !isDir.boolValue else {
+            let shouldDelete = resource.fileMapping.deleteFromAPI ?? config.deleteFromAPI
+            if shouldDelete {
+                try await handleFileDeletion(serviceId: serviceId, filePath: filePath, resource: resource, engine: engine)
+            }
+            return
+        }
         let content = try Data(contentsOf: fullPath)
 
         do {
@@ -538,6 +549,9 @@ public actor SyncEngine {
             guard let relativeParts = extractServiceAndPath(from: path) else { continue }
             let (serviceId, filePath) = relativeParts
 
+            // Skip changes while pulling (prevents concurrent access to syncStates)
+            if isPulling[serviceId] == true { continue }
+
             // Skip internal, temp, and hidden files
             if filePath.hasPrefix(".api2file/") || filePath.hasPrefix(".git/") { continue }
             if filePath == "CLAUDE.md" { continue }
@@ -579,6 +593,95 @@ public actor SyncEngine {
         guard components.count == 2 else { return nil }
 
         return (String(components[0]), String(components[1]))
+    }
+
+    // MARK: - File Deletion
+
+    /// Handle a file deletion — delete records from the API if configured.
+    private func handleFileDeletion(
+        serviceId: String,
+        filePath: String,
+        resource: ResourceConfig,
+        engine: AdapterEngine
+    ) async throws {
+        let cacheKey = "\(serviceId):\(filePath)"
+        let serviceDir = syncFolder.appendingPathComponent(serviceId)
+        let serviceName = serviceInfos[serviceId]?.displayName ?? serviceId
+        let startTime = Date()
+        var deletedCount = 0
+
+        do {
+            switch resource.fileMapping.strategy {
+            case .onePerRecord:
+                if let remoteId = syncStates[serviceId]?.files[filePath]?.remoteId {
+                    try await engine.delete(remoteId: remoteId, resource: resource)
+                    syncStates[serviceId]?.files.removeValue(forKey: filePath)
+                    deletedCount = 1
+                    print("[SyncEngine] Deleted record \(remoteId) from API (file removed: \(filePath))")
+                }
+
+            case .collection:
+                let records = lastKnownRecords[cacheKey] ?? []
+                let idField = resource.fileMapping.idField ?? "id"
+                for record in records {
+                    let recordId: String?
+                    if let id = record[idField] as? String { recordId = id }
+                    else if let id = record[idField] as? Int { recordId = "\(id)" }
+                    else { recordId = nil }
+
+                    if let id = recordId {
+                        try await engine.delete(remoteId: id, resource: resource)
+                        deletedCount += 1
+                    }
+                }
+                lastKnownRecords.removeValue(forKey: cacheKey)
+                syncStates[serviceId]?.files.removeValue(forKey: filePath)
+                print("[SyncEngine] Deleted \(deletedCount) records from API (file removed: \(filePath))")
+
+            case .mirror:
+                if let remoteId = syncStates[serviceId]?.files[filePath]?.remoteId {
+                    try await engine.delete(remoteId: remoteId, resource: resource)
+                    syncStates[serviceId]?.files.removeValue(forKey: filePath)
+                    deletedCount = 1
+                }
+            }
+
+            // Clean up object file
+            let objectPath = ObjectFileManager.objectFilePath(forUserFile: filePath, strategy: resource.fileMapping.strategy)
+            let objectURL = serviceDir.appendingPathComponent(objectPath)
+            suppressedPaths.insert(objectPath)
+            try? FileManager.default.removeItem(at: objectURL)
+
+            // Save state
+            let stateURL = serviceDir.appendingPathComponent(".api2file/state.json")
+            try syncStates[serviceId]?.save(to: stateURL)
+
+            // Log history
+            if deletedCount > 0 {
+                let entry = SyncHistoryEntry(
+                    serviceId: serviceId,
+                    serviceName: serviceName,
+                    direction: .push,
+                    status: .success,
+                    duration: Date().timeIntervalSince(startTime),
+                    files: [FileChange(path: filePath, action: .deleted, recordsDeleted: deletedCount)],
+                    summary: "deleted \(deletedCount) record(s) via file removal: \(filePath)"
+                )
+                logHistory(entry, serviceId: serviceId, serviceDir: serviceDir)
+            }
+        } catch {
+            let entry = SyncHistoryEntry(
+                serviceId: serviceId,
+                serviceName: serviceName,
+                direction: .push,
+                status: .error,
+                duration: Date().timeIntervalSince(startTime),
+                files: [FileChange(path: filePath, action: .error, errorMessage: error.localizedDescription)],
+                summary: "file deletion push failed: \(error.localizedDescription)"
+            )
+            logHistory(entry, serviceId: serviceId, serviceDir: serviceDir)
+            throw error
+        }
     }
 
     // MARK: - Collection Diff Push
