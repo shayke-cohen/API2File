@@ -86,7 +86,11 @@
             { "op": "flatten", "path": "info.name", "to": "" },
             { "op": "flatten", "path": "info.emails", "to": "emails" },
             { "op": "flatten", "path": "info.phones", "to": "phones" },
-            { "op": "omit", "fields": ["info", "revision", "source", "lastActivity"] }
+            { "op": "omit", "fields": ["info", "revision", "source", "lastActivity"] },
+            { "op": "set", "field": "_url", "value": "https://manage.wix.com/dashboard/YOUR_SITE_ID_HERE/contacts/{id}" }
+          ],
+          "push": [
+            { "op": "omit", "fields": ["_url"] }
           ]
         }
       },
@@ -148,7 +152,11 @@
         "contentField": "richContent",
         "transforms": {
           "pull": [
-            { "op": "omit", "fields": ["coverMedia", "memberId", "hashtags", "commentingEnabled", "minutesToRead", "tagIds", "pricingPlanIds"] }
+            { "op": "omit", "fields": ["coverMedia", "memberId", "hashtags", "commentingEnabled", "minutesToRead", "tagIds", "pricingPlanIds"] },
+            { "op": "set", "field": "_url", "value": "https://manage.wix.com/dashboard/YOUR_SITE_ID_HERE/blog/{id}/edit" }
+          ],
+          "push": [
+            { "op": "omit", "fields": ["_url"] }
           ]
         }
       },
@@ -212,7 +220,11 @@
           "pull": [
             { "op": "flatten", "path": "priceData", "to": "" },
             { "op": "flatten", "path": "stock", "to": "" },
-            { "op": "omit", "fields": ["media", "additionalInfoSections", "customTextFields", "variants", "productOptions"] }
+            { "op": "omit", "fields": ["media", "additionalInfoSections", "customTextFields", "variants", "productOptions"] },
+            { "op": "set", "field": "_url", "value": "https://manage.wix.com/dashboard/YOUR_SITE_ID_HERE/store/products/{id}" }
+          ],
+          "push": [
+            { "op": "omit", "fields": ["_url"] }
           ]
         }
       },
@@ -250,7 +262,15 @@
         "directory": "bookings",
         "filename": "{name|slugify}.json",
         "format": "json",
-        "idField": "id"
+        "idField": "id",
+        "transforms": {
+          "pull": [
+            { "op": "set", "field": "_url", "value": "https://manage.wix.com/dashboard/YOUR_SITE_ID_HERE/bookings/services/{id}" }
+          ],
+          "push": [
+            { "op": "omit", "fields": ["_url"] }
+          ]
+        }
       },
 
       "sync": {
@@ -280,7 +300,15 @@
         "directory": ".",
         "filename": "collections.json",
         "format": "json",
-        "idField": "id"
+        "idField": "id",
+        "transforms": {
+          "pull": [
+            { "op": "set", "field": "_url", "value": "https://manage.wix.com/dashboard/YOUR_SITE_ID_HERE/database/{id}" }
+          ],
+          "push": [
+            { "op": "omit", "fields": ["_url"] }
+          ]
+        }
       },
 
       "children": [
@@ -332,7 +360,15 @@
             "directory": "cms/{displayName|slugify}",
             "filename": "items.csv",
             "format": "csv",
-            "idField": "id"
+            "idField": "id",
+            "transforms": {
+              "pull": [
+                { "op": "set", "field": "_url", "value": "https://manage.wix.com/dashboard/YOUR_SITE_ID_HERE/database/{collectionId}/{id}" }
+              ],
+              "push": [
+                { "op": "omit", "fields": ["_url"] }
+              ]
+            }
           }
         }
       ],

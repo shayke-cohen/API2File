@@ -77,7 +77,11 @@
         "idField": "id",
         "transforms": {
           "pull": [
-            { "op": "omit", "fields": ["createdTime"] }
+            { "op": "omit", "fields": ["createdTime"] },
+            { "op": "set", "field": "_url", "value": "https://airtable.com/BASE_ID/{id}" }
+          ],
+          "push": [
+            { "op": "omit", "fields": ["_url"] }
           ]
         }
       },
@@ -107,7 +111,12 @@
         "filename": "bases.json",
         "format": "json",
         "idField": "id",
-        "readOnly": true
+        "readOnly": true,
+        "transforms": {
+          "pull": [
+            { "op": "set", "field": "_url", "value": "https://airtable.com/{id}" }
+          ]
+        }
       },
 
       "sync": {

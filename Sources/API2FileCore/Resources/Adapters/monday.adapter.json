@@ -68,7 +68,11 @@
         "transforms": {
           "pull": [
             { "op": "keyBy", "path": "column_values", "key": "title", "value": "text", "to": "columns" },
-            { "op": "omit", "fields": ["column_values", "board_kind"] }
+            { "op": "omit", "fields": ["column_values", "board_kind"] },
+            { "op": "set", "field": "_url", "value": "https://app.monday.com/boards/{id}" }
+          ],
+          "push": [
+            { "op": "omit", "fields": ["_url"] }
           ]
         }
       },

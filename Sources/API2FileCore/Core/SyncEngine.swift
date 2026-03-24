@@ -1122,10 +1122,20 @@ public actor SyncEngine {
 
     private func matchResource(_ resource: ResourceConfig, to filePath: String) -> ResourceConfig? {
         let dir = resource.fileMapping.directory
-        // For collection strategy, check filename suffix (handles template dirs like "boards/{name|slugify}")
+        // For collection strategy, match by exact dir+filename path
         if resource.fileMapping.strategy == .collection, let filename = resource.fileMapping.filename {
-            if filePath == filename || filePath.hasSuffix("/\(filename)") {
-                return resource
+            if dir.contains("{") {
+                // Template directory (e.g. "boards/{name|slugify}"): match by filename suffix
+                if filePath == filename || filePath.hasSuffix("/\(filename)") {
+                    return resource
+                }
+            } else {
+                // Concrete directory: require exact path match to avoid collisions
+                // (e.g. "events.csv" must not match cms-events with dir="cms")
+                let expectedPath = dir == "." ? filename : "\(dir)/\(filename)"
+                if filePath == expectedPath {
+                    return resource
+                }
             }
             return nil
         }
