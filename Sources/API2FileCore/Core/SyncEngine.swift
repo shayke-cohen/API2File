@@ -88,7 +88,8 @@ public actor SyncEngine {
             let serviceDir = syncFolder.appendingPathComponent(serviceId)
             let state = syncStates[serviceId] ?? SyncState()
             for (filePath, fileState) in state.files {
-                guard let lastHash = fileState.lastSyncedHash else { continue }
+                let lastHash = fileState.lastSyncedHash
+                guard !lastHash.isEmpty else { continue }
                 // Skip files in hidden directories (.api2file, .objects, etc.)
                 if filePath.hasPrefix(".") || filePath.contains("/.") { continue }
                 // Skip read-only resources
@@ -950,13 +951,39 @@ public actor SyncEngine {
             try await engine.pushRecord(pushRecord, resource: resource, action: .update(id: id))
         }
 
-        // Push deletes
-        for id in diff.deleted {
-            try await engine.delete(remoteId: id, resource: resource)
+        // Push deletes — with optional confirmation
+        var deletedIds: [String] = []
+        if !diff.deleted.isEmpty {
+            var proceed = true
+            if let handler = deletionConfirmationHandler {
+                let info = DeletionInfo(
+                    serviceName: serviceInfos[serviceId]?.displayName ?? serviceId,
+                    serviceId: serviceId,
+                    filePath: filePath,
+                    recordCount: diff.deleted.count,
+                    kind: .rowDeletion
+                )
+                proceed = await handler(info)
+            }
+            if proceed {
+                for id in diff.deleted {
+                    try await engine.delete(remoteId: id, resource: resource)
+                    deletedIds.append(id)
+                }
+            } else {
+                await ActivityLogger.shared.info(.sync, "↺ Row deletion cancelled by user — restoring rows: \(filePath)")
+                // Re-pull to restore the deleted rows from the server
+                Task { try? await self.performPull(serviceId: serviceId) }
+            }
         }
 
-        // Update caches
-        lastKnownRecords[cacheKey] = newRecords
+        // Update caches — if deletions were cancelled, keep old records so pull restores cleanly
+        if deletedIds.count == diff.deleted.count || diff.deleted.isEmpty {
+            lastKnownRecords[cacheKey] = newRecords
+        } else {
+            // Partial or cancelled deletes — the pull will refresh the cache
+            lastKnownRecords[cacheKey] = oldRecords
+        }
 
         // Update object file with current state
         if shouldInverse || rawRecords != nil {

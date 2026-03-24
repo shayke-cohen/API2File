@@ -56,6 +56,15 @@ final class AppState: ObservableObject {
         let engine = SyncEngine(config: config)
         self.syncEngine = engine
 
+        // Wire up deletion confirmation — shows a modal NSAlert before any remote delete
+        Task {
+            await engine.setDeletionConfirmationHandler { info in
+                await MainActor.run {
+                    AppState.showDeletionConfirmation(info)
+                }
+            }
+        }
+
         Task {
             do {
                 // Seed bundled adapters into ~/.api2file/adapters/ before starting
@@ -199,6 +208,41 @@ final class AppState: ObservableObject {
     func getServiceHistory(serviceId: String, limit: Int = 10) async -> [SyncHistoryEntry] {
         guard let engine = syncEngine else { return [] }
         return await engine.getHistory(serviceId: serviceId, limit: limit)
+    }
+
+    // MARK: - Deletion Confirmation
+
+    @MainActor
+    static func showDeletionConfirmation(_ info: DeletionInfo) -> Bool {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+
+        let kindLabel: String
+        switch info.kind {
+        case .fileDeletion:
+            kindLabel = "File deleted"
+        case .rowDeletion:
+            kindLabel = "Rows removed"
+        }
+
+        alert.messageText = "\(kindLabel) — \(info.serviceName)"
+
+        let countText: String
+        if let count = info.recordCount {
+            countText = "\(count) record\(count == 1 ? "" : "s")"
+        } else {
+            countText = "records"
+        }
+        alert.informativeText = "You deleted \"\(info.filePath)\" which maps to \(countText) on \(info.serviceName).\n\nDelete from server or restore the file?"
+
+        alert.addButton(withTitle: "Delete from Server")
+        alert.addButton(withTitle: "Cancel & Restore")
+
+        // Bring the app to front so the alert is visible
+        NSApp.activate(ignoringOtherApps: true)
+
+        let response = alert.runModal()
+        return response == .alertFirstButtonReturn // true = proceed with delete
     }
 
     private func refreshServices() async {
