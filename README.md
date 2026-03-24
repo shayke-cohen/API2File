@@ -17,7 +17,7 @@ Zero external dependencies. Pure Swift, macOS native frameworks only.
 - **Git auto-commit** -- every sync cycle committed with descriptive messages
 - **macOS Keychain** for secure credential storage
 - **Demo server** with 14 resource types (tasks, contacts, events, notes, pages, config, services, incidents, logos, photos, documents, spreadsheets, reports, presentations)
-- **5 bundled cloud adapters** -- Demo, Monday.com, Wix, GitHub, Airtable
+- **12 bundled adapters** -- 5 cloud (Demo, Monday.com, Wix, GitHub, Airtable) + 7 demo-themed (TeamBoard, PeopleHub, CalSync, PageCraft, DevOps, MediaManager, Wix-Demo)
 - **537 tests** -- unit, integration, and end-to-end coverage
 
 ## Quick Start
@@ -126,13 +126,29 @@ Tests/
 
 ## Bundled Adapters
 
-| Adapter | Auth | Resources | File Formats |
+### Cloud Adapters
+
+| Adapter | File | Auth | Resources | File Formats |
+| --- | --- | --- | --- | --- |
+| **Demo** | `demo.adapter.json` | None | tasks, contacts, events, notes, pages, config, services, incidents, logos, photos, documents, spreadsheets, reports, presentations, emails, bookmarks, settings, snippets | CSV, VCF, ICS, MD, HTML, JSON, SVG, XLSX, DOCX, PPTX, EML, WEBLOC, YAML, TXT, Raw |
+| **Monday.com** | `monday.adapter.json` | Bearer token | boards (with items via GraphQL) | CSV |
+| **Wix** | `wix.adapter.json` | API key + Site ID header | contacts, blog-posts, products, bookings, collections (+ children items) | CSV, MD, JSON |
+| **GitHub** | `github.adapter.json` | Bearer (PAT) | repos, issues, gists, notifications, starred | CSV, JSON |
+| **Airtable** | `airtable.adapter.json` | Bearer (PAT) + Base/Table ID | records, bases | JSON |
+
+### Demo-Themed Adapters
+
+These adapters point at the local demo server (`localhost:8089`) and showcase real-world adapter patterns without needing external credentials.
+
+| Adapter | File | Theme | Resources |
 | --- | --- | --- | --- |
-| **Demo** | None needed | tasks, contacts, events, notes, pages, config, services, incidents, logos, photos, documents, spreadsheets, reports, presentations | CSV, VCF, ICS, MD, HTML, JSON, SVG, XLSX, DOCX, PPTX, Raw |
-| **Monday.com** | Bearer token | boards with items | CSV |
-| **Wix** | API key + Site ID | contacts, products, blog posts, CMS (projects, todos, orders, events, blog tags), members, site properties, media | CSV, Markdown, JSON, Raw |
-| **GitHub** | Personal access token | repos, issues, notifications | CSV |
-| **Airtable** | Personal access token + Base/Table ID | records, bases | JSON |
+| **TeamBoard** | `teamboard.adapter.json` | Project management | tasks (CSV), config (YAML) |
+| **PeopleHub** | `peoplehub.adapter.json` | CRM / contacts | contacts (VCF), notes (MD) |
+| **CalSync** | `calsync.adapter.json` | Calendar | events (ICS), action-items (CSV) |
+| **PageCraft** | `pagecraft.adapter.json` | CMS | pages (HTML), blog-posts (MD), config (JSON) |
+| **DevOps** | `devops.adapter.json` | Infrastructure monitoring | services (JSON per record), incidents (CSV) |
+| **MediaManager** | `mediamanager.adapter.json` | Digital assets | logos (SVG), photos (PNG raw), documents (PDF raw) |
+| **Wix Demo** | `wix-demo.adapter.json` | Wix mock | contacts (CSV), blog-posts (MD), products (CSV), bookings (JSON), collections (JSON) |
 
 ## Sync Folder Structure
 
