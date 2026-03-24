@@ -218,6 +218,15 @@ final class AgentGuideGeneratorTests: XCTestCase {
         let rootPath = tmpDir.appendingPathComponent("CLAUDE.md").path
         XCTAssertTrue(FileManager.default.fileExists(atPath: rootPath))
 
+        // SKILL.md written alongside CLAUDE.md
+        let skillPath = tmpDir.appendingPathComponent("SKILL.md").path
+        XCTAssertTrue(FileManager.default.fileExists(atPath: skillPath), "SKILL.md should be written next to CLAUDE.md")
+        if FileManager.default.fileExists(atPath: skillPath) {
+            let skillContent = try String(contentsOfFile: skillPath, encoding: .utf8)
+            XCTAssertTrue(skillContent.contains("objects.json"), "SKILL.md should document .objects.json files")
+            XCTAssertTrue(skillContent.contains("api2file"), "SKILL.md should have api2file frontmatter name")
+        }
+
         // Service CLAUDE.md exists
         let servicePath = tmpDir.appendingPathComponent("monday/CLAUDE.md").path
         XCTAssertTrue(FileManager.default.fileExists(atPath: servicePath))

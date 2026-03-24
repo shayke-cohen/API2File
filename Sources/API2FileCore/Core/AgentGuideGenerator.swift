@@ -132,6 +132,12 @@ public enum AgentGuideGenerator {
         let rootPath = rootDir.appendingPathComponent("CLAUDE.md")
         try rootGuide.write(to: rootPath, atomically: true, encoding: .utf8)
 
+        // Write SKILL.md alongside CLAUDE.md
+        if let skill = loadSkillContent() {
+            let skillPath = rootDir.appendingPathComponent("SKILL.md")
+            try skill.write(to: skillPath, atomically: true, encoding: .utf8)
+        }
+
         // Write per-service CLAUDE.md
         for (serviceId, config) in services {
             let serviceDir = rootDir.appendingPathComponent(serviceId)
@@ -142,6 +148,26 @@ public enum AgentGuideGenerator {
             let servicePath = serviceDir.appendingPathComponent("CLAUDE.md")
             try serviceGuide.write(to: servicePath, atomically: true, encoding: .utf8)
         }
+    }
+
+    // MARK: - Skill Content
+
+    /// Load SKILL.md from the bundle (falls back gracefully if not found)
+    private static func loadSkillContent() -> String? {
+        #if SWIFT_PACKAGE
+        let bundle = Bundle.module
+        #else
+        let bundle = Bundle.main
+        #endif
+        if let url = bundle.url(forResource: "SKILL", withExtension: "md", subdirectory: "Resources"),
+           let content = try? String(contentsOf: url) {
+            return content
+        }
+        if let url = bundle.url(forResource: "SKILL", withExtension: "md"),
+           let content = try? String(contentsOf: url) {
+            return content
+        }
+        return nil
     }
 
     // MARK: - Private Helpers

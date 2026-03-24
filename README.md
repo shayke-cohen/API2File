@@ -253,7 +253,9 @@ swift test --filter DemoServerE2E        # E2E with demo server
 
 ## Adapter Config Format
 
-Connect any REST or GraphQL API by creating an `.adapter.json` file:
+Connect any REST or GraphQL API by dropping an `.adapter.json` file into `Sources/API2FileCore/Resources/Adapters/`. The engine loads it automatically at startup.
+
+### Minimal example
 
 ```json
 {
@@ -281,6 +283,7 @@ Connect any REST or GraphQL API by creating an `.adapter.json` file:
       },
       "fileMapping": {
         "strategy": "collection",
+        "directory": ".",
         "filename": "items.csv",
         "format": "csv",
         "idField": "id"
@@ -291,16 +294,338 @@ Connect any REST or GraphQL API by creating an `.adapter.json` file:
 }
 ```
 
-**File mapping strategies:** `collection` (all records in one file), `one-per-record` (each record its own file), `mirror` (preserve remote directory structure).
+---
 
-**Auth types:** `bearer`, `apiKey`, `basic`, `oauth2`.
+### Top-level fields
 
-**Transform operations:** `pick`, `omit`, `rename`, `flatten`, `keyBy` -- applied via a declarative pipeline before writing files.
+| Field | Type | Description |
+| --- | --- | --- |
+| `service` | string | Unique ID used in folder name and CLI (`api2file add <service>`) |
+| `displayName` | string | Human-readable name shown in the menu bar app |
+| `version` | string | Adapter schema version (currently `"1.0"`) |
+| `auth` | object | Auth config (see below) |
+| `globals` | object | Shared `baseUrl`, `headers`, and default `method` |
+| `resources` | array | One entry per synced resource |
 
-**Media sync:** Set `"type": "media"` on a pull config along with a `mediaConfig` to download binary files from URLs in the API response. `MediaConfig` maps response fields to download URLs and filenames:
+---
+
+### Auth
+
+**`bearer`** — `Authorization: Bearer {token}` header
+
+```json
+"auth": {
+  "type": "bearer",
+  "keychainKey": "api2file.github.key",
+  "setup": {
+    "instructions": "Go to github.com → Settings → Personal Access Tokens → Generate.",
+    "url": "https://github.com/settings/tokens"
+  }
+}
+```
+
+**`apiKey`** — API key passed as a custom header (set key name in `globals.headers`)
+
+```json
+"auth": {
+  "type": "apiKey",
+  "keychainKey": "api2file.wix.key",
+  "setup": {
+    "instructions": "Go to dev.wix.com → API Keys → Generate. Also set wix-site-id in globals.headers."
+  }
+},
+"globals": {
+  "headers": {
+    "wix-site-id": "YOUR_SITE_ID_HERE"
+  }
+}
+```
+
+**`basic`** — HTTP Basic auth (`Authorization: Basic base64(user:pass)`)
+
+```json
+"auth": {
+  "type": "basic",
+  "keychainKey": "api2file.myservice.key",
+  "setup": { "instructions": "Enter username:password" }
+}
+```
+
+**`oauth2`** — PKCE flow with a local callback server
+
+```json
+"auth": {
+  "type": "oauth2",
+  "keychainKey": "api2file.myservice.token",
+  "authorizeUrl": "https://auth.example.com/authorize",
+  "tokenUrl": "https://auth.example.com/token",
+  "refreshUrl": "https://auth.example.com/token",
+  "scopes": ["read", "write"],
+  "callbackPort": 9876
+}
+```
+
+---
+
+### Pull config
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `method` | string | HTTP method, default `GET` |
+| `url` | string | Endpoint URL; supports `{baseUrl}` and `{parentField}` substitution |
+| `type` | string | `"rest"` (default), `"graphql"`, or `"media"` |
+| `query` | string | GraphQL query string (when `type = "graphql"`) |
+| `body` | object | JSON request body (for POST-based queries like Wix) |
+| `dataPath` | string | JSONPath to the records array in the response, e.g. `$.data` or `$` |
+| `pagination` | object | Pagination config (see below) |
+| `mediaConfig` | object | Media sync config (see below) |
+| `updatedSinceField` | string | URL query param for incremental sync date filter (e.g. `"since"`) |
+| `updatedSinceBodyPath` | string | Dot-path in request body for date filter (e.g. `"query.filter.updatedDate.$gt"`) |
+| `updatedSinceDateFormat` | string | `"iso8601"` (default) or `"epoch"` |
+
+#### REST pull — simple GET
+
+```json
+"pull": {
+  "method": "GET",
+  "url": "https://api.github.com/issues?filter=assigned&state=open",
+  "dataPath": "$",
+  "updatedSinceField": "since"
+}
+```
+
+#### REST pull — POST-based query (Wix style)
+
+```json
+"pull": {
+  "method": "POST",
+  "url": "https://www.wixapis.com/contacts/v4/contacts/query",
+  "body": { "query": { "paging": { "limit": 100 } } },
+  "dataPath": "$.contacts",
+  "updatedSinceBodyPath": "query.filter.updatedDate.$gt"
+}
+```
+
+#### GraphQL pull (Monday.com style)
+
+```json
+"pull": {
+  "url": "https://api.monday.com/v2",
+  "type": "graphql",
+  "query": "{ boards(limit: 50) { id name items_page(limit: 200) { items { id name column_values { id title text } } } } }",
+  "dataPath": "$.data.boards"
+}
+```
+
+---
+
+### Pagination
+
+| `type` | How it works | Extra fields |
+| --- | --- | --- |
+| `page` | Adds `?page=N` to URL | `pageSize`, `paramNames.page`, `paramNames.limit` |
+| `offset` | Adds `?offset=N` to URL (Airtable uses `?offset=cursor`) | `pageSize`, `paramNames.offset` |
+| `cursor` | Extracts cursor from response, passes in next request | `nextCursorPath`, `pageSize`, `paramNames.cursor` |
+| `body` | Cursor and limit go in the JSON request body (Wix) | `nextCursorPath`, `cursorField`, `limitField`, `pageSize` |
+
+#### Page pagination (GitHub)
+
+```json
+"pagination": {
+  "type": "page",
+  "pageSize": 50
+}
+```
+
+#### Offset pagination (Airtable)
+
+```json
+"pagination": {
+  "type": "offset",
+  "pageSize": 100
+}
+```
+
+#### Cursor pagination (Monday.com GraphQL)
+
+```json
+"pagination": {
+  "type": "cursor",
+  "pageSize": 200,
+  "queryTemplate": "{ boards { items_page(limit: {limit}, after: \"{cursor}\") { cursor items { id name } } } }",
+  "nextCursorPath": "$.data.boards[0].items_page.cursor"
+}
+```
+
+#### Body pagination (Wix)
+
+```json
+"pagination": {
+  "type": "body",
+  "pageSize": 100,
+  "limitField": "query.paging.limit",
+  "cursorField": "query.paging.cursor",
+  "nextCursorPath": "$.pagingMetadata.cursors.next"
+}
+```
+
+---
+
+### Push config
+
+```json
+"push": {
+  "create": { "method": "POST", "url": "{baseUrl}/items", "bodyWrapper": "item" },
+  "update": { "method": "PATCH", "url": "{baseUrl}/items/{id}", "bodyWrapper": "item" },
+  "delete": { "method": "DELETE", "url": "{baseUrl}/items/{id}" }
+}
+```
+
+| Field | Description |
+| --- | --- |
+| `method` | HTTP method |
+| `url` | URL with `{id}` substitution from idField |
+| `bodyWrapper` | Wrap the pushed object in a key, e.g. `"item"` → `{ "item": {...} }` |
+| `bodyType` | Special body override; `"close"` sends `{ "state": "closed" }` |
+| `type` | `"graphql"` — use `mutation` field instead of HTTP body |
+| `mutation` | GraphQL mutation string (Monday.com style) |
+
+#### GraphQL push (Monday.com)
+
+```json
+"push": {
+  "create": {
+    "url": "https://api.monday.com/v2",
+    "type": "graphql",
+    "mutation": "mutation($boardId: ID!, $itemName: String!) { create_item(board_id: $boardId, item_name: $itemName) { id } }"
+  },
+  "update": {
+    "url": "https://api.monday.com/v2",
+    "type": "graphql",
+    "mutation": "mutation($boardId: ID!, $itemId: ID!, $columnValues: JSON) { change_multiple_column_values(board_id: $boardId, item_id: $itemId, column_values: $columnValues) { id } }"
+  },
+  "delete": {
+    "url": "https://api.monday.com/v2",
+    "type": "graphql",
+    "mutation": "mutation($itemId: ID!) { delete_item(item_id: $itemId) { id } }"
+  }
+}
+```
+
+---
+
+### File mapping
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `strategy` | string | `"collection"`, `"one-per-record"`, or `"mirror"` |
+| `directory` | string | Relative path under the service folder; `"."` = root |
+| `filename` | string | Filename template; supports `{field\|slugify}` substitution |
+| `format` | string | File format (see format table below) |
+| `idField` | string | Field used as the record's unique key |
+| `contentField` | string | Field that contains the file's body (MD, HTML, SVG, TXT) |
+| `readOnly` | bool | If true, local edits are not pushed back |
+| `transforms` | object | `pull` and/or `push` transform pipelines |
+| `pushMode` | string | `"auto-reverse"`, `"read-only"`, `"custom"`, `"passthrough"` |
+
+#### Strategies
+
+- `collection` — all records go into a single file (CSV sheet, JSON array)
+- `one-per-record` — one file per record; `filename` is a template using record fields
+- `mirror` — preserve remote directory structure (used for media/binary sync)
+
+#### Filename templates — use `{fieldName}` or `{fieldName|slugify}`
+
+```text
+"{slug}.html"                        → home.html
+"{firstName|slugify}-{lastName|slugify}.vcf"  → alice-smith.vcf
+"{title|slugify}.md"                 → meeting-notes.md
+"{name|slugify}.json"                → auth-service.json
+```
+
+---
+
+### File formats
+
+| Format | `format` value | Extension | Opens in |
+| --- | --- | --- | --- |
+| JSON | `json` | `.json` | Any editor |
+| CSV | `csv` | `.csv` | Numbers, Excel |
+| Markdown | `md` | `.md` | Any editor |
+| HTML | `html` | `.html` | Safari, browsers |
+| YAML | `yaml` | `.yaml` | Any editor |
+| Plain text | `txt` | `.txt` | TextEdit |
+| Calendar | `ics` | `.ics` | Calendar.app |
+| Contact card | `vcf` | `.vcf` | Contacts.app |
+| Email | `eml` | `.eml` | Mail.app |
+| Vector graphic | `svg` | `.svg` | Preview, browsers |
+| Web bookmark | `webloc` | `.webloc` | Safari |
+| Spreadsheet | `xlsx` | `.xlsx` | Numbers, Excel |
+| Word document | `docx` | `.docx` | Pages, Word |
+| Presentation | `pptx` | `.pptx` | Keynote, PowerPoint |
+| Binary passthrough | `raw` | (any) | Varies (PNG, PDF…) |
+
+---
+
+### Transforms
+
+Transforms run as a pipeline on the JSON records — `pull` transforms run before writing the file, `push` transforms reconstruct the API payload from the edited file.
+
+| Op | Fields | Description |
+| --- | --- | --- |
+| `pick` | `fields: [...]` | Keep only listed fields, drop everything else |
+| `omit` | `fields: [...]` | Drop listed fields, keep the rest |
+| `rename` | `from`, `to` | Rename a field |
+| `flatten` | `path`, `to` | Merge a nested object into the parent; `to` prefix is added to keys |
+| `keyBy` | `path`, `key`, `value`, `to` | Convert an array to an object keyed by a field |
+| `wrap` | `wrap: {key: value}` | Wrap the whole record in a parent key (push only) |
+| `addField` | `field`, `template` | Add a computed field using a string template |
+
+**Example — flatten nested objects, keep fields (GitHub repos):**
+
+```json
+"transforms": {
+  "pull": [
+    { "op": "flatten", "path": "owner", "to": "" },
+    { "op": "pick", "fields": ["id", "name", "full_name", "login", "description", "html_url", "language"] }
+  ]
+}
+```
+
+**Example — flatten and omit (Wix contacts):**
+
+```json
+"transforms": {
+  "pull": [
+    { "op": "flatten", "path": "info.name", "to": "" },
+    { "op": "flatten", "path": "info.emails", "to": "emails" },
+    { "op": "omit", "fields": ["info", "revision", "source", "lastActivity"] }
+  ]
+}
+```
+
+**Example — keyBy array to object (Monday.com column values):**
+
+```json
+"transforms": {
+  "pull": [
+    { "op": "keyBy", "path": "column_values", "key": "title", "value": "text", "to": "columns" },
+    { "op": "omit", "fields": ["column_values"] }
+  ]
+}
+```
+
+When `pull` transforms are defined and `idField` is set, the engine auto-computes the inverse push transforms (`pushMode: "auto-reverse"`). Override with explicit push transforms or `"pushMode": "read-only"` to disable.
+
+---
+
+### Media sync
+
+Set `"type": "media"` on the pull config to download binary files (images, videos, PDFs) directly from URLs in the API response.
 
 ```json
 {
+  "name": "media",
   "pull": {
     "url": "{baseUrl}/files/search",
     "dataPath": "$.files",
@@ -325,7 +650,96 @@ Connect any REST or GraphQL API by creating an `.adapter.json` file:
 }
 ```
 
-The engine calls `pullMediaFiles()` to download each file's binary content directly from the URL, and `pushMediaFile()` to upload via a two-step signed-URL flow.
+`mediaConfig` fields: `urlField` (download URL), `filenameField` (local filename), `idField` (for change detection), `sizeField` (optional, for progress), `hashField` (optional, skip-if-unchanged).
+
+Upload uses a two-step signed-URL flow: call `push.create` to get a pre-signed URL, then PUT the binary.
+
+---
+
+### Hierarchical resources (children)
+
+Use `children` to sync sub-resources that depend on parent records. The parent is fetched first; children are then synced for each parent, with `{id}` substituted from the parent record.
+
+```json
+{
+  "name": "collections",
+  "pull": { "url": "{baseUrl}/cms/v2/collections", "dataPath": "$.collections" },
+  "fileMapping": { "strategy": "collection", "directory": ".", "filename": "collections.json", "format": "json", "idField": "id" },
+  "children": [
+    {
+      "name": "items",
+      "pull": {
+        "method": "POST",
+        "url": "{baseUrl}/cms/v3/items/query",
+        "body": { "dataCollectionId": "{id}", "query": { "paging": { "limit": 50 } } },
+        "dataPath": "$.dataItems"
+      },
+      "fileMapping": {
+        "strategy": "collection",
+        "directory": "cms/{displayName|slugify}",
+        "filename": "items.csv",
+        "format": "csv",
+        "idField": "id"
+      }
+    }
+  ]
+}
+```
+
+The child `directory` template can reference parent fields: `"cms/{displayName|slugify}"`.
+
+---
+
+### Sync config
+
+```json
+"sync": {
+  "interval": 60,
+  "debounceMs": 500,
+  "fullSyncEvery": 10
+}
+```
+
+| Field | Default | Description |
+| --- | --- | --- |
+| `interval` | 60 | Pull interval in seconds |
+| `debounceMs` | 500 | Wait after a file change before pushing (milliseconds) |
+| `fullSyncEvery` | 10 | Full re-sync every N intervals (catches deletions) |
+
+---
+
+### Writing a new adapter — step by step
+
+1. **Create** `Sources/API2FileCore/Resources/Adapters/myservice.adapter.json`
+2. **Set** `service` to a lowercase identifier (`myservice`). This becomes the folder name.
+3. **Choose auth type.** Use `bearer` for token-based APIs, `apiKey` when the token goes in a header, `oauth2` for browser-flow APIs.
+4. **Set `globals.baseUrl`** and any required headers (e.g. `Accept`, `Content-Type`, custom API version headers).
+5. **Add resources.** For each resource:
+   - Set `pull.url` pointing to the list endpoint
+   - Set `pull.dataPath` to the JSONPath that extracts the records array
+   - Choose a `fileMapping.strategy` (`collection` for spreadsheet-like data, `one-per-record` for documents/contacts/events)
+   - Choose a `format` matching how users will interact with the data
+   - Set `idField` to the unique key field
+   - Add `push` endpoints if the resource is writable
+6. **Add transforms** if the API response has nested objects — `flatten` nested structs, `pick`/`omit` to trim fields, `keyBy` to normalize arrays into objects.
+7. **Add pagination** if the API pages results.
+8. **Register** in the CLI by adding the service name to `AddServiceCommand` in `API2FileCLI/`.
+9. **Test** with `swift run api2file add myservice && swift run api2file sync myservice`.
+
+**Quick decision guide:**
+
+| Situation | Pattern to use |
+| --- | --- |
+| Table data (tasks, products) | `strategy: collection`, `format: csv` |
+| Documents / blog posts | `strategy: one-per-record`, `format: md` or `html` |
+| Contacts | `strategy: one-per-record`, `format: vcf` |
+| Calendar events | `strategy: one-per-record` or `collection`, `format: ics` |
+| Config / settings (single object) | `strategy: collection`, `format: json` or `yaml` |
+| Files / media | `type: media` on pull, `strategy: mirror`, `format: raw` |
+| API returns nested objects | `flatten` transform on pull |
+| API requires wrapped body on push | `bodyWrapper` on push endpoints |
+| Read-only resource | `"readOnly": true` on fileMapping |
+| Sub-resources per parent | `children` array on the parent resource |
 
 ## Known Limitations
 
