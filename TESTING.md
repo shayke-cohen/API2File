@@ -2,10 +2,10 @@
 
 ## Test Suite Overview
 
-**Total tests: 392** across 28 test classes.
+**Total tests: 537** across 28 test classes.
 
 ```bash
-# Run all 392 tests
+# Run all 537 tests
 swift test
 
 # Quick check — just build
@@ -158,6 +158,39 @@ Covers:
 - CSV file edit -> diff -> verify correct create/update/delete lists
 - JSON array edit -> diff -> verify
 - Round-trip: pull collection, edit, diff, push individual operations
+
+---
+
+## Media Sync Testing
+
+The media sync feature handles binary file download/upload via `pullMediaFiles()` and `pushMediaFile()` in `AdapterEngine`.
+
+### What to test
+
+- **Pull with `"type": "media"`:** Adapter fetches a list of file metadata from the API, then downloads each file's binary content from the URL in the `mediaConfig.urlField` field.
+- **Filename resolution:** Files are named using the `mediaConfig.filenameField` from the API response.
+- **Hash-based skip:** When `hashField` is configured, unchanged files can be skipped on subsequent pulls.
+- **Push via signed URL:** `pushMediaFile()` calls the create endpoint to get an upload URL, then PUTs the binary data to it.
+- **Mirror strategy:** Media resources use `"strategy": "mirror"` so files land in the configured directory preserving their original filenames.
+
+### Manual verification (Wix)
+
+After syncing a Wix service with media configured:
+
+```bash
+# Verify media directory exists with downloaded files
+ls ~/API2File-Data/wix/media/
+
+# Check that files are valid binaries (not JSON)
+file ~/API2File-Data/wix/media/*
+
+# Verify file sizes are reasonable (not 0 bytes)
+du -sh ~/API2File-Data/wix/media/*
+```
+
+### Adapter config reference
+
+The Wix adapter (`~/API2File-Data/wix/.api2file/adapter.json`) includes a `media` resource with `"type": "media"` and a `mediaConfig` block specifying `urlField`, `filenameField`, `idField`, `sizeField`, and `hashField`.
 
 ---
 
@@ -415,8 +448,10 @@ open build/API2File.app
 
 1. Open Add Service -> select **Wix**
 2. Verify: "Site ID" field appears below the API key field
-3. Open Add Service -> select **Airtable**
-4. Verify: "Base ID" and "Table Name" fields appear
+3. Verify: after sync, 11 resources are pulled (contacts, products, blog posts, CMS collections, members, site properties, media)
+4. Verify: `~/API2File-Data/wix/media/` directory exists with downloaded binary files
+5. Open Add Service -> select **Airtable**
+6. Verify: "Base ID" and "Table Name" fields appear
 
 ### 4. Test Service Detail View
 
@@ -442,7 +477,7 @@ open build/API2File.app
 ## Running Tests (Quick Reference)
 
 ```bash
-# All tests (392)
+# All tests (537)
 swift test
 
 # Just the E2E tests with demo server

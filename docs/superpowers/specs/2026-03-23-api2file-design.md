@@ -117,7 +117,7 @@ Each service's config lives at `~/API2File-Data/{service}/.api2file/adapter.json
       "pull": {
         "method": "GET | POST",
         "url": "{baseUrl}/path",
-        "type": "rest | graphql",
+        "type": "rest | graphql | media",
         "query": "GraphQL query string",
         "body": {},
         "dataPath": "$.jsonpath.to.data",
@@ -125,6 +125,13 @@ Each service's config lives at `~/API2File-Data/{service}/.api2file/adapter.json
           "type": "cursor | offset | page",
           "nextCursorPath": "$.path.to.cursor",
           "pageSize": 50
+        },
+        "mediaConfig": {
+          "urlField": "url",
+          "filenameField": "displayName",
+          "idField": "id",
+          "sizeField": "sizeInBytes",
+          "hashField": "hash"
         }
       },
 
@@ -270,6 +277,65 @@ Template variables in `filename` support filters:
 | `oauth2` | Built-in OAuth2 flow: open browser → user authorizes → callback server catches code → exchange for token → store in Keychain → auto-refresh |
 | `basic` | Read username/password from Keychain, inject as `Authorization: Basic <base64>` |
 
+### Media Sync
+
+When a resource's pull config sets `"type": "media"`, the adapter engine switches from the standard JSON-to-format pipeline to a binary file download mode via `pullMediaFiles()`. Instead of extracting structured records and converting them through format converters, the engine:
+
+1. Fetches the file listing from the API (standard REST call with `dataPath` extraction)
+2. For each record, reads the download URL from `mediaConfig.urlField` and the filename from `mediaConfig.filenameField`
+3. Downloads the binary content directly from the URL (CDN URLs typically don't require auth headers)
+4. Writes the raw bytes to `{directory}/{filename}` using the `mirror` strategy
+
+**`MediaConfig` fields:**
+
+| Field | Required | Description |
+|---|---|---|
+| `urlField` | Yes | JSON field containing the download URL |
+| `filenameField` | Yes | JSON field containing the filename |
+| `idField` | No | JSON field for the file's unique ID (default: `"id"`) |
+| `sizeField` | No | JSON field for file size in bytes (progress reporting) |
+| `hashField` | No | JSON field for file hash/ETag (skip-if-unchanged optimization) |
+
+**Push flow:** `pushMediaFile()` uploads binary files via a two-step signed-URL process:
+
+1. POST to the create endpoint with `mimeType` and `fileName` to get a signed upload URL
+2. PUT the binary data to the signed URL with the correct `Content-Type` header
+
+**Example (Wix Media Manager):**
+
+```json
+{
+  "name": "media",
+  "pull": {
+    "method": "POST",
+    "url": "https://www.wixapis.com/site-media/v1/files/search",
+    "dataPath": "$.files",
+    "type": "media",
+    "mediaConfig": {
+      "urlField": "url",
+      "filenameField": "displayName",
+      "idField": "id",
+      "sizeField": "sizeInBytes",
+      "hashField": "hash"
+    }
+  },
+  "push": {
+    "create": {
+      "method": "POST",
+      "url": "https://www.wixapis.com/site-media/v1/files/generate-upload-url"
+    }
+  },
+  "fileMapping": {
+    "strategy": "mirror",
+    "directory": "media",
+    "format": "raw",
+    "idField": "id"
+  }
+}
+```
+
+This works with any cloud storage API — Google Drive, Dropbox, S3, Azure Blob — as long as the API returns a list of files with download URLs.
+
 ### Sync Metadata — Hidden, Not In User Files
 
 All sync metadata lives in `.api2file/state.json` — user files are 100% clean content. See the State Tracking section under Sync Engine for the canonical schema.
@@ -311,6 +377,7 @@ No internal metadata. Open in any editor, edit, save.
 2. Debounce 500ms to batch rapid saves
 3. Validate file format (parse JSON, check required fields)
 4. Adapter engine reads file, applies push transforms, calls API
+   - For media resources, `pushMediaFile()` handles binary uploads via a two-step signed-URL flow (generate upload URL, then PUT binary data)
 5. On success → update `.api2file/state.json`, git commit: `sync: push {service} — {filename}`
 6. On failure → mark file status as "error", retry with exponential backoff (1s, 5s, 15s), notify user after 3 failures
 
@@ -438,16 +505,25 @@ The sync root defaults to `~/API2File-Data/` (configurable via global config or 
 │
 ├── wix/
 │   ├── .api2file/
-│   │   ├── adapter.json
+│   │   ├── adapter.json               # 11 resources configured
 │   │   └── state.json
 │   ├── .git/
 │   ├── CLAUDE.md
-│   ├── products/
-│   │   └── premium-dog-food.json      # ← Clean JSON, no internal metadata
-│   ├── pages/
-│   │   └── home.html                  # ← Opens in browser
-│   └── orders/                        # ← Read-only
-│       └── 1001-john.json
+│   ├── contacts.csv                   # ← CRM contacts (Numbers)
+│   ├── products.csv                   # ← Store products (Numbers)
+│   ├── members.csv                    # ← Site members (read-only)
+│   ├── site-properties.json           # ← Site settings (read-only)
+│   ├── blog/
+│   │   └── my-post.md                 # ← Blog post (editor)
+│   ├── cms/
+│   │   ├── projects.csv               # ← CMS projects
+│   │   ├── todos.csv                  # ← CMS todos
+│   │   ├── orders.csv                 # ← Store orders (read-only)
+│   │   ├── events.csv                 # ← CMS events
+│   │   └── blog-tags.csv              # ← Blog tags (read-only)
+│   └── media/                         # ← Binary files via media sync
+│       ├── photo.jpg
+│       └── document.pdf
 │
 ├── github/
 │   ├── .api2file/
@@ -495,7 +571,7 @@ COMMANDS:
 | --- | --- | --- |
 | `demo` | Demo Tasks API | Local demo server — no account needed |
 | `monday` | Monday.com | Boards and items as CSV files |
-| `wix` | Wix | Contacts, products, blog posts, bookings |
+| `wix` | Wix | Contacts, products, blog posts, CMS collections, members, site properties, media (11 resources) |
 | `github` | GitHub | Repos, issues, gists, notifications |
 | `airtable` | Airtable | Records and bases as JSON files |
 

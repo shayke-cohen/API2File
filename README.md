@@ -8,6 +8,7 @@ Zero external dependencies. Pure Swift, macOS native frameworks only.
 
 - **15 file format converters** -- CSV, JSON, HTML, Markdown, YAML, ICS, VCF, EML, SVG, WEBLOC, XLSX, DOCX, PPTX, Text, Raw
 - **Config-driven adapter system** -- connect any REST/GraphQL API via `.adapter.json`, no code required
+- **Media sync** -- generic binary file download/upload for any cloud storage API (images, videos, documents)
 - **Bidirectional sync** with smart collection diffing -- pull from API, push local edits back
 - **macOS menu bar app** (MenuBarExtra) -- always-on sync with per-service controls
 - **Web dashboard** at `localhost:8089` -- visual overview served by the demo server
@@ -17,7 +18,7 @@ Zero external dependencies. Pure Swift, macOS native frameworks only.
 - **macOS Keychain** for secure credential storage
 - **Demo server** with 14 resource types (tasks, contacts, events, notes, pages, config, services, incidents, logos, photos, documents, spreadsheets, reports, presentations)
 - **5 bundled cloud adapters** -- Demo, Monday.com, Wix, GitHub, Airtable
-- **392 tests** -- unit, integration, and end-to-end coverage
+- **537 tests** -- unit, integration, and end-to-end coverage
 
 ## Quick Start
 
@@ -67,7 +68,7 @@ The app appears as a cloud icon in the menu bar. Click it to see connected servi
 ### 6. Run tests
 
 ```bash
-swift test    # 392 tests
+swift test    # 537 tests
 ```
 
 ## Architecture
@@ -121,6 +122,7 @@ Tests/
 | PPTX     | `.pptx`   | Keynote, PowerPoint   | Slide presentations          |
 | Text     | `.txt`    | TextEdit              | Plain content                |
 | Raw      | (any)     | Varies                | Binary passthrough (PNG, PDF)|
+| Media    | (any)     | Preview, Finder       | Cloud media (PNG, JPG, MP4)  |
 
 ## Bundled Adapters
 
@@ -128,7 +130,7 @@ Tests/
 | --- | --- | --- | --- |
 | **Demo** | None needed | tasks, contacts, events, notes, pages, config, services, incidents, logos, photos, documents, spreadsheets, reports, presentations | CSV, VCF, ICS, MD, HTML, JSON, SVG, XLSX, DOCX, PPTX, Raw |
 | **Monday.com** | Bearer token | boards with items | CSV |
-| **Wix** | API key + Site ID | contacts, products, blog posts | CSV, Markdown |
+| **Wix** | API key + Site ID | contacts, products, blog posts, CMS (projects, todos, orders, events, blog tags), members, site properties, media | CSV, Markdown, JSON, Raw |
 | **GitHub** | Personal access token | repos, issues, notifications | CSV |
 | **Airtable** | Personal access token + Base/Table ID | records, bases | JSON |
 
@@ -169,6 +171,27 @@ Default sync folder: `~/API2File-Data/` (configurable in `GlobalConfig`).
       q1-report.pdf           PDF document (Preview)
     reports/
       monthly-summary.docx    Word document (Pages/Word)
+  wix/
+    .api2file/
+      adapter.json            Service config (11 resources)
+      state.json              Sync state
+    .git/                     Auto-committed history
+    CLAUDE.md                 Service-specific agent guide
+    contacts.csv              CRM contacts (Numbers)
+    products.csv              Store products (Numbers)
+    members.csv               Site members (Numbers, read-only)
+    site-properties.json      Site settings (editor, read-only)
+    blog/
+      my-post.md              Blog post (editor)
+    cms/
+      projects.csv            CMS projects (Numbers)
+      todos.csv               CMS todos (Numbers)
+      orders.csv              Store orders (Numbers, read-only)
+      events.csv              CMS events (Numbers)
+      blog-tags.csv           Blog tags (Numbers, read-only)
+    media/
+      photo.jpg               Downloaded media file (Preview)
+      document.pdf            Downloaded document (Preview)
 ```
 
 ## CLI Reference
@@ -197,7 +220,7 @@ Examples:
 
 ## Testing
 
-392 tests across four categories:
+537 tests across four categories:
 
 | Category | What it covers | Filter |
 | --- | --- | --- |
@@ -207,7 +230,7 @@ Examples:
 | Real sync | End-to-end with live demo server (requires `api2file-demo` running) | `--filter RealSyncE2E` |
 
 ```bash
-swift test                              # all 392 tests
+swift test                              # all 537 tests
 swift test --filter FormatConverter      # just format converters
 swift test --filter DemoServerE2E        # E2E with demo server
 ```
@@ -257,6 +280,36 @@ Connect any REST or GraphQL API by creating an `.adapter.json` file:
 **Auth types:** `bearer`, `apiKey`, `basic`, `oauth2`.
 
 **Transform operations:** `pick`, `omit`, `rename`, `flatten`, `keyBy` -- applied via a declarative pipeline before writing files.
+
+**Media sync:** Set `"type": "media"` on a pull config along with a `mediaConfig` to download binary files from URLs in the API response. `MediaConfig` maps response fields to download URLs and filenames:
+
+```json
+{
+  "pull": {
+    "url": "{baseUrl}/files/search",
+    "dataPath": "$.files",
+    "type": "media",
+    "mediaConfig": {
+      "urlField": "url",
+      "filenameField": "displayName",
+      "idField": "id",
+      "sizeField": "sizeInBytes",
+      "hashField": "hash"
+    }
+  },
+  "push": {
+    "create": { "method": "POST", "url": "{baseUrl}/files/generate-upload-url" }
+  },
+  "fileMapping": {
+    "strategy": "mirror",
+    "directory": "media",
+    "format": "raw",
+    "idField": "id"
+  }
+}
+```
+
+The engine calls `pullMediaFiles()` to download each file's binary content directly from the URL, and `pushMediaFile()` to upload via a two-step signed-URL flow.
 
 ## Known Limitations
 
