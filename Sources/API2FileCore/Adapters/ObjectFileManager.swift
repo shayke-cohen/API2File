@@ -16,38 +16,27 @@ public enum ObjectFileManager {
     /// Compute the object file path for a collection-strategy user file.
     /// Example: `tasks.csv` → `.tasks.objects.json`
     public static func objectFilePath(forCollectionFile userFilePath: String) -> String {
-        let url = URL(fileURLWithPath: userFilePath)
-        let directory = url.deletingLastPathComponent().path
-        let stem = url.deletingPathExtension().lastPathComponent
+        let (directory, filename) = splitPath(userFilePath)
+        let stem = dropExtension(filename)
         let objectFileName = ".\(stem).objects.json"
 
-        if directory == "." || directory == "/" || directory.isEmpty {
+        if directory.isEmpty {
             return objectFileName
         }
-        // Normalize: remove leading "./" if present
-        let normalizedDir = directory.hasPrefix("./") ? String(directory.dropFirst(2)) : directory
-        if normalizedDir.isEmpty || normalizedDir == "." {
-            return objectFileName
-        }
-        return "\(normalizedDir)/\(objectFileName)"
+        return "\(directory)/\(objectFileName)"
     }
 
     /// Compute the object file path for a one-per-record user file.
     /// Example: `contacts/john-doe.vcf` → `contacts/.objects/john-doe.json`
     public static func objectFilePath(forRecordFile userFilePath: String) -> String {
-        let url = URL(fileURLWithPath: userFilePath)
-        let directory = url.deletingLastPathComponent().path
-        let stem = url.deletingPathExtension().lastPathComponent
+        let (directory, filename) = splitPath(userFilePath)
+        let stem = dropExtension(filename)
         let objectFileName = "\(stem).json"
 
-        if directory == "." || directory == "/" || directory.isEmpty {
+        if directory.isEmpty {
             return ".objects/\(objectFileName)"
         }
-        let normalizedDir = directory.hasPrefix("./") ? String(directory.dropFirst(2)) : directory
-        if normalizedDir.isEmpty || normalizedDir == "." {
-            return ".objects/\(objectFileName)"
-        }
-        return "\(normalizedDir)/.objects/\(objectFileName)"
+        return "\(directory)/.objects/\(objectFileName)"
     }
 
     /// Compute the object file path based on the mapping strategy.
@@ -127,8 +116,7 @@ public enum ObjectFileManager {
     // MARK: - Private Helpers
 
     private static func userFilePathForCollectionObject(_ objectPath: String, format: FileFormat) -> String? {
-        let url = URL(fileURLWithPath: objectPath)
-        let filename = url.lastPathComponent
+        let (directory, filename) = splitPath(objectPath)
         // Must match pattern: .{stem}.objects.json
         guard filename.hasPrefix(".") && filename.hasSuffix(".objects.json") else { return nil }
         let stem = String(filename.dropFirst().dropLast(".objects.json".count))
@@ -136,31 +124,46 @@ public enum ObjectFileManager {
 
         let ext = fileExtension(for: format)
         let userFilename = "\(stem).\(ext)"
-        let directory = url.deletingLastPathComponent().path
-        let normalizedDir = directory.hasPrefix("./") ? String(directory.dropFirst(2)) : directory
-        if normalizedDir.isEmpty || normalizedDir == "." || normalizedDir == "/" {
+        if directory.isEmpty {
             return userFilename
         }
-        return "\(normalizedDir)/\(userFilename)"
+        return "\(directory)/\(userFilename)"
     }
 
     private static func userFilePathForRecordObject(_ objectPath: String, format: FileFormat) -> String? {
         // Must be inside a .objects/ directory
         guard objectPath.contains("/.objects/") else { return nil }
-        let url = URL(fileURLWithPath: objectPath)
-        let stem = url.deletingPathExtension().lastPathComponent
+        let (objectsDir, filename) = splitPath(objectPath)
+        let stem = dropExtension(filename)
         guard !stem.isEmpty else { return nil }
 
         let ext = fileExtension(for: format)
         let userFilename = "\(stem).\(ext)"
 
-        // Remove .objects/ from the path
-        let parentOfObjects = url.deletingLastPathComponent().deletingLastPathComponent().path
-        let normalizedDir = parentOfObjects.hasPrefix("./") ? String(parentOfObjects.dropFirst(2)) : parentOfObjects
-        if normalizedDir.isEmpty || normalizedDir == "." || normalizedDir == "/" {
+        // Remove .objects from the directory path
+        let (parentDir, _) = splitPath(objectsDir)
+        if parentDir.isEmpty {
             return userFilename
         }
-        return "\(normalizedDir)/\(userFilename)"
+        return "\(parentDir)/\(userFilename)"
+    }
+
+    /// Split a relative path into (directory, filename). Empty string for directory if at root.
+    private static func splitPath(_ path: String) -> (directory: String, filename: String) {
+        guard let lastSlash = path.lastIndex(of: "/") else {
+            return ("", path)
+        }
+        let directory = String(path[path.startIndex..<lastSlash])
+        let filename = String(path[path.index(after: lastSlash)...])
+        return (directory, filename)
+    }
+
+    /// Drop the file extension from a filename. Returns the stem.
+    private static func dropExtension(_ filename: String) -> String {
+        guard let lastDot = filename.lastIndex(of: ".") else {
+            return filename
+        }
+        return String(filename[filename.startIndex..<lastDot])
     }
 
     private static func fileExtension(for format: FileFormat) -> String {

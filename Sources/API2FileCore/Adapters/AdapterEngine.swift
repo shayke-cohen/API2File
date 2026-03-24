@@ -86,6 +86,12 @@ public actor AdapterEngine {
         // Fetch all records (handles pagination)
         let records = try await fetchAllRecords(pullConfig: pullConfig)
 
+        // Media mode: download binary files from URLs instead of converting to formats
+        if pullConfig.type == .media, let mediaConfig = pullConfig.mediaConfig {
+            let mediaFiles = try await pullMediaFiles(records: records, resource: resource, mediaConfig: mediaConfig)
+            return PullResult(files: mediaFiles)
+        }
+
         // Apply pull transforms
         let transforms = resource.fileMapping.transforms?.pull ?? []
         let transformed = transforms.isEmpty ? records : TransformPipeline.apply(transforms, to: records)
@@ -203,6 +209,99 @@ public actor AdapterEngine {
     }
 
     // MARK: - Config Loading
+
+    // MARK: - Media File Sync
+
+    /// Download binary files from URLs in the API response.
+    /// Used when pull type is `.media` — downloads actual files (images, PDFs, etc.)
+    private func pullMediaFiles(
+        records: [[String: Any]],
+        resource: ResourceConfig,
+        mediaConfig: MediaConfig
+    ) async throws -> [SyncableFile] {
+        var files: [SyncableFile] = []
+        let dir = resource.fileMapping.directory
+
+        for record in records {
+            guard let urlString = record[mediaConfig.urlField] as? String,
+                  let filename = record[mediaConfig.filenameField] as? String,
+                  let downloadURL = URL(string: urlString) else { continue }
+
+            let remoteId = record[mediaConfig.idField ?? "id"] as? String
+
+            // Download binary content directly (CDN URLs typically don't need auth)
+            let (data, response) = try await URLSession.shared.data(from: downloadURL)
+
+            guard let httpResponse = response as? HTTPURLResponse,
+                  httpResponse.statusCode == 200 else {
+                print("[AdapterEngine] Failed to download media: \(filename) from \(urlString)")
+                continue
+            }
+
+            let relativePath = dir == "." ? filename : "\(dir)/\(filename)"
+            let file = SyncableFile(
+                relativePath: relativePath,
+                format: .raw,
+                content: data,
+                remoteId: remoteId
+            )
+            files.append(file)
+
+            let sizeKB = data.count / 1024
+            print("[AdapterEngine] Downloaded: \(filename) (\(sizeKB)KB)")
+        }
+
+        return files
+    }
+
+    /// Upload a local binary file to the cloud via a two-step upload process:
+    /// 1. Generate a signed upload URL from the API
+    /// 2. PUT the binary data to that URL
+    public func pushMediaFile(
+        fileData: Data,
+        filename: String,
+        mimeType: String,
+        resource: ResourceConfig
+    ) async throws {
+        guard let pushConfig = resource.push else {
+            throw AdapterError.noPushConfig(resource.name)
+        }
+
+        // Step 1: Generate upload URL
+        guard let genConfig = pushConfig.create else {
+            throw AdapterError.noPushConfig(resource.name)
+        }
+
+        let genURL = resolveURL(genConfig.url)
+        var headers = config.globals?.headers ?? [:]
+        headers["Content-Type"] = "application/json"
+
+        let body = try JSONSerialization.data(withJSONObject: [
+            "mimeType": mimeType,
+            "fileName": filename
+        ])
+
+        let genRequest = APIRequest(method: .POST, url: genURL, headers: headers, body: body)
+        let genResponse = try await httpClient.request(genRequest)
+
+        guard let json = try JSONSerialization.jsonObject(with: genResponse.body) as? [String: Any],
+              let uploadUrl = json["uploadUrl"] as? String else {
+            throw AdapterError.invalidResponseData
+        }
+
+        // Step 2: PUT binary data to the upload URL
+        var uploadRequest = URLRequest(url: URL(string: uploadUrl)!)
+        uploadRequest.httpMethod = "PUT"
+        uploadRequest.httpBody = fileData
+        uploadRequest.setValue(mimeType, forHTTPHeaderField: "Content-Type")
+        let (_, uploadResponse) = try await URLSession.shared.data(for: uploadRequest)
+
+        if let httpResponse = uploadResponse as? HTTPURLResponse, httpResponse.statusCode < 300 {
+            print("[AdapterEngine] Uploaded: \(filename) (\(fileData.count / 1024)KB)")
+        } else {
+            print("[AdapterEngine] Upload may have failed for: \(filename)")
+        }
+    }
 
     /// Load an AdapterConfig from `.api2file/adapter.json` inside a service directory.
     /// - Parameter serviceDir: The service directory (e.g. `~/API2File/monday/`)

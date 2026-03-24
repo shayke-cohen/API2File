@@ -107,8 +107,9 @@ public struct PullConfig: Codable, Sendable {
     public let body: JSONValue?
     public let dataPath: String?
     public let pagination: PaginationConfig?
+    public let mediaConfig: MediaConfig?
 
-    public init(method: String? = nil, url: String, type: APIType? = nil, query: String? = nil, body: JSONValue? = nil, dataPath: String? = nil, pagination: PaginationConfig? = nil) {
+    public init(method: String? = nil, url: String, type: APIType? = nil, query: String? = nil, body: JSONValue? = nil, dataPath: String? = nil, pagination: PaginationConfig? = nil, mediaConfig: MediaConfig? = nil) {
         self.method = method
         self.url = url
         self.type = type
@@ -116,12 +117,36 @@ public struct PullConfig: Codable, Sendable {
         self.body = body
         self.dataPath = dataPath
         self.pagination = pagination
+        self.mediaConfig = mediaConfig
     }
 }
 
 public enum APIType: String, Codable, Sendable {
     case rest
     case graphql
+    case media
+}
+
+/// Configuration for media/binary file sync — maps API response fields to download URLs and filenames
+public struct MediaConfig: Codable, Sendable {
+    /// JSON field containing the download URL (e.g., "url", "webContentLink", "presignedUrl")
+    public let urlField: String
+    /// JSON field containing the filename (e.g., "displayName", "name", "fileName")
+    public let filenameField: String
+    /// JSON field for the file's unique ID
+    public let idField: String?
+    /// JSON field for file size in bytes (for progress reporting)
+    public let sizeField: String?
+    /// JSON field for file hash/ETag (for skip-if-unchanged optimization)
+    public let hashField: String?
+
+    public init(urlField: String = "url", filenameField: String = "displayName", idField: String? = "id", sizeField: String? = nil, hashField: String? = nil) {
+        self.urlField = urlField
+        self.filenameField = filenameField
+        self.idField = idField
+        self.sizeField = sizeField
+        self.hashField = hashField
+    }
 }
 
 public struct PaginationConfig: Codable, Sendable {

@@ -269,7 +269,7 @@ final class AllFormatsRealE2ETests: XCTestCase {
     func testSVG_PullFromServer_WritesFileToDisk() async throws {
         let (engine, config) = try makeEngine()
 
-        let files = try await engine.pull(resource: resource("logos", from: config))
+        let files = try await engine.pull(resource: resource("logos", from: config)).files
         XCTAssertEqual(files.count, 3, "Should have 3 SVG logo files")
         try writeFilesToDisk(files)
 
@@ -318,7 +318,7 @@ final class AllFormatsRealE2ETests: XCTestCase {
     func testRaw_PullFromServer_WritesFileToDisk() async throws {
         let (engine, config) = try makeEngine()
 
-        let files = try await engine.pull(resource: resource("photos", from: config))
+        let files = try await engine.pull(resource: resource("photos", from: config)).files
         XCTAssertEqual(files.count, 3, "Should have 3 PNG photo files")
         try writeFilesToDisk(files)
 
@@ -361,7 +361,7 @@ final class AllFormatsRealE2ETests: XCTestCase {
     func testXLSX_PullFromServer_WritesFileToDisk() async throws {
         let (engine, config) = try makeEngine()
 
-        let files = try await engine.pull(resource: resource("spreadsheets", from: config))
+        let files = try await engine.pull(resource: resource("spreadsheets", from: config)).files
         XCTAssertEqual(files.count, 1, "Should have 1 XLSX collection file")
         try writeFilesToDisk(files)
 
@@ -384,7 +384,7 @@ final class AllFormatsRealE2ETests: XCTestCase {
         let (engine, config) = try makeEngine()
 
         // Pull spreadsheets
-        let files = try await engine.pull(resource: resource("spreadsheets", from: config))
+        let files = try await engine.pull(resource: resource("spreadsheets", from: config)).files
         try writeFilesToDisk(files)
 
         // Decode, modify, re-encode
@@ -413,7 +413,7 @@ final class AllFormatsRealE2ETests: XCTestCase {
     func testDOCX_PullFromServer_WritesFileToDisk() async throws {
         let (engine, config) = try makeEngine()
 
-        let files = try await engine.pull(resource: resource("reports", from: config))
+        let files = try await engine.pull(resource: resource("reports", from: config)).files
         XCTAssertEqual(files.count, 2, "Should have 2 DOCX report files")
         try writeFilesToDisk(files)
 
@@ -459,7 +459,7 @@ final class AllFormatsRealE2ETests: XCTestCase {
     func testPPTX_PullFromServer_WritesFileToDisk() async throws {
         let (engine, config) = try makeEngine()
 
-        let files = try await engine.pull(resource: resource("presentations", from: config))
+        let files = try await engine.pull(resource: resource("presentations", from: config)).files
         XCTAssertEqual(files.count, 1, "Should have 1 PPTX collection file")
         try writeFilesToDisk(files)
 
@@ -479,7 +479,7 @@ final class AllFormatsRealE2ETests: XCTestCase {
         let (engine, config) = try makeEngine()
 
         // Pull presentations
-        let files = try await engine.pull(resource: resource("presentations", from: config))
+        let files = try await engine.pull(resource: resource("presentations", from: config)).files
         try writeFilesToDisk(files)
 
         // Decode, modify, re-encode
@@ -506,7 +506,7 @@ final class AllFormatsRealE2ETests: XCTestCase {
     func testEML_PullFromServer_WritesFileToDisk() async throws {
         let (engine, config) = try makeEngine()
 
-        let files = try await engine.pull(resource: resource("emails", from: config))
+        let files = try await engine.pull(resource: resource("emails", from: config)).files
         XCTAssertEqual(files.count, 2, "Should have 2 EML email files")
         try writeFilesToDisk(files)
 
@@ -551,7 +551,7 @@ final class AllFormatsRealE2ETests: XCTestCase {
     func testWEBLOC_PullFromServer_WritesFileToDisk() async throws {
         let (engine, config) = try makeEngine()
 
-        let files = try await engine.pull(resource: resource("bookmarks", from: config))
+        let files = try await engine.pull(resource: resource("bookmarks", from: config)).files
         XCTAssertEqual(files.count, 3, "Should have 3 WEBLOC bookmark files")
         try writeFilesToDisk(files)
 
@@ -600,7 +600,7 @@ final class AllFormatsRealE2ETests: XCTestCase {
     func testYAML_PullFromServer_WritesFileToDisk() async throws {
         let (engine, config) = try makeEngine()
 
-        let files = try await engine.pull(resource: resource("settings", from: config))
+        let files = try await engine.pull(resource: resource("settings", from: config)).files
         XCTAssertEqual(files.count, 1, "Should have 1 YAML settings file")
         try writeFilesToDisk(files)
 
@@ -621,7 +621,7 @@ final class AllFormatsRealE2ETests: XCTestCase {
         let (engine, config) = try makeEngine()
 
         // Pull settings
-        let files = try await engine.pull(resource: resource("settings", from: config))
+        let files = try await engine.pull(resource: resource("settings", from: config)).files
         try writeFilesToDisk(files)
 
         // Modify the YAML
@@ -651,7 +651,7 @@ final class AllFormatsRealE2ETests: XCTestCase {
     func testText_PullFromServer_WritesFileToDisk() async throws {
         let (engine, config) = try makeEngine()
 
-        let files = try await engine.pull(resource: resource("snippets", from: config))
+        let files = try await engine.pull(resource: resource("snippets", from: config)).files
         XCTAssertEqual(files.count, 2, "Should have 2 text snippet files")
         try writeFilesToDisk(files)
 

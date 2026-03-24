@@ -240,7 +240,7 @@ final class RealSyncE2ETests: XCTestCase {
         let (engine, _) = try makeEngine()
 
         // Real pull through the entire pipeline
-        let files = try await engine.pullAll()
+        let files = try await engine.pullAll().files
         XCTAssertGreaterThan(files.count, 0, "Pull should return files")
 
         // Write to real disk
@@ -307,7 +307,7 @@ final class RealSyncE2ETests: XCTestCase {
         let (engine, _) = try makeEngine()
 
         // Pull tasks to disk
-        let files = try await engine.pullAll()
+        let files = try await engine.pullAll().files
         try writeFilesToDisk(files)
 
         // Read the CSV, decode, modify task 1, push directly via API
@@ -430,7 +430,7 @@ final class RealSyncE2ETests: XCTestCase {
         let (engine, config) = try makeEngine()
 
         // Pull config to disk
-        let files = try await engine.pull(resource: resource("config", from: config))
+        let files = try await engine.pull(resource: resource("config", from: config)).files
         try writeFilesToDisk(files)
 
         // Read, modify, write back
@@ -465,7 +465,7 @@ final class RealSyncE2ETests: XCTestCase {
         ])
 
         // Pull
-        let files = try await engine.pullAll()
+        let files = try await engine.pullAll().files
         try writeFilesToDisk(files)
 
         // Verify the new task is in the CSV
@@ -482,7 +482,7 @@ final class RealSyncE2ETests: XCTestCase {
         let (engine, _) = try makeEngine()
 
         // Pull initial state
-        let files1 = try await engine.pullAll()
+        let files1 = try await engine.pullAll().files
         try writeFilesToDisk(files1)
         let csv1 = String(data: try readFileFromDisk("tasks.csv"), encoding: .utf8)!
         XCTAssertTrue(csv1.contains("Buy groceries"))
@@ -491,7 +491,7 @@ final class RealSyncE2ETests: XCTestCase {
         try await putToAPI("/api/tasks/1", ["name": "Buy organic groceries", "status": "done"])
 
         // Re-pull
-        let files2 = try await engine.pullAll()
+        let files2 = try await engine.pullAll().files
         try writeFilesToDisk(files2)
         let csv2 = String(data: try readFileFromDisk("tasks.csv"), encoding: .utf8)!
         XCTAssertTrue(csv2.contains("Buy organic groceries"), "Updated name should appear")
@@ -506,7 +506,7 @@ final class RealSyncE2ETests: XCTestCase {
         let (engine, _) = try makeEngine()
 
         // Pull initial
-        let files1 = try await engine.pullAll()
+        let files1 = try await engine.pullAll().files
         try writeFilesToDisk(files1)
         let csv1 = String(data: try readFileFromDisk("tasks.csv"), encoding: .utf8)!
         XCTAssertTrue(csv1.contains("Write docs"))
@@ -515,7 +515,7 @@ final class RealSyncE2ETests: XCTestCase {
         try await deleteFromAPI("/api/tasks/3")
 
         // Re-pull
-        let files2 = try await engine.pullAll()
+        let files2 = try await engine.pullAll().files
         try writeFilesToDisk(files2)
         let csv2 = String(data: try readFileFromDisk("tasks.csv"), encoding: .utf8)!
         XCTAssertFalse(csv2.contains("Write docs"), "Deleted task should not appear")
@@ -537,7 +537,7 @@ final class RealSyncE2ETests: XCTestCase {
         try await git.createGitignore()
 
         // Pull and write files
-        let files = try await engine.pullAll()
+        let files = try await engine.pullAll().files
         try writeFilesToDisk(files)
 
         // Commit
@@ -584,7 +584,7 @@ final class RealSyncE2ETests: XCTestCase {
         let (engine, _) = try makeEngine()
 
         // Pull
-        let files = try await engine.pullAll()
+        let files = try await engine.pullAll().files
         try writeFilesToDisk(files)
 
         // Create and save SyncState
@@ -619,7 +619,7 @@ final class RealSyncE2ETests: XCTestCase {
         let (engine, config) = try makeEngine()
 
         // 1. Pull everything
-        let files = try await engine.pullAll()
+        let files = try await engine.pullAll().files
         try writeFilesToDisk(files)
         let initialTaskCount = try CSVFormat.decode(data: readFileFromDisk("tasks.csv"), options: nil).count
         XCTAssertEqual(initialTaskCount, 3)
@@ -628,7 +628,7 @@ final class RealSyncE2ETests: XCTestCase {
         try await postToAPI("/api/tasks", ["name": "Remote addition", "status": "todo", "priority": "low", "assignee": "Bot", "dueDate": "2026-07-01"])
 
         // 3. Re-pull — should now have 4 tasks
-        let files2 = try await engine.pullAll()
+        let files2 = try await engine.pullAll().files
         try writeFilesToDisk(files2)
         let afterRemoteAdd = try CSVFormat.decode(data: readFileFromDisk("tasks.csv"), options: nil).count
         XCTAssertEqual(afterRemoteAdd, 4)
@@ -643,7 +643,7 @@ final class RealSyncE2ETests: XCTestCase {
         XCTAssertTrue(finalTasks.contains(where: { ($0["name"] as? String) == "Remote addition" }))
 
         // 6. Final pull — everything consistent on disk
-        let files3 = try await engine.pullAll()
+        let files3 = try await engine.pullAll().files
         try writeFilesToDisk(files3)
         let finalCSV = String(data: try readFileFromDisk("tasks.csv"), encoding: .utf8)!
         XCTAssertTrue(finalCSV.contains("Buy local groceries"))
