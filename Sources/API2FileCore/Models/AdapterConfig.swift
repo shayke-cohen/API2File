@@ -95,6 +95,25 @@ public struct ResourceConfig: Codable, Sendable {
         self.children = children
         self.sync = sync
     }
+
+    /// Create a copy with a resolved directory path (for child resources with template directories).
+    public func withDirectory(_ directory: String) -> ResourceConfig {
+        let newMapping = FileMappingConfig(
+            strategy: fileMapping.strategy,
+            directory: directory,
+            filename: fileMapping.filename,
+            format: fileMapping.format,
+            formatOptions: fileMapping.formatOptions,
+            idField: fileMapping.idField,
+            contentField: fileMapping.contentField,
+            readOnly: fileMapping.readOnly,
+            preserveExtension: fileMapping.preserveExtension,
+            transforms: fileMapping.transforms,
+            pushMode: fileMapping.pushMode,
+            deleteFromAPI: fileMapping.deleteFromAPI
+        )
+        return ResourceConfig(name: name, description: description, pull: pull, push: push, fileMapping: newMapping, children: children, sync: sync)
+    }
 }
 
 // MARK: - Pull

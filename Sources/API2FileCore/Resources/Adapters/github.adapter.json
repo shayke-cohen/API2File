@@ -72,9 +72,18 @@
       },
 
       "push": {
+        "create": {
+          "method": "POST",
+          "url": "https://api.github.com/repos/{repo}/issues"
+        },
         "update": {
           "method": "PATCH",
           "url": "https://api.github.com/repos/{repo}/issues/{number}"
+        },
+        "delete": {
+          "method": "PATCH",
+          "url": "https://api.github.com/repos/{repo}/issues/{number}",
+          "bodyType": "close"
         }
       },
 

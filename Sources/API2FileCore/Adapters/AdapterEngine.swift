@@ -205,10 +205,25 @@ public actor AdapterEngine {
             .replacingOccurrences(of: "{id}", with: remoteId)
 
         let method = HTTPMethod(rawValue: deleteConfig.method?.uppercased() ?? "DELETE") ?? .DELETE
+        var headers = config.globals?.headers ?? [:]
+
+        // Handle bodyType for special delete semantics (e.g., GitHub close = PATCH with state:closed)
+        var body: Data? = nil
+        if let bodyType = deleteConfig.bodyType {
+            headers["Content-Type"] = "application/json"
+            switch bodyType {
+            case "close":
+                body = try JSONSerialization.data(withJSONObject: ["state": "closed"])
+            default:
+                break
+            }
+        }
+
         let request = APIRequest(
             method: method,
             url: url,
-            headers: config.globals?.headers ?? [:]
+            headers: headers,
+            body: body
         )
 
         _ = try await httpClient.request(request)
@@ -627,13 +642,23 @@ public actor AdapterEngine {
         }
         let resolvedURL = TemplateEngine.render(pullConfig.url, with: templateVars)
 
-        // Create a modified pull config with the resolved URL
+        // Resolve body template variables from parent record
+        let resolvedBody: JSONValue?
+        if let body = pullConfig.body {
+            let bodyAny = jsonValueToAny(body)
+            let resolvedAny = resolveTemplatesInJSON(bodyAny, with: templateVars)
+            resolvedBody = anyToJSONValue(resolvedAny)
+        } else {
+            resolvedBody = pullConfig.body
+        }
+
+        // Create a modified pull config with resolved URL and body
         pullConfig = PullConfig(
             method: pullConfig.method,
             url: resolvedURL,
             type: pullConfig.type,
             query: pullConfig.query,
-            body: pullConfig.body,
+            body: resolvedBody,
             dataPath: pullConfig.dataPath,
             pagination: pullConfig.pagination,
             mediaConfig: pullConfig.mediaConfig,
@@ -647,7 +672,10 @@ public actor AdapterEngine {
         let transforms = child.fileMapping.transforms?.pull ?? []
         let transformed = transforms.isEmpty ? records : TransformPipeline.apply(transforms, to: records)
 
-        let files = try mapToFiles(records: transformed, resource: child)
+        // Resolve directory template from parent record for child files
+        let resolvedDirectory = TemplateEngine.render(child.fileMapping.directory, with: templateVars)
+        let resolvedChild = child.withDirectory(resolvedDirectory)
+        let files = try mapToFiles(records: transformed, resource: resolvedChild)
 
         // Build raw records mapping
         var rawRecordsByFile: [String: [[String: Any]]] = [:]
@@ -843,6 +871,26 @@ public actor AdapterEngine {
             return .object(obj)
         default: return .string("\(value)")
         }
+    }
+
+    // MARK: - Private — Template Resolution
+
+    /// Recursively resolve {template} placeholders in a JSON structure.
+    private func resolveTemplatesInJSON(_ value: Any, with vars: [String: Any]) -> Any {
+        if let str = value as? String {
+            return TemplateEngine.render(str, with: vars)
+        }
+        if let dict = value as? [String: Any] {
+            var result: [String: Any] = [:]
+            for (k, v) in dict {
+                result[k] = resolveTemplatesInJSON(v, with: vars)
+            }
+            return result
+        }
+        if let arr = value as? [Any] {
+            return arr.map { resolveTemplatesInJSON($0, with: vars) }
+        }
+        return value
     }
 
     // MARK: - Private — Helpers

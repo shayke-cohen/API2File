@@ -121,6 +121,10 @@
           "method": "PUT",
           "url": "https://www.wixapis.com/blog/v3/draft-posts/{id}",
           "bodyWrapper": "draftPost"
+        },
+        "delete": {
+          "method": "DELETE",
+          "url": "https://www.wixapis.com/blog/v3/posts/{id}"
         }
       },
 
@@ -217,13 +221,25 @@
         "dataPath": "$.services"
       },
 
+      "push": {
+        "create": {
+          "method": "POST",
+          "url": "https://www.wixapis.com/bookings/v2/services",
+          "bodyWrapper": "service"
+        },
+        "update": {
+          "method": "PATCH",
+          "url": "https://www.wixapis.com/bookings/v2/services/{id}",
+          "bodyWrapper": "service"
+        }
+      },
+
       "fileMapping": {
         "strategy": "one-per-record",
         "directory": "bookings",
         "filename": "{name|slugify}.json",
         "format": "json",
-        "idField": "id",
-        "readOnly": true
+        "idField": "id"
       },
 
       "sync": {
@@ -241,14 +257,74 @@
         "dataPath": "$.collections"
       },
 
+      "push": {
+        "update": {
+          "method": "PATCH",
+          "url": "https://www.wixapis.com/cms/v2/collections/{id}"
+        }
+      },
+
       "fileMapping": {
         "strategy": "collection",
         "directory": ".",
         "filename": "collections.json",
         "format": "json",
-        "idField": "id",
-        "readOnly": true
+        "idField": "id"
       },
+
+      "children": [
+        {
+          "name": "items",
+          "description": "Items in this CMS collection",
+
+          "pull": {
+            "method": "POST",
+            "url": "https://www.wixapis.com/cms/v3/items/query",
+            "body": {
+              "dataCollectionId": "{id}",
+              "query": {
+                "paging": {
+                  "limit": 50
+                }
+              }
+            },
+            "dataPath": "$.dataItems"
+          },
+
+          "pagination": {
+            "type": "body",
+            "pageSize": 50,
+            "limitField": "query.paging.limit",
+            "cursorField": "query.paging.cursor",
+            "nextCursorPath": "$.pagingMetadata.cursors.next"
+          },
+
+          "push": {
+            "create": {
+              "method": "POST",
+              "url": "https://www.wixapis.com/cms/v3/items",
+              "bodyWrapper": "dataItem"
+            },
+            "update": {
+              "method": "PUT",
+              "url": "https://www.wixapis.com/cms/v3/items/{id}",
+              "bodyWrapper": "dataItem"
+            },
+            "delete": {
+              "method": "DELETE",
+              "url": "https://www.wixapis.com/cms/v3/items/{id}"
+            }
+          },
+
+          "fileMapping": {
+            "strategy": "collection",
+            "directory": "cms/{displayName|slugify}",
+            "filename": "items.csv",
+            "format": "csv",
+            "idField": "id"
+          }
+        }
+      ],
 
       "sync": {
         "interval": 300,
