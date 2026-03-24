@@ -106,17 +106,24 @@ public actor AdapterEngine {
         // Convert to files based on mapping strategy
         let files = try mapToFiles(records: transformed, resource: resource)
 
-        // Build raw records mapping keyed by file path
+        // Build raw records mapping keyed by file path.
+        // Merge computed system fields (e.g. _url added by pull transforms) into raw records
+        // so they appear in .objects files alongside the original API data.
+        let rawWithComputed: [[String: Any]] = zip(records, transformed).map { (raw, xformed) in
+            var r = raw
+            for (k, v) in xformed where k.hasPrefix("_") { r[k] = v }
+            return r
+        }
         var rawRecordsByFile: [String: [[String: Any]]] = [:]
         if resource.fileMapping.strategy == .collection {
             // Collection: all raw records map to the single file
             if let firstFile = files.first {
-                rawRecordsByFile[firstFile.relativePath] = records
+                rawRecordsByFile[firstFile.relativePath] = rawWithComputed
             }
         } else {
             // One-per-record: each raw record maps to its corresponding file
-            for (index, file) in files.enumerated() where index < records.count {
-                rawRecordsByFile[file.relativePath] = [records[index]]
+            for (index, file) in files.enumerated() where index < rawWithComputed.count {
+                rawRecordsByFile[file.relativePath] = [rawWithComputed[index]]
             }
         }
 
@@ -206,12 +213,16 @@ public actor AdapterEngine {
         urlVars["id"] = remoteId
         let url = TemplateEngine.render(deleteConfig.url, with: urlVars)
 
-        let method = HTTPMethod(rawValue: deleteConfig.method?.uppercased() ?? "DELETE") ?? .DELETE
         var headers = config.globals?.headers ?? [:]
 
-        // Handle bodyType for special delete semantics (e.g., GitHub close = PATCH with state:closed)
+        // GraphQL delete: build mutation body and use POST
         var body: Data? = nil
-        if let bodyType = deleteConfig.bodyType {
+        if deleteConfig.type == .graphql, let mutation = deleteConfig.mutation {
+            let resolvedMutation = TemplateEngine.render(mutation, with: urlVars)
+            body = try JSONSerialization.data(withJSONObject: ["query": resolvedMutation])
+            headers["Content-Type"] = headers["Content-Type"] ?? "application/json"
+        } else if let bodyType = deleteConfig.bodyType {
+            // Handle bodyType for special delete semantics (e.g., GitHub close = PATCH with state:closed)
             headers["Content-Type"] = "application/json"
             switch bodyType {
             case "close":
@@ -220,6 +231,9 @@ public actor AdapterEngine {
                 break
             }
         }
+
+        let defaultMethod = (deleteConfig.type == .graphql) ? "POST" : "DELETE"
+        let method = HTTPMethod(rawValue: deleteConfig.method?.uppercased() ?? defaultMethod) ?? .POST
 
         let request = APIRequest(
             method: method,
@@ -389,7 +403,11 @@ public actor AdapterEngine {
                     }
                 }
             } else {
-                if let bodyValue = pullConfig.body {
+                if let queryString = pullConfig.query {
+                    // GraphQL: wrap query string in {"query": "..."} body
+                    let queryBody: [String: Any] = ["query": queryString]
+                    body = try JSONSerialization.data(withJSONObject: queryBody)
+                } else if let bodyValue = pullConfig.body {
                     body = try JSONSerialization.data(withJSONObject: jsonValueToAny(bodyValue))
                 }
             }
@@ -525,7 +543,13 @@ public actor AdapterEngine {
 
         // Build request body
         var bodyDict: Any = record
-        if let wrapper = endpoint.bodyWrapper {
+        if endpoint.type == .graphql, let mutation = endpoint.mutation {
+            // GraphQL mutation: render template vars inline, send as {"query": "mutation ..."}
+            // Values are resolved directly into the mutation string via TemplateEngine,
+            // so no separate "variables" object is needed.
+            let resolvedMutation = TemplateEngine.render(mutation, with: templateVars)
+            bodyDict = ["query": resolvedMutation]
+        } else if let wrapper = endpoint.bodyWrapper {
             if let rootFields = endpoint.bodyRootFields, !rootFields.isEmpty {
                 // Hoist specified fields to root level, wrap remainder
                 var outerBody: [String: Any] = [:]
@@ -675,12 +699,15 @@ public actor AdapterEngine {
             resolvedBody = pullConfig.body
         }
 
-        // Create a modified pull config with resolved URL and body
+        // Resolve query template variables from parent record (GraphQL queries with {id} etc.)
+        let resolvedQuery = pullConfig.query.map { TemplateEngine.render($0, with: templateVars) }
+
+        // Create a modified pull config with resolved URL, body, and query
         pullConfig = PullConfig(
             method: pullConfig.method,
             url: resolvedURL,
             type: pullConfig.type,
-            query: pullConfig.query,
+            query: resolvedQuery,
             body: resolvedBody,
             dataPath: pullConfig.dataPath,
             pagination: pullConfig.pagination,
@@ -700,15 +727,20 @@ public actor AdapterEngine {
         let resolvedChild = child.withDirectory(resolvedDirectory)
         let files = try mapToFiles(records: transformed, resource: resolvedChild)
 
-        // Build raw records mapping
+        // Build raw records mapping (include computed system fields from transforms)
+        let rawWithComputed: [[String: Any]] = zip(records, transformed).map { (raw, xformed) in
+            var r = raw
+            for (k, v) in xformed where k.hasPrefix("_") { r[k] = v }
+            return r
+        }
         var rawRecordsByFile: [String: [[String: Any]]] = [:]
         if child.fileMapping.strategy == .collection {
             if let firstFile = files.first {
-                rawRecordsByFile[firstFile.relativePath] = records
+                rawRecordsByFile[firstFile.relativePath] = rawWithComputed
             }
         } else {
-            for (index, file) in files.enumerated() where index < records.count {
-                rawRecordsByFile[file.relativePath] = [records[index]]
+            for (index, file) in files.enumerated() where index < rawWithComputed.count {
+                rawRecordsByFile[file.relativePath] = [rawWithComputed[index]]
             }
         }
 

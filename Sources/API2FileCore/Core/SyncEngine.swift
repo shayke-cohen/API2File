@@ -174,6 +174,21 @@ public actor SyncEngine {
         let state = (try? SyncState.load(from: stateURL)) ?? SyncState()
         syncStates[serviceId] = state
 
+        // Pre-populate lastKnownRecords from files already on disk so that the
+        // first push after startup doesn't treat all existing records as creates.
+        for (filePath, _) in state.files {
+            if let resource = findResource(for: filePath, in: config),
+               resource.fileMapping.strategy == .collection {
+                let fileURL = serviceDir.appendingPathComponent(filePath)
+                if let data = try? Data(contentsOf: fileURL),
+                   let records = try? FormatConverterFactory.decode(
+                       data: data, format: resource.fileMapping.format,
+                       options: resource.fileMapping.formatOptions) {
+                    lastKnownRecords["\(serviceId):\(filePath)"] = records
+                }
+            }
+        }
+
         // Load or create sync history
         let historyURL = serviceDir.appendingPathComponent(".api2file/sync-history.json")
         historyLogs[serviceId] = (try? SyncHistoryLog.load(from: historyURL)) ?? SyncHistoryLog()
@@ -308,6 +323,14 @@ public actor SyncEngine {
                     let filePath = serviceDir.appendingPathComponent(file.relativePath)
                     try FileManager.default.createDirectory(at: filePath.deletingLastPathComponent(), withIntermediateDirectories: true)
 
+                    // Skip files with pending local changes so the queued push runs first
+                    if let lastSyncedHash = localState.files[file.relativePath]?.lastSyncedHash,
+                       let localData = try? Data(contentsOf: filePath),
+                       localData.sha256Hex != lastSyncedHash {
+                        await ActivityLogger.shared.info(.sync, "↓ Skipping \(file.relativePath) — local changes pending push")
+                        continue
+                    }
+
                     if let resource = findResource(for: file.relativePath, in: engine.config),
                        resource.fileMapping.strategy == .collection {
                         // Merge incremental records with cached records
@@ -351,10 +374,22 @@ public actor SyncEngine {
                         cacheCollectionRecords(file: file, serviceId: serviceId, engine: engine)
                     }
 
-                    // Update sync state
+                    // Update sync state — always record hash (even for collection files without remoteId)
+                    // to prevent file-watcher from falsely pushing freshly-pulled files.
                     if let remoteId = file.remoteId {
                         localState.files[file.relativePath] = FileSyncState(
                             remoteId: remoteId,
+                            lastSyncedHash: file.contentHash,
+                            lastSyncTime: Date(),
+                            status: .synced
+                        )
+                    } else if var existing = localState.files[file.relativePath] {
+                        existing.lastSyncedHash = file.contentHash
+                        existing.lastSyncTime = Date()
+                        localState.files[file.relativePath] = existing
+                    } else {
+                        localState.files[file.relativePath] = FileSyncState(
+                            remoteId: "",
                             lastSyncedHash: file.contentHash,
                             lastSyncTime: Date(),
                             status: .synced
@@ -367,15 +402,35 @@ public actor SyncEngine {
                     let filePath = serviceDir.appendingPathComponent(file.relativePath)
                     try FileManager.default.createDirectory(at: filePath.deletingLastPathComponent(), withIntermediateDirectories: true)
 
+                    // Skip files with pending local changes so the queued push runs first
+                    if let lastSyncedHash = localState.files[file.relativePath]?.lastSyncedHash,
+                       let localData = try? Data(contentsOf: filePath),
+                       localData.sha256Hex != lastSyncedHash {
+                        await ActivityLogger.shared.info(.sync, "↓ Skipping \(file.relativePath) — local changes pending push")
+                        continue
+                    }
+
                     suppressedPaths.insert(file.relativePath)
                     try file.content.write(to: filePath, options: .atomic)
                     writeObjectFile(file: file, pullResult: pullResult, serviceId: serviceId, serviceDir: serviceDir, engine: engine)
                     cacheCollectionRecords(file: file, serviceId: serviceId, engine: engine)
 
-                    // Update sync state
+                    // Update sync state — always record hash (even for collection files without remoteId)
+                    // to prevent file-watcher from falsely pushing freshly-pulled files.
                     if let remoteId = file.remoteId {
                         localState.files[file.relativePath] = FileSyncState(
                             remoteId: remoteId,
+                            lastSyncedHash: file.contentHash,
+                            lastSyncTime: Date(),
+                            status: .synced
+                        )
+                    } else if var existing = localState.files[file.relativePath] {
+                        existing.lastSyncedHash = file.contentHash
+                        existing.lastSyncTime = Date()
+                        localState.files[file.relativePath] = existing
+                    } else {
+                        localState.files[file.relativePath] = FileSyncState(
+                            remoteId: "",
                             lastSyncedHash: file.contentHash,
                             lastSyncTime: Date(),
                             status: .synced
@@ -612,6 +667,7 @@ public actor SyncEngine {
 
             Task {
                 await coordinator.queuePush(serviceId: serviceId, filePath: filePath)
+                await coordinator.flushPendingPushes(serviceId: serviceId)
             }
         }
     }
@@ -796,15 +852,31 @@ public actor SyncEngine {
             }
         }
 
+        // Build sibling context: fields that appear in existing records (have IDs) but may be
+        // missing in newly-added rows (e.g. boardId in child items.csv).
+        let siblingRecords = newRecords.filter { r in
+            if let id = r[idField] as? String { return !id.isEmpty }
+            if r[idField] is Int { return true }
+            return false
+        }
+        let siblingContext: [String: Any] = siblingRecords.first ?? [:]
+
         // Push creates
         for record in diff.created {
-            let pushRecord: [String: Any]
-            if shouldInverse {
-                pushRecord = InverseTransformPipeline.applyMechanical(inverseOps: inverseOps, editedRecord: record)
-            } else {
-                pushRecord = record
+            // Enrich: fill any missing/empty fields from a sibling record so that
+            // context fields like `boardId` are available even when the user omitted them.
+            var enriched = record
+            for (key, value) in siblingContext where key != idField {
+                let cur = enriched[key]
+                if cur == nil || (cur as? String) == "" {
+                    enriched[key] = value
+                }
             }
-            try await engine.pushRecord(pushRecord, resource: resource, action: .create)
+
+            // For creates there is no cached raw record to merge with, so skip
+            // mechanical inverse — it would relocate fields (e.g. boardId → board.boardId)
+            // that the push mutation template still expects at their user-facing position.
+            try await engine.pushRecord(enriched, resource: resource, action: .create)
         }
 
         // Push updates (with inverse transform merging)
@@ -1037,19 +1109,29 @@ public actor SyncEngine {
 
     private func findResource(for filePath: String, in config: AdapterConfig) -> ResourceConfig? {
         for resource in config.resources {
-            let dir = resource.fileMapping.directory
-            // "." means root of the service directory — matches any file at the top level
-            if dir == "." || filePath.hasPrefix(dir + "/") || filePath.hasPrefix(dir) {
-                // For collection strategy, also check filename match
-                if let filename = resource.fileMapping.filename,
-                   resource.fileMapping.strategy == .collection {
-                    if filePath == filename || filePath.hasSuffix("/\(filename)") {
-                        return resource
-                    }
-                    continue
+            // Check child resources first — they have more specific paths
+            if let children = resource.children {
+                for child in children {
+                    if let matched = matchResource(child, to: filePath) { return matched }
                 }
+            }
+            if let matched = matchResource(resource, to: filePath) { return matched }
+        }
+        return nil
+    }
+
+    private func matchResource(_ resource: ResourceConfig, to filePath: String) -> ResourceConfig? {
+        let dir = resource.fileMapping.directory
+        // For collection strategy, check filename suffix (handles template dirs like "boards/{name|slugify}")
+        if resource.fileMapping.strategy == .collection, let filename = resource.fileMapping.filename {
+            if filePath == filename || filePath.hasSuffix("/\(filename)") {
                 return resource
             }
+            return nil
+        }
+        // For one-per-record: match directory prefix
+        if dir == "." || filePath.hasPrefix(dir + "/") || filePath == dir {
+            return resource
         }
         return nil
     }

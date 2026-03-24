@@ -126,13 +126,26 @@ public struct TemplateEngine {
             // Append text before the brace
             result += template[current..<openBrace]
 
+            let afterBrace = template.index(after: openBrace)
+
+            // Only treat as a template variable if the character immediately after `{`
+            // is a valid identifier start (letter or underscore). This prevents matching
+            // GraphQL `{ field1 field2 }` or other `{` that aren't template placeholders.
+            guard afterBrace < template.endIndex,
+                  (template[afterBrace].isLetter || template[afterBrace] == "_") else {
+                // Not a template variable — emit `{` literally and advance past it
+                result += "{"
+                current = afterBrace
+                continue
+            }
+
             // Find matching close brace
-            guard let closeBrace = template[template.index(after: openBrace)...].firstIndex(of: "}") else {
+            guard let closeBrace = template[afterBrace...].firstIndex(of: "}") else {
                 result += template[openBrace...]
                 break
             }
 
-            let expression = String(template[template.index(after: openBrace)..<closeBrace])
+            let expression = String(template[afterBrace..<closeBrace])
             result += evaluateExpression(expression, with: data)
             current = template.index(after: closeBrace)
         }
@@ -401,8 +414,8 @@ public struct TransformPipeline {
 
         var dict: [String: Any] = [:]
         for item in arr {
-            if let k = item[key] as? String {
-                dict[k] = item[value] as Any
+            if let k = (resolveDotPath(key, in: item) as? String) ?? (item[key] as? String) {
+                dict[k] = resolveDotPath(value, in: item) ?? item[value] as Any
             }
         }
 
@@ -421,7 +434,7 @@ public struct TransformPipeline {
 
     private static func set(field: String, value: String, in record: [String: Any]) -> [String: Any] {
         var result = record
-        result[field] = value
+        result[field] = TemplateEngine.render(value, with: record)
         return result
     }
 
