@@ -10,40 +10,39 @@ struct SyncHistoryRow: View {
         VStack(alignment: .leading, spacing: 0) {
             // Compact row
             HStack(spacing: 6) {
-                // Direction icon
                 Image(systemName: entry.direction == .pull ? "arrow.down.circle.fill" : "arrow.up.circle.fill")
                     .foregroundStyle(entry.direction == .pull ? .blue : .green)
-                    .font(.caption)
+                    .font(.system(size: 14))
                     .testId("history-direction-\(entry.id)")
 
                 if showServiceName {
                     Text(entry.serviceName)
-                        .font(.caption)
+                        .font(.callout)
                         .fontWeight(.medium)
                         .testId("history-service-\(entry.id)")
                 }
 
                 Text(entry.summary)
-                    .font(.caption)
+                    .font(.callout)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .testId("history-summary-\(entry.id)")
 
                 Spacer()
 
-                // Status badge
                 statusBadge
                     .testId("history-status-\(entry.id)")
 
                 Text(entry.timestamp, style: .relative)
-                    .font(.caption2)
+                    .font(.caption)
                     .foregroundStyle(.tertiary)
+                    .frame(minWidth: 60, alignment: .trailing)
 
-                // Expand toggle (only if there are file details)
                 if !entry.files.isEmpty {
                     Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
+                        .frame(width: 10)
                         .testId("history-expand-\(entry.id)")
                 }
             }
@@ -59,7 +58,7 @@ struct SyncHistoryRow: View {
 
             // Expanded file breakdown
             if isExpanded {
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: 3) {
                     ForEach(entry.files) { file in
                         HStack(spacing: 6) {
                             Image(systemName: fileActionIcon(file.action))
@@ -68,7 +67,7 @@ struct SyncHistoryRow: View {
                                 .frame(width: 12)
 
                             Text(file.path)
-                                .font(.caption2)
+                                .font(.caption)
                                 .foregroundStyle(.secondary)
 
                             Spacer()
@@ -88,11 +87,12 @@ struct SyncHistoryRow: View {
                         }
                     }
                 }
-                .padding(.leading, 22)
-                .padding(.top, 4)
+                .padding(.leading, 24)
+                .padding(.top, 6)
+                .padding(.bottom, 2)
             }
         }
-        .padding(.vertical, 2)
+        .padding(.vertical, 3)
     }
 
     @ViewBuilder
@@ -100,15 +100,15 @@ struct SyncHistoryRow: View {
         switch entry.status {
         case .success:
             Image(systemName: "checkmark.circle.fill")
-                .font(.caption2)
+                .font(.caption)
                 .foregroundStyle(.green)
         case .error:
             Image(systemName: "xmark.circle.fill")
-                .font(.caption2)
+                .font(.caption)
                 .foregroundStyle(.red)
         case .conflict:
             Image(systemName: "exclamationmark.triangle.fill")
-                .font(.caption2)
+                .font(.caption)
                 .foregroundStyle(.yellow)
         }
     }

@@ -9,6 +9,7 @@ struct API2FileApp: App {
     @StateObject private var appState = AppState()
 
     init() {
+        NSApplication.shared.setActivationPolicy(.accessory)
         #if DEBUG
         AppXray.shared.start(config: AppXrayConfig(
             appName: "API2File",
@@ -50,6 +51,8 @@ final class AppState: ObservableObject {
     private var refreshTask: Task<Void, Never>?
     private var engineStarted = false
     private var addServiceWindow: NSWindow?
+    private var webViewBridge: WebViewBridge?
+    private var lastSyncTimes: [String: Date] = [:]
 
     init() {
         // Auto-start engine on creation
@@ -97,6 +100,9 @@ final class AppState: ObservableObject {
                 try await server.start()
                 self.localServer = server
 
+                // Write port discovery file for MCP binary
+                Self.writeServerInfo(port: config.serverPort)
+
                 // Refresh services list
                 await refreshServices()
             } catch {
@@ -104,17 +110,19 @@ final class AppState: ObservableObject {
             }
         }
 
-        // Periodic refresh of service statuses
+        // Periodic refresh of service statuses + live reload
         refreshTask = Task {
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 5_000_000_000) // 5 seconds
                 await refreshServices()
+                await checkLiveReload()
             }
         }
     }
 
     func stopEngine() {
         refreshTask?.cancel()
+        Self.removeServerInfo()
         Task {
             await syncEngine?.stop()
             await localServer?.stop()
@@ -198,6 +206,13 @@ final class AppState: ObservableObject {
         }
     }
 
+    func setServiceEnabled(serviceId: String, enabled: Bool) {
+        Task {
+            await syncEngine?.setServiceEnabled(serviceId: serviceId, enabled: enabled)
+            await refreshServices()
+        }
+    }
+
     func updateAPIKey(serviceId: String, newKey: String) {
         Task {
             let keychainKey = "api2file.\(serviceId).key"
@@ -228,6 +243,174 @@ final class AppState: ObservableObject {
     func getServiceHistory(serviceId: String, limit: Int = 10) async -> [SyncHistoryEntry] {
         guard let engine = syncEngine else { return [] }
         return await engine.getHistory(serviceId: serviceId, limit: limit)
+    }
+
+    // MARK: - Browser Window
+
+    func openBrowserWindow() {
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            if self.webViewBridge == nil {
+                self.webViewBridge = WebViewBridge()
+            }
+            self.webViewBridge?.openWindow()
+            // Inject into LocalServer so HTTP routes can reach the WebView
+            Task {
+                await self.localServer?.setBrowserDelegate(self.webViewBridge)
+            }
+        }
+    }
+
+    // MARK: - Live Reload
+
+    private func checkLiveReload() async {
+        guard let bridge = webViewBridge, await bridge.isBrowserOpen() else { return }
+        var anyChanged = false
+        for service in services {
+            if let syncTime = service.lastSyncTime {
+                if let prev = lastSyncTimes[service.serviceId], prev != syncTime {
+                    anyChanged = true
+                }
+                lastSyncTimes[service.serviceId] = syncTime
+            }
+        }
+        if anyChanged {
+            try? await bridge.reload()
+        }
+    }
+
+    // MARK: - Claude Code Launcher
+
+    func launchClaudeCode(serviceId: String? = nil) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+
+            // Check if claude CLI is installed
+            let whichProcess = Process()
+            whichProcess.executableURL = URL(fileURLWithPath: "/usr/bin/which")
+            whichProcess.arguments = ["claude"]
+            let pipe = Pipe()
+            whichProcess.standardOutput = pipe
+            whichProcess.standardError = pipe
+            try? whichProcess.run()
+            whichProcess.waitUntilExit()
+
+            guard whichProcess.terminationStatus == 0 else {
+                let alert = NSAlert()
+                alert.alertStyle = .informational
+                alert.messageText = "Claude Code not found"
+                alert.informativeText = "Install Claude Code CLI first:\n\nnpm install -g @anthropic-ai/claude-code\n\nOr visit https://claude.ai/download"
+                alert.addButton(withTitle: "OK")
+                NSApp.activate(ignoringOtherApps: true)
+                alert.runModal()
+                return
+            }
+
+            // Generate MCP config
+            let home = FileManager.default.homeDirectoryForCurrentUser
+            let api2fileDir = home.appendingPathComponent(".api2file")
+            try? FileManager.default.createDirectory(at: api2fileDir, withIntermediateDirectories: true)
+
+            // Find the MCP binary — check build output first, then ~/.api2file/bin/
+            var mcpBinaryPath = api2fileDir.appendingPathComponent("bin/api2file-mcp").path
+            // In development, use the build output
+            let devBinary = home.appendingPathComponent("API2File/.build/debug/api2file-mcp").path
+            if FileManager.default.fileExists(atPath: devBinary) {
+                mcpBinaryPath = devBinary
+            }
+
+            let mcpConfig: [String: Any] = [
+                "mcpServers": [
+                    "api2file": [
+                        "command": mcpBinaryPath,
+                        "args": [] as [String]
+                    ]
+                ]
+            ]
+            let mcpConfigURL = api2fileDir.appendingPathComponent("mcp.json")
+            if let data = try? JSONSerialization.data(withJSONObject: mcpConfig, options: [.prettyPrinted, .sortedKeys]) {
+                try? data.write(to: mcpConfigURL, options: .atomic)
+            }
+
+            // Detect terminal and launch — cd into service subfolder if provided
+            var targetFolder = self.config.resolvedSyncFolder
+            if let serviceId {
+                targetFolder = targetFolder.appendingPathComponent(serviceId)
+            }
+            let command = "cd \(Self.shellEscape(targetFolder.path)) && claude --mcp-config \(Self.shellEscape(mcpConfigURL.path))"
+            Self.openInTerminal(command: command)
+        }
+    }
+
+    private static func openInTerminal(command: String) {
+        let ws = NSWorkspace.shared
+
+        // Try iTerm2
+        if let _ = ws.urlForApplication(withBundleIdentifier: "com.googlecode.iterm2") {
+            let script = """
+            tell application "iTerm"
+                activate
+                set newWindow to (create window with default profile command "/bin/zsh -c '\(command.replacingOccurrences(of: "'", with: "'\\''"))'")
+            end tell
+            """
+            if let appleScript = NSAppleScript(source: script) {
+                var error: NSDictionary?
+                appleScript.executeAndReturnError(&error)
+                if error == nil { return }
+            }
+        }
+
+        // Try Warp
+        if let _ = ws.urlForApplication(withBundleIdentifier: "dev.warp.Warp-Stable") {
+            let script = """
+            tell application "Warp"
+                activate
+            end tell
+            """
+            if let appleScript = NSAppleScript(source: script) {
+                var error: NSDictionary?
+                appleScript.executeAndReturnError(&error)
+            }
+            // Warp doesn't have great AppleScript support, fall through to Terminal
+        }
+
+        // Fall back to Terminal.app
+        let script = """
+        tell application "Terminal"
+            activate
+            do script "\(command.replacingOccurrences(of: "\"", with: "\\\""))"
+        end tell
+        """
+        if let appleScript = NSAppleScript(source: script) {
+            var error: NSDictionary?
+            appleScript.executeAndReturnError(&error)
+        }
+    }
+
+    private static func shellEscape(_ path: String) -> String {
+        "'" + path.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+
+    // MARK: - Port Discovery File
+
+    private static func writeServerInfo(port: Int) {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        let dir = home.appendingPathComponent(".api2file")
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let info: [String: Any] = [
+            "port": port,
+            "pid": ProcessInfo.processInfo.processIdentifier,
+            "startedAt": ISO8601DateFormatter().string(from: Date())
+        ]
+        if let data = try? JSONSerialization.data(withJSONObject: info, options: [.prettyPrinted, .sortedKeys]) {
+            try? data.write(to: dir.appendingPathComponent("server.json"), options: .atomic)
+        }
+    }
+
+    private static func removeServerInfo() {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        let path = home.appendingPathComponent(".api2file/server.json")
+        try? FileManager.default.removeItem(at: path)
     }
 
     // MARK: - Deletion Confirmation

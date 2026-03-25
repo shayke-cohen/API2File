@@ -166,6 +166,22 @@ public actor SyncEngine {
         await ActivityLogger.shared.info(.system, "Registering service: \(serviceId)")
         let serviceDir = syncFolder.appendingPathComponent(serviceId)
         let config = try AdapterEngine.loadConfig(from: serviceDir)
+
+        // Track disabled services in serviceInfos but don't start syncing
+        if config.enabled == false {
+            await ActivityLogger.shared.info(.system, "Skipping disabled service: \(serviceId)")
+            let stateURL = serviceDir.appendingPathComponent(".api2file/state.json")
+            let state = (try? SyncState.load(from: stateURL)) ?? SyncState()
+            serviceInfos[serviceId] = ServiceInfo(
+                serviceId: serviceId,
+                displayName: config.displayName,
+                config: config,
+                status: .paused,
+                fileCount: state.files.count
+            )
+            return
+        }
+
         let httpClient = HTTPClient()
 
         // Load auth token from Keychain in background — don't block startup.
@@ -1317,6 +1333,30 @@ public actor SyncEngine {
 
         // Regenerate CLAUDE.md guides
         try? generateGuides()
+    }
+
+    /// Enable or disable a service by updating its adapter.json and reloading
+    public func setServiceEnabled(serviceId: String, enabled: Bool) async {
+        let serviceDir = syncFolder.appendingPathComponent(serviceId)
+        let configURL = serviceDir.appendingPathComponent(".api2file/adapter.json")
+
+        guard FileManager.default.fileExists(atPath: configURL.path) else { return }
+
+        // Read raw JSON, flip the `enabled` field, write back
+        do {
+            let data = try Data(contentsOf: configURL)
+            guard var json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
+            json["enabled"] = enabled
+            let updatedData = try JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys])
+            try updatedData.write(to: configURL, options: .atomic)
+        } catch {
+            await ActivityLogger.shared.error(.system, "Failed to update enabled state for \(serviceId): \(error)")
+            return
+        }
+
+        // Reload the service to pick up the change
+        await reloadService(serviceId)
+        await ActivityLogger.shared.info(.system, "\(serviceId) \(enabled ? "enabled" : "disabled")")
     }
 
     /// Register and start a new service (for use after AddServiceView creates the directory)
