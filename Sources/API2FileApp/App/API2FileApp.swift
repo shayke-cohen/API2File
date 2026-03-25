@@ -9,7 +9,7 @@ struct API2FileApp: App {
     @StateObject private var appState = AppState()
 
     init() {
-        NSApplication.shared.setActivationPolicy(.accessory)
+        NSApplication.shared.setActivationPolicy(.regular)
         #if DEBUG
         AppXray.shared.start(config: AppXrayConfig(
             appName: "API2File",
@@ -33,9 +33,10 @@ struct API2FileApp: App {
             Image(systemName: appState.menuBarIcon)
         }
 
-        Settings {
+        Window("Dashboard", id: "dashboard") {
             PreferencesView(appState: appState)
         }
+        .defaultSize(width: 900, height: 600)
     }
 }
 

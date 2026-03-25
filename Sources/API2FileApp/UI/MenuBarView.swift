@@ -3,6 +3,7 @@ import API2FileCore
 
 struct MenuBarView: View {
     @ObservedObject var appState: AppState
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         // Services section
@@ -73,17 +74,12 @@ struct MenuBarView: View {
         }
         .testId("menubar-open-logs")
 
-        if #available(macOS 14.0, *) {
-            SettingsLink {
-                Text("Preferences...")
-            }
-            .testId("menubar-preferences")
-        } else {
-            Button("Preferences...") {
-                NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
-            }
-            .testId("menubar-preferences")
+        Button("Dashboard...") {
+            openWindow(id: "dashboard")
+            NSApp.activate(ignoringOtherApps: true)
         }
+        .keyboardShortcut(",")
+        .testId("menubar-dashboard")
 
         Divider()
 

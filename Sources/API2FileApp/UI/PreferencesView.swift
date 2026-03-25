@@ -464,7 +464,7 @@ struct BrowserPane: View {
 /// Observable store managing a WKWebView instance for SwiftUI embedding.
 /// Also conforms to BrowserControlDelegate so MCP tools control the same WebView.
 @MainActor
-final class WebViewStore: NSObject, ObservableObject, WKNavigationDelegate, BrowserControlDelegate {
+final class WebViewStore: NSObject, ObservableObject, WKNavigationDelegate, WKUIDelegate, BrowserControlDelegate {
     let webView: WKWebView
     @Published var canGoBack = false
     @Published var canGoForward = false
@@ -476,10 +476,20 @@ final class WebViewStore: NSObject, ObservableObject, WKNavigationDelegate, Brow
     /// Required for `takeSnapshot` to work — WKWebView must be in a window hierarchy.
     private var offscreenWindow: NSWindow?
 
+    /// Shared process pool so all WebViews share cookies/sessions.
+    private static let sharedProcessPool = WKProcessPool()
+
     override init() {
-        webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 1024, height: 768))
+        let config = WKWebViewConfiguration()
+        config.preferences.javaScriptCanOpenWindowsAutomatically = true
+        config.processPool = WebViewStore.sharedProcessPool
+        // Use the default (persistent) data store — cookies, localStorage, etc. survive app restarts
+        config.websiteDataStore = .default()
+        webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 1024, height: 768), configuration: config)
         super.init()
         webView.navigationDelegate = self
+        webView.uiDelegate = self
+        webView.customUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15"
 
         // Attach to an offscreen window so takeSnapshot works even when Browser tab isn't open
         let window = NSWindow(
@@ -520,6 +530,35 @@ final class WebViewStore: NSObject, ObservableObject, WKNavigationDelegate, Brow
         if let url = webView.url?.absoluteString {
             onURLChange?(url)
         }
+    }
+
+    // MARK: - WKUIDelegate (popup/OAuth support)
+
+    /// Handle popup requests (OAuth login flows open new windows)
+    func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration, for navigationAction: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
+        // Load the popup URL in the same WebView instead of opening a new window
+        if let url = navigationAction.request.url {
+            webView.load(URLRequest(url: url))
+        }
+        return nil
+    }
+
+    /// Handle JavaScript alerts
+    func webView(_ webView: WKWebView, runJavaScriptAlertPanelWithMessage message: String, initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping () -> Void) {
+        let alert = NSAlert()
+        alert.messageText = message
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
+        completionHandler()
+    }
+
+    /// Handle JavaScript confirm dialogs
+    func webView(_ webView: WKWebView, runJavaScriptConfirmPanelWithMessage message: String, initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping (Bool) -> Void) {
+        let alert = NSAlert()
+        alert.messageText = message
+        alert.addButton(withTitle: "OK")
+        alert.addButton(withTitle: "Cancel")
+        completionHandler(alert.runModal() == .alertFirstButtonReturn)
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
