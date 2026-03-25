@@ -4,6 +4,7 @@
   "version": "1.0",
   "icon": "tablecells",
   "wizardDescription": "Records and bases as JSON files",
+  "siteUrl": "https://airtable.com",
   "setupFields": [
     {
       "key": "base-id",

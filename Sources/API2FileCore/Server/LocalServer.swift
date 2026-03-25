@@ -7,10 +7,15 @@ public actor LocalServer {
     private let port: UInt16
     private let syncEngine: SyncEngine
     private var listener: NWListener?
+    private nonisolated(unsafe) var browserDelegate: BrowserControlDelegate?
 
     public init(port: UInt16 = 21567, syncEngine: SyncEngine) {
         self.port = port
         self.syncEngine = syncEngine
+    }
+
+    public func setBrowserDelegate(_ delegate: BrowserControlDelegate?) {
+        self.browserDelegate = delegate
     }
 
     // MARK: - Lifecycle
@@ -150,6 +155,51 @@ public actor LocalServer {
             return handleValidateAdapter(body: request.body)
         }
 
+        // --- Browser control routes ---
+
+        if method == "POST" && path == "/api/browser/open" {
+            return await handleBrowserOpen()
+        }
+        if method == "POST" && path == "/api/browser/navigate" {
+            return await handleBrowserNavigate(body: request.body)
+        }
+        if method == "POST" && path == "/api/browser/screenshot" {
+            return await handleBrowserScreenshot(body: request.body)
+        }
+        if method == "POST" && path == "/api/browser/dom" {
+            return await handleBrowserDOM(body: request.body)
+        }
+        if method == "POST" && path == "/api/browser/click" {
+            return await handleBrowserClick(body: request.body)
+        }
+        if method == "POST" && path == "/api/browser/type" {
+            return await handleBrowserType(body: request.body)
+        }
+        if method == "POST" && path == "/api/browser/evaluate" {
+            return await handleBrowserEvaluate(body: request.body)
+        }
+        if method == "GET" && path == "/api/browser/url" {
+            return await handleBrowserGetURL()
+        }
+        if method == "POST" && path == "/api/browser/wait" {
+            return await handleBrowserWait(body: request.body)
+        }
+        if method == "GET" && path == "/api/browser/status" {
+            return await handleBrowserStatus()
+        }
+        if method == "POST" && path == "/api/browser/back" {
+            return await handleBrowserBack()
+        }
+        if method == "POST" && path == "/api/browser/forward" {
+            return await handleBrowserForward()
+        }
+        if method == "POST" && path == "/api/browser/reload" {
+            return await handleBrowserReload()
+        }
+        if method == "POST" && path == "/api/browser/scroll" {
+            return await handleBrowserScroll(body: request.body)
+        }
+
         return HTTPResponse(statusCode: 404, body: ["error": "Not Found"])
     }
 
@@ -222,6 +272,236 @@ public actor LocalServer {
         }
     }
 
+    // MARK: - Browser Route Handlers
+
+    private func handleBrowserOpen() async -> HTTPResponse {
+        guard let delegate = browserDelegate else {
+            return HTTPResponse(statusCode: 503, body: ["error": "Browser not available"])
+        }
+        do {
+            try await delegate.openBrowser()
+            return HTTPResponse(statusCode: 200, body: ["status": "ok"])
+        } catch {
+            return browserErrorResponse(error)
+        }
+    }
+
+    private func handleBrowserNavigate(body: Data?) async -> HTTPResponse {
+        guard let delegate = browserDelegate else {
+            return HTTPResponse(statusCode: 503, body: ["error": "Browser not available"])
+        }
+        guard let url = parseJSONString(body, key: "url") else {
+            return HTTPResponse(statusCode: 400, body: ["error": "Missing 'url' in request body"])
+        }
+        do {
+            // Auto-open browser if not open
+            if !(await delegate.isBrowserOpen()) {
+                try await delegate.openBrowser()
+            }
+            let finalURL = try await delegate.navigate(to: url)
+            return HTTPResponse(statusCode: 200, body: ["status": "ok", "url": finalURL])
+        } catch {
+            return browserErrorResponse(error)
+        }
+    }
+
+    private func handleBrowserScreenshot(body: Data?) async -> HTTPResponse {
+        guard let delegate = browserDelegate else {
+            return HTTPResponse(statusCode: 503, body: ["error": "Browser not available"])
+        }
+        let width = parseJSONInt(body, key: "width")
+        let height = parseJSONInt(body, key: "height")
+        do {
+            let pngData = try await delegate.captureScreenshot(width: width, height: height)
+            let base64 = pngData.base64EncodedString()
+            let json: [String: Any] = [
+                "image": base64,
+                "size": pngData.count
+            ]
+            let data = (try? JSONSerialization.data(withJSONObject: json, options: [.sortedKeys])) ?? Data()
+            return HTTPResponse(statusCode: 200, bodyRaw: data)
+        } catch {
+            return browserErrorResponse(error)
+        }
+    }
+
+    private func handleBrowserDOM(body: Data?) async -> HTTPResponse {
+        guard let delegate = browserDelegate else {
+            return HTTPResponse(statusCode: 503, body: ["error": "Browser not available"])
+        }
+        let selector = parseJSONString(body, key: "selector")
+        do {
+            let html = try await delegate.getDOM(selector: selector)
+            let json: [String: Any] = ["html": html]
+            let data = (try? JSONSerialization.data(withJSONObject: json, options: [])) ?? Data()
+            return HTTPResponse(statusCode: 200, bodyRaw: data)
+        } catch {
+            return browserErrorResponse(error)
+        }
+    }
+
+    private func handleBrowserClick(body: Data?) async -> HTTPResponse {
+        guard let delegate = browserDelegate else {
+            return HTTPResponse(statusCode: 503, body: ["error": "Browser not available"])
+        }
+        guard let selector = parseJSONString(body, key: "selector") else {
+            return HTTPResponse(statusCode: 400, body: ["error": "Missing 'selector' in request body"])
+        }
+        do {
+            try await delegate.click(selector: selector)
+            return HTTPResponse(statusCode: 200, body: ["status": "ok"])
+        } catch {
+            return browserErrorResponse(error)
+        }
+    }
+
+    private func handleBrowserType(body: Data?) async -> HTTPResponse {
+        guard let delegate = browserDelegate else {
+            return HTTPResponse(statusCode: 503, body: ["error": "Browser not available"])
+        }
+        guard let selector = parseJSONString(body, key: "selector"),
+              let text = parseJSONString(body, key: "text") else {
+            return HTTPResponse(statusCode: 400, body: ["error": "Missing 'selector' or 'text' in request body"])
+        }
+        do {
+            try await delegate.type(selector: selector, text: text)
+            return HTTPResponse(statusCode: 200, body: ["status": "ok"])
+        } catch {
+            return browserErrorResponse(error)
+        }
+    }
+
+    private func handleBrowserEvaluate(body: Data?) async -> HTTPResponse {
+        guard let delegate = browserDelegate else {
+            return HTTPResponse(statusCode: 503, body: ["error": "Browser not available"])
+        }
+        guard let code = parseJSONString(body, key: "code") else {
+            return HTTPResponse(statusCode: 400, body: ["error": "Missing 'code' in request body"])
+        }
+        do {
+            let result = try await delegate.evaluateJS(code)
+            return HTTPResponse(statusCode: 200, body: ["result": result])
+        } catch {
+            return browserErrorResponse(error)
+        }
+    }
+
+    private func handleBrowserGetURL() async -> HTTPResponse {
+        guard let delegate = browserDelegate else {
+            return HTTPResponse(statusCode: 503, body: ["error": "Browser not available"])
+        }
+        let url = await delegate.getCurrentURL()
+        return HTTPResponse(statusCode: 200, body: ["url": url ?? ""])
+    }
+
+    private func handleBrowserWait(body: Data?) async -> HTTPResponse {
+        guard let delegate = browserDelegate else {
+            return HTTPResponse(statusCode: 503, body: ["error": "Browser not available"])
+        }
+        guard let selector = parseJSONString(body, key: "selector") else {
+            return HTTPResponse(statusCode: 400, body: ["error": "Missing 'selector' in request body"])
+        }
+        let timeout = TimeInterval(parseJSONInt(body, key: "timeout") ?? 5000) / 1000.0
+        do {
+            try await delegate.waitFor(selector: selector, timeout: timeout)
+            return HTTPResponse(statusCode: 200, body: ["status": "ok"])
+        } catch {
+            return browserErrorResponse(error)
+        }
+    }
+
+    private func handleBrowserStatus() async -> HTTPResponse {
+        guard let delegate = browserDelegate else {
+            return HTTPResponse(statusCode: 200, body: ["open": "false"])
+        }
+        let isOpen = await delegate.isBrowserOpen()
+        let url = await delegate.getCurrentURL()
+        var result: [String: String] = ["open": isOpen ? "true" : "false"]
+        if let url { result["url"] = url }
+        return HTTPResponse(statusCode: 200, body: result)
+    }
+
+    private func handleBrowserBack() async -> HTTPResponse {
+        guard let delegate = browserDelegate else {
+            return HTTPResponse(statusCode: 503, body: ["error": "Browser not available"])
+        }
+        do {
+            try await delegate.goBack()
+            return HTTPResponse(statusCode: 200, body: ["status": "ok"])
+        } catch {
+            return browserErrorResponse(error)
+        }
+    }
+
+    private func handleBrowserForward() async -> HTTPResponse {
+        guard let delegate = browserDelegate else {
+            return HTTPResponse(statusCode: 503, body: ["error": "Browser not available"])
+        }
+        do {
+            try await delegate.goForward()
+            return HTTPResponse(statusCode: 200, body: ["status": "ok"])
+        } catch {
+            return browserErrorResponse(error)
+        }
+    }
+
+    private func handleBrowserReload() async -> HTTPResponse {
+        guard let delegate = browserDelegate else {
+            return HTTPResponse(statusCode: 503, body: ["error": "Browser not available"])
+        }
+        do {
+            try await delegate.reload()
+            return HTTPResponse(statusCode: 200, body: ["status": "ok"])
+        } catch {
+            return browserErrorResponse(error)
+        }
+    }
+
+    private func handleBrowserScroll(body: Data?) async -> HTTPResponse {
+        guard let delegate = browserDelegate else {
+            return HTTPResponse(statusCode: 503, body: ["error": "Browser not available"])
+        }
+        guard let dirStr = parseJSONString(body, key: "direction"),
+              let direction = ScrollDirection(rawValue: dirStr) else {
+            return HTTPResponse(statusCode: 400, body: ["error": "Missing or invalid 'direction' (up/down/left/right)"])
+        }
+        let amount = parseJSONInt(body, key: "amount")
+        do {
+            try await delegate.scroll(direction: direction, amount: amount)
+            return HTTPResponse(statusCode: 200, body: ["status": "ok"])
+        } catch {
+            return browserErrorResponse(error)
+        }
+    }
+
+    private func browserErrorResponse(_ error: Error) -> HTTPResponse {
+        if let browserError = error as? BrowserError {
+            switch browserError {
+            case .windowNotOpen:
+                return HTTPResponse(statusCode: 503, body: ["error": browserError.localizedDescription])
+            case .elementNotFound:
+                return HTTPResponse(statusCode: 404, body: ["error": browserError.localizedDescription])
+            case .timeout:
+                return HTTPResponse(statusCode: 408, body: ["error": browserError.localizedDescription])
+            case .evaluationFailed, .navigationFailed:
+                return HTTPResponse(statusCode: 400, body: ["error": browserError.localizedDescription])
+            }
+        }
+        return HTTPResponse(statusCode: 500, body: ["error": error.localizedDescription])
+    }
+
+    // MARK: - JSON Body Parsing Helpers
+
+    private func parseJSONString(_ body: Data?, key: String) -> String? {
+        guard let body, let json = try? JSONSerialization.jsonObject(with: body) as? [String: Any] else { return nil }
+        return json[key] as? String
+    }
+
+    private func parseJSONInt(_ body: Data?, key: String) -> Int? {
+        guard let body, let json = try? JSONSerialization.jsonObject(with: body) as? [String: Any] else { return nil }
+        return json[key] as? Int
+    }
+
     // MARK: - Route Matching
 
     /// Match routes like /api/services/:id/status where pattern="/api/services/" and suffix="/status"
@@ -255,6 +535,9 @@ public actor LocalServer {
         }
         if let error = info.errorMessage {
             dict["errorMessage"] = error
+        }
+        if let siteUrl = info.config.siteUrl {
+            dict["siteUrl"] = siteUrl
         }
         return (try? JSONSerialization.data(withJSONObject: dict, options: [.sortedKeys])) ?? Data()
     }
@@ -358,7 +641,9 @@ private struct HTTPResponse {
         case 200: return "OK"
         case 400: return "Bad Request"
         case 404: return "Not Found"
+        case 408: return "Request Timeout"
         case 500: return "Internal Server Error"
+        case 503: return "Service Unavailable"
         default: return "Unknown"
         }
     }

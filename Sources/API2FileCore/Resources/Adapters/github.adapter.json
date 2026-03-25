@@ -4,6 +4,7 @@
   "version": "1.0",
   "icon": "chevron.left.forwardslash.chevron.right",
   "wizardDescription": "Repos, issues, gists, notifications",
+  "siteUrl": "https://github.com",
 
   "auth": {
     "type": "bearer",

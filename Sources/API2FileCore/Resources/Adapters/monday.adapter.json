@@ -4,6 +4,7 @@
   "version": "1.0",
   "icon": "calendar.badge.checkmark",
   "wizardDescription": "Boards and items as CSV files",
+  "siteUrl": "https://monday.com",
 
   "auth": {
     "type": "bearer",

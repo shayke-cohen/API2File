@@ -46,12 +46,14 @@ final class AppState: ObservableObject {
     @Published var config: GlobalConfig = .init()
     @Published var recentActivity: [SyncHistoryEntry] = []
 
-    private var syncEngine: SyncEngine?
-    private var localServer: LocalServer?
+    private(set) var syncEngine: SyncEngine?
+    private(set) var localServer: LocalServer?
     private var refreshTask: Task<Void, Never>?
     private var engineStarted = false
     private var addServiceWindow: NSWindow?
     private var webViewBridge: WebViewBridge?
+    /// Shared WebViewStore for the Browser pane — also serves as BrowserControlDelegate for MCP
+    let sharedWebViewStore = WebViewStore()
     private var lastSyncTimes: [String: Date] = [:]
 
     init() {
@@ -99,6 +101,9 @@ final class AppState: ObservableObject {
                 let server = LocalServer(port: UInt16(config.serverPort), syncEngine: engine)
                 try await server.start()
                 self.localServer = server
+
+                // Register shared WebViewStore as browser delegate for MCP
+                await server.setBrowserDelegate(self.sharedWebViewStore)
 
                 // Write port discovery file for MCP binary
                 Self.writeServerInfo(port: config.serverPort)
@@ -332,6 +337,13 @@ final class AppState: ObservableObject {
                 try? data.write(to: mcpConfigURL, options: .atomic)
             }
 
+            // Auto-navigate the shared browser to the service's siteUrl
+            if let serviceId,
+               let service = self.services.first(where: { $0.serviceId == serviceId }),
+               let siteUrl = service.config.siteUrl {
+                self.sharedWebViewStore.navigate(to: siteUrl)
+            }
+
             // Detect terminal and launch — cd into service subfolder if provided
             var targetFolder = self.config.resolvedSyncFolder
             if let serviceId {
@@ -343,48 +355,15 @@ final class AppState: ObservableObject {
     }
 
     private static func openInTerminal(command: String) {
-        let ws = NSWorkspace.shared
-
-        // Try iTerm2
-        if let _ = ws.urlForApplication(withBundleIdentifier: "com.googlecode.iterm2") {
-            let script = """
-            tell application "iTerm"
-                activate
-                set newWindow to (create window with default profile command "/bin/zsh -c '\(command.replacingOccurrences(of: "'", with: "'\\''"))'")
-            end tell
-            """
-            if let appleScript = NSAppleScript(source: script) {
-                var error: NSDictionary?
-                appleScript.executeAndReturnError(&error)
-                if error == nil { return }
-            }
-        }
-
-        // Try Warp
-        if let _ = ws.urlForApplication(withBundleIdentifier: "dev.warp.Warp-Stable") {
-            let script = """
-            tell application "Warp"
-                activate
-            end tell
-            """
-            if let appleScript = NSAppleScript(source: script) {
-                var error: NSDictionary?
-                appleScript.executeAndReturnError(&error)
-            }
-            // Warp doesn't have great AppleScript support, fall through to Terminal
-        }
-
-        // Fall back to Terminal.app
-        let script = """
-        tell application "Terminal"
-            activate
-            do script "\(command.replacingOccurrences(of: "\"", with: "\\\""))"
-        end tell
-        """
-        if let appleScript = NSAppleScript(source: script) {
-            var error: NSDictionary?
-            appleScript.executeAndReturnError(&error)
-        }
+        // Write a .command file — macOS opens these in Terminal.app automatically
+        let scriptPath = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".api2file/launch-claude.command")
+        let scriptContent = "#!/bin/zsh\n\(command)\n"
+        try? scriptContent.write(to: scriptPath, atomically: true, encoding: .utf8)
+        try? FileManager.default.setAttributes(
+            [.posixPermissions: 0o755], ofItemAtPath: scriptPath.path
+        )
+        NSWorkspace.shared.open(scriptPath)
     }
 
     private static func shellEscape(_ path: String) -> String {

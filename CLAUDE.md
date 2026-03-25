@@ -29,6 +29,22 @@ Adapter configs: `Sources/API2FileCore/Resources/Adapters/*.adapter.json`
 
 ## Control API (localhost:21567)
 
-- GET /api/services — list all services + status
+- GET /api/services — list all services + status + siteUrls
 - POST /api/services/:id/sync — force sync
 - GET /api/services/:id/conflicts — list conflicts
+
+### Browser Control (via MCP or HTTP)
+
+- POST /api/browser/navigate — load URL in embedded WebView
+- POST /api/browser/screenshot — capture page as base64 PNG
+- POST /api/browser/dom — get page HTML
+- POST /api/browser/click — click element by CSS selector
+- POST /api/browser/type — type into input by CSS selector
+- POST /api/browser/evaluate — run JavaScript
+- POST /api/browser/scroll — scroll the page
+
+## MCP Server (api2file-mcp)
+
+An MCP server binary connects Claude Code to the app's browser window.
+Launch from the menu bar: **Open Claude Code...** — auto-generates MCP config.
+See `Sources/API2FileCore/Resources/SKILL.md` for the full MCP tools reference.

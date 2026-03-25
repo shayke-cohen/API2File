@@ -23,6 +23,10 @@ let package = Package(
             name: "api2file",
             targets: ["API2FileCLI"]
         ),
+        .executable(
+            name: "api2file-mcp",
+            targets: ["API2FileMCP"]
+        ),
     ],
     dependencies: [
         .package(path: "../appxray/packages/sdk-ios"),
@@ -50,6 +54,11 @@ let package = Package(
             name: "API2FileCLI",
             dependencies: ["API2FileCore"],
             path: "Sources/API2FileCLI"
+        ),
+        .executableTarget(
+            name: "API2FileMCP",
+            dependencies: [],
+            path: "Sources/API2FileMCP"
         ),
         .testTarget(
             name: "API2FileCoreTests",

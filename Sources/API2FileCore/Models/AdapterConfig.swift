@@ -16,8 +16,12 @@ public struct AdapterConfig: Codable, Sendable {
     public let setupFields: [SetupField]?
     /// If true, this adapter is hidden from the Add Service wizard
     public let hidden: Bool?
+    /// If false, syncing is disabled for this service (default: true when nil)
+    public var enabled: Bool?
+    /// URL for the service's web UI (e.g., the Wix site URL, GitHub repo page)
+    public var siteUrl: String?
 
-    public init(service: String, displayName: String, version: String, auth: AuthConfig, globals: GlobalsConfig? = nil, resources: [ResourceConfig], icon: String? = nil, wizardDescription: String? = nil, setupFields: [SetupField]? = nil, hidden: Bool? = nil) {
+    public init(service: String, displayName: String, version: String, auth: AuthConfig, globals: GlobalsConfig? = nil, resources: [ResourceConfig], icon: String? = nil, wizardDescription: String? = nil, setupFields: [SetupField]? = nil, hidden: Bool? = nil, enabled: Bool? = nil, siteUrl: String? = nil) {
         self.service = service
         self.displayName = displayName
         self.version = version
@@ -28,6 +32,8 @@ public struct AdapterConfig: Codable, Sendable {
         self.wizardDescription = wizardDescription
         self.setupFields = setupFields
         self.hidden = hidden
+        self.enabled = enabled
+        self.siteUrl = siteUrl
     }
 }
 

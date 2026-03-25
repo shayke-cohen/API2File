@@ -14,7 +14,7 @@ struct MenuBarView: View {
             }
             .testId("menubar-add-first-service")
         } else {
-            ForEach(appState.services, id: \.serviceId) { service in
+            ForEach(enabledServices, id: \.serviceId) { service in
                 serviceMenu(service)
             }
         }
@@ -58,6 +58,16 @@ struct MenuBarView: View {
         }
         .testId("menubar-open-folder")
 
+        Button("Open Browser") {
+            appState.openBrowserWindow()
+        }
+        .testId("menubar-open-browser")
+
+        Button("Open Claude Code...") {
+            appState.launchClaudeCode()
+        }
+        .testId("menubar-open-claude-code")
+
         Button("Open Logs") {
             appState.openLogs()
         }
@@ -82,6 +92,10 @@ struct MenuBarView: View {
         }
         .keyboardShortcut("q")
         .testId("menubar-quit")
+    }
+
+    private var enabledServices: [ServiceInfo] {
+        appState.services.filter { $0.config.enabled != false }
     }
 
     @ViewBuilder

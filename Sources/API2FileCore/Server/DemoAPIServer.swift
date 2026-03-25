@@ -388,18 +388,20 @@ public actor DemoAPIServer {
     // MARK: - Request Processing
 
     private func processRequest(data: Data, connection: NWConnection) {
-        guard let (method, path, queryString, body) = parseHTTPRequest(data) else {
+        guard let (method, path, queryString, body, headers) = parseHTTPRequest(data) else {
             sendJSON(statusCode: 400, body: ["error": "Bad Request"], connection: connection)
             return
         }
 
+        let acceptsHTML = Self.requestAcceptsHTML(headers: headers)
+
         // Route to resource handlers
         if path == "/api/tasks" || path.hasPrefix("/api/tasks/") {
-            routeTasks(method: method, path: path, queryString: queryString, body: body, connection: connection)
+            routeTasks(method: method, path: path, queryString: queryString, body: body, acceptsHTML: acceptsHTML, connection: connection)
         } else if path == "/api/contacts" || path.hasPrefix("/api/contacts/") {
-            routeContacts(method: method, path: path, body: body, connection: connection)
+            routeContacts(method: method, path: path, body: body, acceptsHTML: acceptsHTML, connection: connection)
         } else if path == "/api/events" || path.hasPrefix("/api/events/") {
-            routeEvents(method: method, path: path, body: body, connection: connection)
+            routeEvents(method: method, path: path, body: body, acceptsHTML: acceptsHTML, connection: connection)
         } else if path == "/api/notes" || path.hasPrefix("/api/notes/") {
             routeNotes(method: method, path: path, body: body, connection: connection)
         } else if path == "/api/pages" || path.hasPrefix("/api/pages/") {
@@ -433,7 +435,7 @@ public actor DemoAPIServer {
         } else if path.hasPrefix("/api/wix/") {
             routeWix(method: method, path: path, body: body, connection: connection)
         } else if path == "/" || path == "/dashboard" {
-            serveDashboard(connection: connection)
+            serveDynamicDashboard(connection: connection)
         } else {
             sendJSON(statusCode: 404, body: ["error": "Not Found"], connection: connection)
         }
@@ -509,11 +511,393 @@ public actor DemoAPIServer {
         """
     }()
 
+    // MARK: - HTML Visualization Pages
+
+    /// Check if the request Accept header indicates the client wants HTML
+    private static func requestAcceptsHTML(headers: String) -> Bool {
+        for line in headers.split(separator: "\r\n") {
+            let lower = line.lowercased()
+            if lower.hasPrefix("accept:") {
+                let value = String(lower.dropFirst("accept:".count))
+                return value.contains("text/html")
+            }
+        }
+        return false
+    }
+
+    /// Send an HTML response
+    private func sendHTML(_ html: String, statusCode: Int = 200, connection: NWConnection) {
+        let utf8 = Data(html.utf8)
+        let statusText: String
+        switch statusCode {
+        case 200: statusText = "OK"
+        case 404: statusText = "Not Found"
+        default: statusText = "OK"
+        }
+        let header = "HTTP/1.1 \(statusCode) \(statusText)\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: \(utf8.count)\r\nConnection: close\r\n\r\n"
+        var data = Data(header.utf8)
+        data.append(utf8)
+        connection.send(content: data, completion: .contentProcessed { _ in
+            connection.cancel()
+        })
+    }
+
+    // Shared CSS variables and base styles for all HTML visualization pages
+    private static let cssBase = """
+    :root {
+      --bg: #0d1117; --surface: #161b22; --border: #30363d;
+      --text: #e6edf3; --text2: #8b949e; --accent: #58a6ff;
+      --green: #3fb950; --yellow: #d29922; --red: #f85149;
+      --purple: #bc8cff; --radius: 12px;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'SF Pro', system-ui, sans-serif; background: var(--bg); color: var(--text); line-height: 1.6; }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    /* Nav bar */
+    nav { background: var(--surface); border-bottom: 1px solid var(--border); padding: 0 24px; display: flex; align-items: center; gap: 24px; height: 56px; position: sticky; top: 0; z-index: 10; }
+    nav .logo { font-size: 18px; font-weight: 700; letter-spacing: -0.5px; display: flex; align-items: center; gap: 8px; color: var(--text); }
+    nav .logo span { color: var(--accent); }
+    nav .nav-links { display: flex; gap: 4px; }
+    nav .nav-links a { padding: 8px 14px; border-radius: 8px; font-size: 14px; font-weight: 500; color: var(--text2); transition: background 0.15s, color 0.15s; }
+    nav .nav-links a:hover { background: rgba(88,166,255,0.08); color: var(--text); text-decoration: none; }
+    nav .nav-links a.active { background: rgba(88,166,255,0.15); color: var(--accent); }
+    .container { max-width: 1100px; margin: 0 auto; padding: 32px 24px; }
+    h1.page-title { font-size: 28px; font-weight: 700; margin-bottom: 8px; }
+    .page-subtitle { color: var(--text2); font-size: 15px; margin-bottom: 28px; }
+    """
+
+    private static func htmlShell(title: String, activePage: String, body: String) -> String {
+        """
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>\(Self.escapeHTML(title)) - API2File Demo</title>
+        <style>
+        \(cssBase)
+        </style>
+        </head>
+        <body>
+        <nav>
+          <div class="logo"><span>API2File</span> Demo</div>
+          <div class="nav-links">
+            <a href="/" class="\(activePage == "dashboard" ? "active" : "")">Dashboard</a>
+            <a href="/api/tasks" class="\(activePage == "tasks" ? "active" : "")">Tasks</a>
+            <a href="/api/contacts" class="\(activePage == "contacts" ? "active" : "")">Contacts</a>
+            <a href="/api/events" class="\(activePage == "events" ? "active" : "")">Events</a>
+          </div>
+        </nav>
+        <div class="container">
+        \(body)
+        </div>
+        </body>
+        </html>
+        """
+    }
+
+    private static func escapeHTML(_ string: String) -> String {
+        string
+            .replacingOccurrences(of: "&", with: "&amp;")
+            .replacingOccurrences(of: "<", with: "&lt;")
+            .replacingOccurrences(of: ">", with: "&gt;")
+            .replacingOccurrences(of: "\"", with: "&quot;")
+    }
+
+    // MARK: Dynamic Dashboard
+
+    private func serveDynamicDashboard(connection: NWConnection) {
+        let resources: [(name: String, path: String, count: Int, format: String, icon: String)] = [
+            ("Tasks", "/api/tasks", tasks.count, "CSV", "checkmark.circle"),
+            ("Contacts", "/api/contacts", contacts.count, "VCF", "person.2"),
+            ("Events", "/api/events", events.count, "ICS", "calendar"),
+            ("Notes", "/api/notes", notes.count, "MD", "note.text"),
+            ("Pages", "/api/pages", pages.count, "HTML", "doc.richtext"),
+            ("Config", "/api/config", 1, "JSON", "gearshape"),
+            ("Services", "/api/services", services.count, "JSON", "server.rack"),
+            ("Incidents", "/api/incidents", incidents.count, "CSV", "exclamationmark.triangle"),
+            ("Logos", "/api/logos", logos.count, "SVG", "paintbrush"),
+            ("Photos", "/api/photos", photos.count, "PNG", "photo"),
+            ("Documents", "/api/documents", documents.count, "PDF", "doc"),
+            ("Spreadsheets", "/api/spreadsheets", spreadsheets.count, "XLSX", "tablecells"),
+            ("Reports", "/api/reports", reports.count, "DOCX", "chart.bar"),
+            ("Presentations", "/api/presentations", presentations.count, "PPTX", "rectangle.on.rectangle"),
+            ("Emails", "/api/emails", emails.count, "EML", "envelope"),
+            ("Bookmarks", "/api/bookmarks", bookmarks.count, "WEBLOC", "bookmark"),
+            ("Settings", "/api/settings", 1, "YAML", "slider.horizontal.3"),
+            ("Snippets", "/api/snippets", snippets.count, "TXT", "curlybraces"),
+        ]
+
+        let totalItems = resources.reduce(0) { $0 + $1.count }
+
+        let formatColorMap: [String: String] = [
+            "CSV": "var(--accent)", "VCF": "var(--purple)", "ICS": "var(--green)",
+            "MD": "var(--yellow)", "HTML": "var(--red)", "JSON": "var(--accent)",
+            "SVG": "var(--purple)", "PNG": "var(--green)", "PDF": "var(--red)",
+            "XLSX": "var(--green)", "DOCX": "var(--accent)", "PPTX": "#e67e22",
+            "EML": "var(--purple)", "WEBLOC": "var(--yellow)", "YAML": "var(--yellow)",
+            "TXT": "var(--text2)",
+        ]
+
+        var cardsHTML = ""
+        for r in resources {
+            let color = formatColorMap[r.format] ?? "var(--accent)"
+            cardsHTML += """
+            <a href="\(r.path)" class="resource-card">
+              <div class="rc-header">
+                <span class="rc-name">\(Self.escapeHTML(r.name))</span>
+                <span class="rc-format" style="color: \(color); background: color-mix(in srgb, \(color) 15%, transparent)">\(r.format)</span>
+              </div>
+              <div class="rc-count">\(r.count)</div>
+              <div class="rc-label">\(r.count == 1 ? "item" : "items")</div>
+            </a>
+            """
+        }
+
+        let body = """
+        <style>
+          .stats-bar { display: flex; gap: 24px; margin-bottom: 32px; }
+          .stat-box { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px 24px; flex: 1; }
+          .stat-box .stat-value { font-size: 36px; font-weight: 700; color: var(--accent); }
+          .stat-box .stat-label { font-size: 13px; color: var(--text2); margin-top: 4px; }
+          .resource-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
+          .resource-card { display: block; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; transition: border-color 0.2s, transform 0.15s, box-shadow 0.2s; text-decoration: none !important; }
+          .resource-card:hover { border-color: var(--accent); transform: translateY(-2px); box-shadow: 0 4px 20px rgba(0,0,0,0.3); }
+          .rc-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+          .rc-name { font-weight: 600; font-size: 15px; color: var(--text); }
+          .rc-format { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; padding: 2px 8px; border-radius: 6px; }
+          .rc-count { font-size: 32px; font-weight: 700; color: var(--text); }
+          .rc-label { font-size: 12px; color: var(--text2); }
+          .section-title { font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text2); margin-bottom: 16px; margin-top: 32px; }
+          .section-title:first-of-type { margin-top: 0; }
+          .wix-links { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+          .wix-link { padding: 6px 14px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; font-size: 13px; color: var(--text2); transition: border-color 0.2s, color 0.15s; }
+          .wix-link:hover { border-color: var(--accent); color: var(--accent); text-decoration: none; }
+        </style>
+        <h1 class="page-title">Dashboard</h1>
+        <p class="page-subtitle">API2File Demo Server — local REST API for testing</p>
+        <div class="stats-bar">
+          <div class="stat-box">
+            <div class="stat-value">\(resources.count)</div>
+            <div class="stat-label">Resource Types</div>
+          </div>
+          <div class="stat-box">
+            <div class="stat-value">\(totalItems)</div>
+            <div class="stat-label">Total Items</div>
+          </div>
+          <div class="stat-box">
+            <div class="stat-value">8089</div>
+            <div class="stat-label">Port</div>
+          </div>
+        </div>
+        <div class="section-title">Resources</div>
+        <div class="resource-grid">
+        \(cardsHTML)
+        </div>
+        <div class="section-title" style="margin-top:32px">Wix-like Endpoints</div>
+        <div class="wix-links">
+          <a href="/api/wix/contacts" class="wix-link">Contacts (\(wixContacts.count))</a>
+          <a href="/api/wix/posts" class="wix-link">Blog Posts (\(wixBlogPosts.count))</a>
+          <a href="/api/wix/products" class="wix-link">Products (\(wixProducts.count))</a>
+          <a href="/api/wix/services" class="wix-link">Bookings (\(wixBookings.count))</a>
+          <a href="/api/wix/collections" class="wix-link">Collections (\(wixCollections.count))</a>
+        </div>
+        """
+
+        let html = Self.htmlShell(title: "Dashboard", activePage: "dashboard", body: body)
+        sendHTML(html, connection: connection)
+    }
+
+    // MARK: Tasks HTML
+
+    private func renderTasksHTML() -> String {
+        var rows = ""
+        for task in tasks {
+            let statusColor: String
+            switch task.status {
+            case "done": statusColor = "var(--green)"
+            case "in-progress": statusColor = "var(--yellow)"
+            default: statusColor = "var(--text2)"
+            }
+            let priorityColor: String
+            switch task.priority {
+            case "high": priorityColor = "var(--red)"
+            case "medium": priorityColor = "var(--yellow)"
+            default: priorityColor = "var(--text2)"
+            }
+            rows += """
+            <tr>
+              <td class="id-cell">\(task.id)</td>
+              <td class="name-cell">\(Self.escapeHTML(task.name))</td>
+              <td><span class="pill" style="color:\(statusColor);background:color-mix(in srgb,\(statusColor) 15%,transparent)">\(Self.escapeHTML(task.status))</span></td>
+              <td><span class="pill" style="color:\(priorityColor);background:color-mix(in srgb,\(priorityColor) 15%,transparent)">\(Self.escapeHTML(task.priority))</span></td>
+              <td>\(Self.escapeHTML(task.assignee))</td>
+              <td class="date-cell">\(Self.escapeHTML(task.dueDate))</td>
+            </tr>
+            """
+        }
+
+        let body = """
+        <style>
+          table { width: 100%; border-collapse: collapse; font-size: 14px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+          thead { background: rgba(0,0,0,0.25); }
+          th { text-align: left; padding: 12px 16px; color: var(--text2); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; }
+          td { padding: 12px 16px; border-top: 1px solid var(--border); }
+          tr:hover td { background: rgba(88,166,255,0.05); }
+          .pill { display: inline-block; padding: 2px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; }
+          .id-cell { color: var(--text2); font-size: 12px; }
+          .name-cell { font-weight: 500; }
+          .date-cell { color: var(--text2); font-size: 13px; font-variant-numeric: tabular-nums; }
+          .empty-state { text-align: center; padding: 48px; color: var(--text2); }
+          .count-badge { display: inline-block; padding: 2px 10px; border-radius: 20px; font-size: 13px; font-weight: 500; background: rgba(88,166,255,0.12); color: var(--accent); margin-left: 8px; vertical-align: middle; }
+          .api-link { font-size: 13px; color: var(--text2); margin-bottom: 28px; display: block; }
+          .api-link code { background: var(--surface); border: 1px solid var(--border); padding: 2px 8px; border-radius: 6px; font-size: 12px; }
+        </style>
+        <h1 class="page-title">Tasks <span class="count-badge">\(tasks.count)</span></h1>
+        <span class="api-link">JSON API: <code>GET /api/tasks</code></span>
+        \(tasks.isEmpty ? "<div class=\"empty-state\">No tasks yet.</div>" : """
+        <table>
+          <thead>
+            <tr><th>ID</th><th>Name</th><th>Status</th><th>Priority</th><th>Assignee</th><th>Due Date</th></tr>
+          </thead>
+          <tbody>
+            \(rows)
+          </tbody>
+        </table>
+        """)
+        """
+
+        return Self.htmlShell(title: "Tasks", activePage: "tasks", body: body)
+    }
+
+    // MARK: Contacts HTML
+
+    private func renderContactsHTML() -> String {
+        var cards = ""
+        for contact in contacts {
+            let initials = "\(contact.firstName.prefix(1))\(contact.lastName.prefix(1))"
+            cards += """
+            <div class="contact-card">
+              <div class="contact-avatar">\(Self.escapeHTML(initials))</div>
+              <div class="contact-info">
+                <div class="contact-name">\(Self.escapeHTML(contact.firstName)) \(Self.escapeHTML(contact.lastName))</div>
+                <div class="contact-company">\(Self.escapeHTML(contact.company))</div>
+              </div>
+              <div class="contact-details">
+                <div class="contact-detail"><span class="detail-label">Email</span><span class="detail-value">\(Self.escapeHTML(contact.email))</span></div>
+                <div class="contact-detail"><span class="detail-label">Phone</span><span class="detail-value">\(Self.escapeHTML(contact.phone))</span></div>
+              </div>
+            </div>
+            """
+        }
+
+        let body = """
+        <style>
+          .contact-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; }
+          .contact-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 24px; transition: border-color 0.2s, transform 0.15s, box-shadow 0.2s; }
+          .contact-card:hover { border-color: var(--accent); transform: translateY(-2px); box-shadow: 0 4px 20px rgba(0,0,0,0.3); }
+          .contact-avatar { width: 48px; height: 48px; border-radius: 50%; background: linear-gradient(135deg, var(--accent), var(--purple)); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 18px; color: #fff; margin-bottom: 16px; }
+          .contact-name { font-size: 17px; font-weight: 600; }
+          .contact-company { font-size: 13px; color: var(--text2); margin-top: 2px; }
+          .contact-info { margin-bottom: 16px; }
+          .contact-details { border-top: 1px solid var(--border); padding-top: 12px; }
+          .contact-detail { display: flex; justify-content: space-between; padding: 4px 0; font-size: 13px; }
+          .detail-label { color: var(--text2); }
+          .detail-value { font-weight: 500; }
+          .empty-state { text-align: center; padding: 48px; color: var(--text2); }
+          .count-badge { display: inline-block; padding: 2px 10px; border-radius: 20px; font-size: 13px; font-weight: 500; background: rgba(188,140,255,0.12); color: var(--purple); margin-left: 8px; vertical-align: middle; }
+          .api-link { font-size: 13px; color: var(--text2); margin-bottom: 28px; display: block; }
+          .api-link code { background: var(--surface); border: 1px solid var(--border); padding: 2px 8px; border-radius: 6px; font-size: 12px; }
+        </style>
+        <h1 class="page-title">Contacts <span class="count-badge">\(contacts.count)</span></h1>
+        <span class="api-link">JSON API: <code>GET /api/contacts</code></span>
+        \(contacts.isEmpty ? "<div class=\"empty-state\">No contacts yet.</div>" : """
+        <div class="contact-grid">
+          \(cards)
+        </div>
+        """)
+        """
+
+        return Self.htmlShell(title: "Contacts", activePage: "contacts", body: body)
+    }
+
+    // MARK: Events HTML
+
+    private func renderEventsHTML() -> String {
+        var items = ""
+        for event in events {
+            let statusColor: String
+            switch event.status {
+            case "confirmed": statusColor = "var(--green)"
+            case "tentative": statusColor = "var(--yellow)"
+            case "cancelled": statusColor = "var(--red)"
+            default: statusColor = "var(--text2)"
+            }
+            // Format dates for display
+            let startDisplay = event.startDate.replacingOccurrences(of: "T", with: " ").replacingOccurrences(of: "Z", with: " UTC")
+            let endDisplay = event.endDate.replacingOccurrences(of: "T", with: " ").replacingOccurrences(of: "Z", with: " UTC")
+
+            items += """
+            <div class="event-item">
+              <div class="event-timeline-dot" style="background:\(statusColor)"></div>
+              <div class="event-content">
+                <div class="event-header">
+                  <span class="event-title">\(Self.escapeHTML(event.title))</span>
+                  <span class="event-status" style="color:\(statusColor);background:color-mix(in srgb,\(statusColor) 15%,transparent)">\(Self.escapeHTML(event.status))</span>
+                </div>
+                <div class="event-description">\(Self.escapeHTML(event.description))</div>
+                <div class="event-meta">
+                  <span class="event-time">\(Self.escapeHTML(startDisplay)) &mdash; \(Self.escapeHTML(endDisplay))</span>
+                  <span class="event-location">\(Self.escapeHTML(event.location))</span>
+                </div>
+              </div>
+            </div>
+            """
+        }
+
+        let body = """
+        <style>
+          .events-list { position: relative; padding-left: 28px; }
+          .events-list::before { content: ''; position: absolute; left: 7px; top: 8px; bottom: 8px; width: 2px; background: var(--border); border-radius: 1px; }
+          .event-item { position: relative; margin-bottom: 20px; }
+          .event-timeline-dot { position: absolute; left: -24px; top: 8px; width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--bg); }
+          .event-content { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; transition: border-color 0.2s, box-shadow 0.2s; }
+          .event-content:hover { border-color: var(--accent); box-shadow: 0 4px 20px rgba(0,0,0,0.2); }
+          .event-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+          .event-title { font-size: 16px; font-weight: 600; }
+          .event-status { display: inline-block; padding: 2px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; }
+          .event-description { font-size: 14px; color: var(--text2); margin-bottom: 12px; line-height: 1.5; }
+          .event-meta { display: flex; gap: 20px; font-size: 13px; color: var(--text2); flex-wrap: wrap; }
+          .event-time::before { content: ''; display: inline-block; width: 12px; height: 12px; background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='%238b949e'%3E%3Cpath d='M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM1.5 8a6.5 6.5 0 1 0 13 0 6.5 6.5 0 0 0-13 0Zm7-3.25v2.992l2.028.812a.75.75 0 0 1-.557 1.392l-2.5-1A.751.751 0 0 1 7 8.25v-3.5a.75.75 0 0 1 1.5 0Z'/%3E%3C/svg%3E") no-repeat center/contain; margin-right: 4px; vertical-align: -1px; }
+          .event-location::before { content: ''; display: inline-block; width: 12px; height: 12px; background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='%238b949e'%3E%3Cpath d='m12.596 11.596-3.535 3.535a1.5 1.5 0 0 1-2.122 0l-3.535-3.535a6.5 6.5 0 1 1 9.192 0ZM8 11.184l3.535-3.535a4.5 4.5 0 1 0-7.07 0L8 11.184Z'/%3E%3Ccircle cx='8' cy='6' r='1.5'/%3E%3C/svg%3E") no-repeat center/contain; margin-right: 4px; vertical-align: -1px; }
+          .empty-state { text-align: center; padding: 48px; color: var(--text2); }
+          .count-badge { display: inline-block; padding: 2px 10px; border-radius: 20px; font-size: 13px; font-weight: 500; background: rgba(63,185,80,0.12); color: var(--green); margin-left: 8px; vertical-align: middle; }
+          .api-link { font-size: 13px; color: var(--text2); margin-bottom: 28px; display: block; }
+          .api-link code { background: var(--surface); border: 1px solid var(--border); padding: 2px 8px; border-radius: 6px; font-size: 12px; }
+        </style>
+        <h1 class="page-title">Events <span class="count-badge">\(events.count)</span></h1>
+        <span class="api-link">JSON API: <code>GET /api/events</code></span>
+        \(events.isEmpty ? "<div class=\"empty-state\">No events yet.</div>" : """
+        <div class="events-list">
+          \(items)
+        </div>
+        """)
+        """
+
+        return Self.htmlShell(title: "Events", activePage: "events", body: body)
+    }
+
     // MARK: - Tasks Routes
 
-    private func routeTasks(method: String, path: String, queryString: String?, body: Data?, connection: NWConnection) {
+    private func routeTasks(method: String, path: String, queryString: String?, body: Data?, acceptsHTML: Bool = false, connection: NWConnection) {
         switch (method, path) {
         case ("GET", "/api/tasks"):
+            if acceptsHTML {
+                sendHTML(renderTasksHTML(), connection: connection)
+                return
+            }
             var tasksJSON = tasks.map { $0.toDict() }
 
             // Support pagination via limit/offset query params
@@ -586,9 +970,13 @@ public actor DemoAPIServer {
 
     // MARK: - Contacts Routes
 
-    private func routeContacts(method: String, path: String, body: Data?, connection: NWConnection) {
+    private func routeContacts(method: String, path: String, body: Data?, acceptsHTML: Bool = false, connection: NWConnection) {
         switch (method, path) {
         case ("GET", "/api/contacts"):
+            if acceptsHTML {
+                sendHTML(renderContactsHTML(), connection: connection)
+                return
+            }
             let items = contacts.map { $0.toDict() }
             sendJSONArray(statusCode: 200, body: items, connection: connection)
 
@@ -651,9 +1039,13 @@ public actor DemoAPIServer {
 
     // MARK: - Events Routes
 
-    private func routeEvents(method: String, path: String, body: Data?, connection: NWConnection) {
+    private func routeEvents(method: String, path: String, body: Data?, acceptsHTML: Bool = false, connection: NWConnection) {
         switch (method, path) {
         case ("GET", "/api/events"):
+            if acceptsHTML {
+                sendHTML(renderEventsHTML(), connection: connection)
+                return
+            }
             let items = events.map { $0.toDict() }
             sendJSONArray(statusCode: 200, body: items, connection: connection)
 
@@ -1525,7 +1917,7 @@ public actor DemoAPIServer {
         return params
     }
 
-    private func parseHTTPRequest(_ data: Data) -> (method: String, path: String, queryString: String?, body: Data?)? {
+    private func parseHTTPRequest(_ data: Data) -> (method: String, path: String, queryString: String?, body: Data?, headers: String)? {
         guard let headerEnd = data.findDemoHeaderEnd() else { return nil }
         let headerData = data[data.startIndex..<headerEnd]
         guard let headerString = String(data: headerData, encoding: .utf8) else { return nil }
@@ -1544,7 +1936,7 @@ public actor DemoAPIServer {
         let bodyStart = headerEnd + 4
         let body: Data? = bodyStart < data.count ? Data(data[bodyStart...]) : nil
 
-        return (method, path, queryString, body)
+        return (method, path, queryString, body, headerString)
     }
 
     private func sendJSON(statusCode: Int, body: [String: String], connection: NWConnection) {

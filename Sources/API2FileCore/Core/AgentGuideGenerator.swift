@@ -35,9 +35,19 @@ public enum AgentGuideGenerator {
         lines.append("- See each service's CLAUDE.md for details")
         lines.append("")
         lines.append("## Control API (localhost:\(serverPort))")
-        lines.append("- GET /api/services — list all services + status")
+        lines.append("- GET /api/services — list all services + status + siteUrls")
         lines.append("- POST /api/services/:id/sync — force sync")
         lines.append("- GET /api/services/:id/conflicts — list conflicts")
+        lines.append("")
+        lines.append("## MCP Browser Tools")
+        lines.append("")
+        lines.append("You have MCP tools to control a browser and verify your changes visually:")
+        lines.append("1. `get_services` → discover services and their site URLs")
+        lines.append("2. Edit files locally (CSV, JSON, MD, etc.)")
+        lines.append("3. `sync({serviceId})` → push changes to the cloud")
+        lines.append("4. `navigate({siteUrl})` → open the site in the browser")
+        lines.append("5. `screenshot()` → capture the page (saves to file, use Read to view)")
+        lines.append("6. `get_dom({selector})` → inspect specific elements")
         lines.append("")
 
         return lines.joined(separator: "\n")
@@ -106,6 +116,20 @@ public enum AgentGuideGenerator {
         lines.append("curl localhost:\(serverPort)/api/services/\(config.service)/sync    # Force immediate sync")
         lines.append("curl localhost:\(serverPort)/api/services/\(config.service)/status   # Check sync status")
         lines.append("```")
+
+        // MCP Browser section
+        lines.append("")
+        lines.append("## Visual Verification (MCP Browser)")
+        lines.append("")
+        lines.append("After editing files, verify your changes visually:")
+        lines.append("1. `sync(\"\(config.service)\")` → push changes")
+        if let siteUrl = config.siteUrl {
+            lines.append("2. `navigate(\"\(siteUrl)\")` → open the site")
+        } else {
+            lines.append("2. `navigate({url})` → open the service's site")
+        }
+        lines.append("3. `screenshot()` → capture the page (saves to file, use Read to view)")
+        lines.append("4. `get_dom({selector})` → inspect specific elements")
 
         // Constraints section
         lines.append("")

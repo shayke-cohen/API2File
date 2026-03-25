@@ -462,3 +462,75 @@ The child `directory` template resolves parent fields: `"cms/{displayName|slugif
 | Config / single-object settings | `collection` | `json` or `yaml` |
 | Binary media (images, PDFs) | `mirror` + `type:media` | `raw` |
 | Sub-resources per parent | `children` on the parent | — |
+
+---
+
+## MCP Browser Tools
+
+API2File includes an MCP server that gives you browser control through a WebView window.
+Use these tools to navigate to service websites and verify that your file edits are reflected.
+
+### Available tools
+
+| Tool | Description |
+|------|-------------|
+| `navigate` | Open a URL in the browser (auto-opens the window). Use `get_services` to find service site URLs. |
+| `screenshot` | Capture the browser as a PNG image. Use after navigating to verify changes visually. |
+| `get_dom` | Get the page HTML. Optionally pass a CSS `selector` to get a subtree. |
+| `click` | Click a DOM element by CSS selector. |
+| `type` | Type text into an input field by CSS selector. |
+| `evaluate_js` | Run arbitrary JavaScript in the page. |
+| `get_page_url` | Get the current URL. |
+| `wait_for` | Wait for an element to appear (by CSS selector, with timeout). |
+| `back` / `forward` / `reload` | Browser navigation. |
+| `scroll` | Scroll the page (direction: up/down/left/right, optional pixel amount). |
+| `get_services` | List all connected services with status and site URLs. |
+| `sync` | Trigger an immediate sync for a service (by serviceId). |
+
+### Edit → Sync → Verify workflow
+
+This is the core loop for updating content through API2File:
+
+```
+1. get_services          → see what's connected + their siteUrls
+2. Read/edit files       → modify CSV rows, MD content, JSON objects
+3. sync({serviceId})     → push changes to the cloud API
+4. navigate({siteUrl})   → open the service's web UI
+5. screenshot()          → capture what the page looks like
+6. get_dom({selector})   → inspect specific page elements if needed
+7. Iterate               → make more edits, sync again, verify
+```
+
+### Common patterns
+
+**Update a task status (CSV):**
+```
+1. Edit tasks.csv — change the "status" column of the target row
+2. sync("demo")
+3. navigate("http://localhost:8089/tasks")
+4. screenshot()
+```
+
+**Update a Wix product price:**
+```
+1. Edit wix/products.csv — change the "price" column
+2. sync("wix")
+3. navigate("https://yoursite.wixsite.com/products")
+4. screenshot()
+```
+
+**Create a new blog post (Markdown):**
+```
+1. Create wix/blog-posts/my-new-post.md with title and content
+2. sync("wix")
+3. navigate("https://yoursite.wixsite.com/blog/my-new-post")
+4. screenshot()
+```
+
+### Important notes
+
+- Always use `sync` after editing files — changes won't appear on the site until synced
+- The `screenshot` tool waits for the page to finish loading before capturing
+- Use `wait_for` before `screenshot` if the page has lazy-loaded content
+- Use `get_dom` with a selector to check if specific content exists without a full screenshot
+- The `_id` column in CSV files must never be modified — it links rows to remote records

@@ -4,6 +4,7 @@
   "version": "1.0",
   "icon": "globe",
   "wizardDescription": "Contacts, products, blog posts, bookings",
+  "siteUrl": "https://manage.wix.com/dashboard/YOUR_SITE_ID_HERE/home",
   "setupFields": [
     {
       "key": "wix-site-id",

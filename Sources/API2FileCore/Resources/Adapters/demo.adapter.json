@@ -4,6 +4,7 @@
   "version": "1.0",
   "icon": "laptopcomputer",
   "wizardDescription": "Local demo server — no account needed",
+  "siteUrl": "http://localhost:8089",
 
   "auth": {
     "type": "bearer",

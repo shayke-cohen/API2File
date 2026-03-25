@@ -155,6 +155,18 @@ struct ServiceDetailView: View {
                 .buttonStyle(.link)
                 .testId("detail-folder-link")
             }
+
+            if let siteUrl = service.config.siteUrl {
+                StatCard(label: "Site", icon: "globe") {
+                    Button(siteUrl) {
+                        if let url = URL(string: siteUrl) {
+                            NSWorkspace.shared.open(url)
+                        }
+                    }
+                    .buttonStyle(.link)
+                    .testId("detail-site-url-link")
+                }
+            }
         }
     }
 
