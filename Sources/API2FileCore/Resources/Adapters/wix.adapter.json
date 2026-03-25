@@ -4,7 +4,7 @@
   "version": "1.0",
   "icon": "globe",
   "wizardDescription": "Contacts, products, blog posts, bookings",
-  "siteUrl": "https://YOUR_SITE_ID_HERE.wixsite.com",
+  "siteUrl": "YOUR_SITE_URL_HERE",
   "dashboardUrl": "https://manage.wix.com/dashboard/YOUR_SITE_ID_HERE/home",
   "setupFields": [
     {
@@ -13,6 +13,13 @@
       "placeholder": "abc123-def456-...",
       "templateKey": "YOUR_SITE_ID_HERE",
       "helpText": "Find in your Wix dashboard URL after /dashboard/"
+    },
+    {
+      "key": "wix-site-url",
+      "label": "Site URL",
+      "placeholder": "https://username.wixsite.com/mysite",
+      "templateKey": "YOUR_SITE_URL_HERE",
+      "helpText": "Your published Wix site URL (from browser address bar)"
     }
   ],
 
@@ -106,7 +113,7 @@
     {
       "name": "blog-posts",
       "description": "Wix blog posts as Markdown files",
-      "siteUrl": "https://YOUR_SITE_ID_HERE.wixsite.com/blog",
+      "siteUrl": "YOUR_SITE_URL_HERE/blog",
       "dashboardUrl": "https://manage.wix.com/dashboard/YOUR_SITE_ID_HERE/blog",
 
       "pull": {
@@ -174,7 +181,7 @@
     {
       "name": "products",
       "description": "Wix Store products as a CSV catalog",
-      "siteUrl": "https://YOUR_SITE_ID_HERE.wixsite.com/shop",
+      "siteUrl": "YOUR_SITE_URL_HERE/shop",
       "dashboardUrl": "https://manage.wix.com/dashboard/YOUR_SITE_ID_HERE/store/products",
 
       "pull": {
