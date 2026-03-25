@@ -98,6 +98,14 @@ public enum AgentGuideGenerator {
             lines.append("**To update:** Edit the file and save. Changes sync within \(interval)s.")
             lines.append("**To create:** \(Self.createInstructions(for: mapping.strategy, format: format, directory: dir))")
             lines.append("**To delete:** Delete the file. The record is removed after 5s grace period.")
+
+            // Resource-level URLs for visual verification
+            if let siteUrl = resource.siteUrl, !siteUrl.isEmpty {
+                lines.append("**View on site:** `navigate(\"\(siteUrl)\")`")
+            }
+            if let dashboardUrl = resource.dashboardUrl, !dashboardUrl.isEmpty {
+                lines.append("**Manage in dashboard:** `navigate(\"\(dashboardUrl)\")`")
+            }
         }
 
         // Sync behavior section
@@ -124,9 +132,12 @@ public enum AgentGuideGenerator {
         lines.append("After editing files, verify your changes visually:")
         lines.append("1. `sync(\"\(config.service)\")` → push changes")
         if let siteUrl = config.siteUrl {
-            lines.append("2. `navigate(\"\(siteUrl)\")` → open the site")
+            lines.append("2. `navigate(\"\(siteUrl)\")` → view the public site")
         } else {
             lines.append("2. `navigate({url})` → open the service's site")
+        }
+        if let dashboardUrl = config.dashboardUrl {
+            lines.append("   Or `navigate(\"\(dashboardUrl)\")` → open the management dashboard")
         }
         lines.append("3. `screenshot()` → capture the page (saves to file, use Read to view)")
         lines.append("4. `get_dom({selector})` → inspect specific elements")

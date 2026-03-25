@@ -18,10 +18,12 @@ public struct AdapterConfig: Codable, Sendable {
     public let hidden: Bool?
     /// If false, syncing is disabled for this service (default: true when nil)
     public var enabled: Bool?
-    /// URL for the service's web UI (e.g., the Wix site URL, GitHub repo page)
+    /// URL for the service's public web UI (e.g., the Wix site, GitHub repo page)
     public var siteUrl: String?
+    /// URL for the service's management dashboard (e.g., Wix Business Manager, Monday board)
+    public var dashboardUrl: String?
 
-    public init(service: String, displayName: String, version: String, auth: AuthConfig, globals: GlobalsConfig? = nil, resources: [ResourceConfig], icon: String? = nil, wizardDescription: String? = nil, setupFields: [SetupField]? = nil, hidden: Bool? = nil, enabled: Bool? = nil, siteUrl: String? = nil) {
+    public init(service: String, displayName: String, version: String, auth: AuthConfig, globals: GlobalsConfig? = nil, resources: [ResourceConfig], icon: String? = nil, wizardDescription: String? = nil, setupFields: [SetupField]? = nil, hidden: Bool? = nil, enabled: Bool? = nil, siteUrl: String? = nil, dashboardUrl: String? = nil) {
         self.service = service
         self.displayName = displayName
         self.version = version
@@ -34,6 +36,7 @@ public struct AdapterConfig: Codable, Sendable {
         self.hidden = hidden
         self.enabled = enabled
         self.siteUrl = siteUrl
+        self.dashboardUrl = dashboardUrl
     }
 }
 
@@ -131,8 +134,12 @@ public struct ResourceConfig: Codable, Sendable {
     public let fileMapping: FileMappingConfig
     public let children: [ResourceConfig]?
     public let sync: SyncConfig?
+    /// Public-facing URL for this resource (e.g., blog page, product catalog)
+    public var siteUrl: String?
+    /// Management dashboard URL for this resource (e.g., Wix CRM, Monday board)
+    public var dashboardUrl: String?
 
-    public init(name: String, description: String? = nil, pull: PullConfig? = nil, push: PushConfig? = nil, fileMapping: FileMappingConfig, children: [ResourceConfig]? = nil, sync: SyncConfig? = nil) {
+    public init(name: String, description: String? = nil, pull: PullConfig? = nil, push: PushConfig? = nil, fileMapping: FileMappingConfig, children: [ResourceConfig]? = nil, sync: SyncConfig? = nil, siteUrl: String? = nil, dashboardUrl: String? = nil) {
         self.name = name
         self.description = description
         self.pull = pull
@@ -140,6 +147,8 @@ public struct ResourceConfig: Codable, Sendable {
         self.fileMapping = fileMapping
         self.children = children
         self.sync = sync
+        self.siteUrl = siteUrl
+        self.dashboardUrl = dashboardUrl
     }
 
     /// Create a copy with a resolved directory path (for child resources with template directories).

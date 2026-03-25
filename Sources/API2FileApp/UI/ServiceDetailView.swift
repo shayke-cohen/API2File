@@ -167,6 +167,18 @@ struct ServiceDetailView: View {
                     .testId("detail-site-url-link")
                 }
             }
+
+            if let dashboardUrl = service.config.dashboardUrl {
+                StatCard(label: "Dashboard", icon: "rectangle.on.rectangle") {
+                    Button(dashboardUrl) {
+                        if let url = URL(string: dashboardUrl) {
+                            NSWorkspace.shared.open(url)
+                        }
+                    }
+                    .buttonStyle(.link)
+                    .testId("detail-dashboard-url-link")
+                }
+            }
         }
     }
 

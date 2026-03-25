@@ -25,6 +25,8 @@
     {
       "name": "tasks",
       "description": "Demo task list — a simple todo list (CSV format)",
+      "siteUrl": "http://localhost:8089/api/tasks",
+      "dashboardUrl": "http://localhost:8089/api/tasks",
 
       "pull": {
         "method": "GET",
@@ -63,6 +65,8 @@
     {
       "name": "contacts",
       "description": "Contact cards (VCF format)",
+      "siteUrl": "http://localhost:8089/api/contacts",
+      "dashboardUrl": "http://localhost:8089/api/contacts",
 
       "pull": {
         "method": "GET",
@@ -101,6 +105,8 @@
     {
       "name": "events",
       "description": "Calendar events (ICS format)",
+      "siteUrl": "http://localhost:8089/api/events",
+      "dashboardUrl": "http://localhost:8089/api/events",
 
       "pull": {
         "method": "GET",

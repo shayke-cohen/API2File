@@ -4,7 +4,8 @@
   "version": "1.0",
   "icon": "globe",
   "wizardDescription": "Contacts, products, blog posts, bookings",
-  "siteUrl": "https://manage.wix.com/dashboard/YOUR_SITE_ID_HERE/home",
+  "siteUrl": "https://YOUR_SITE_ID_HERE.wixsite.com",
+  "dashboardUrl": "https://manage.wix.com/dashboard/YOUR_SITE_ID_HERE/home",
   "setupFields": [
     {
       "key": "wix-site-id",
@@ -36,6 +37,7 @@
     {
       "name": "contacts",
       "description": "Wix CRM contacts as a CSV spreadsheet",
+      "dashboardUrl": "https://manage.wix.com/dashboard/YOUR_SITE_ID_HERE/contacts",
 
       "pull": {
         "method": "POST",
@@ -104,6 +106,8 @@
     {
       "name": "blog-posts",
       "description": "Wix blog posts as Markdown files",
+      "siteUrl": "https://YOUR_SITE_ID_HERE.wixsite.com/blog",
+      "dashboardUrl": "https://manage.wix.com/dashboard/YOUR_SITE_ID_HERE/blog",
 
       "pull": {
         "method": "POST",
@@ -170,6 +174,8 @@
     {
       "name": "products",
       "description": "Wix Store products as a CSV catalog",
+      "siteUrl": "https://YOUR_SITE_ID_HERE.wixsite.com/shop",
+      "dashboardUrl": "https://manage.wix.com/dashboard/YOUR_SITE_ID_HERE/store/products",
 
       "pull": {
         "method": "POST",
@@ -238,6 +244,7 @@
     {
       "name": "bookings",
       "description": "Wix Bookings services as JSON files",
+      "dashboardUrl": "https://manage.wix.com/dashboard/YOUR_SITE_ID_HERE/bookings/services",
 
       "pull": {
         "method": "GET",
@@ -282,6 +289,7 @@
     {
       "name": "collections",
       "description": "Wix CMS data collections catalog",
+      "dashboardUrl": "https://manage.wix.com/dashboard/YOUR_SITE_ID_HERE/database/data",
 
       "pull": {
         "method": "GET",

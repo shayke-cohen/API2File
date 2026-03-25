@@ -5,6 +5,7 @@
   "icon": "chevron.left.forwardslash.chevron.right",
   "wizardDescription": "Repos, issues, gists, notifications",
   "siteUrl": "https://github.com",
+  "dashboardUrl": "https://github.com",
 
   "auth": {
     "type": "bearer",

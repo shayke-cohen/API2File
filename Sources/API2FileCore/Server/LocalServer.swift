@@ -539,6 +539,9 @@ public actor LocalServer {
         if let siteUrl = info.config.siteUrl {
             dict["siteUrl"] = siteUrl
         }
+        if let dashboardUrl = info.config.dashboardUrl {
+            dict["dashboardUrl"] = dashboardUrl
+        }
         return (try? JSONSerialization.data(withJSONObject: dict, options: [.sortedKeys])) ?? Data()
     }
 
