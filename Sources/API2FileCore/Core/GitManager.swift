@@ -96,6 +96,49 @@ public actor GitManager {
         }
     }
 
+    /// Per-file git status from `git status --porcelain`.
+    /// Returns a dictionary mapping relative file paths to their status code (e.g. "M", "A", "??", "D").
+    public func statusForFiles() throws -> [String: String] {
+        let output = try runGit(["status", "--porcelain"])
+        var result: [String: String] = [:]
+        for line in output.components(separatedBy: "\n") where line.count >= 4 {
+            let status = String(line.prefix(2)).trimmingCharacters(in: .whitespaces)
+            let file = String(line.dropFirst(3))
+            result[file] = status
+        }
+        return result
+    }
+
+    /// Get the unified diff for a specific file (unstaged changes).
+    /// Returns empty string if no diff or file is untracked.
+    public func diffForFile(_ relativePath: String) throws -> String {
+        do {
+            return try runGit(["diff", "--", relativePath])
+        } catch {
+            // If diff fails (e.g. untracked file), try showing the whole file as new
+            do {
+                return try runGit(["diff", "--no-index", "/dev/null", relativePath])
+            } catch {
+                return ""
+            }
+        }
+    }
+
+    /// Get a short summary of changes: modified count, added count, deleted count.
+    public func changeSummary() throws -> (modified: Int, added: Int, deleted: Int) {
+        let statuses = try statusForFiles()
+        var m = 0, a = 0, d = 0
+        for (_, status) in statuses {
+            switch status {
+            case "M", "MM": m += 1
+            case "A", "??": a += 1
+            case "D": d += 1
+            default: m += 1
+            }
+        }
+        return (m, a, d)
+    }
+
     // MARK: - Internal Helpers
 
     /// Runs a git command and returns its stdout output.
