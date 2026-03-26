@@ -15,6 +15,9 @@ public actor SyncEngine {
     private var lastKnownRecords: [String: [[String: Any]]] = [:]
     private var suppressedPaths: Set<String> = []
     private var isPulling: [String: Bool] = [:]  // per-service pull lock
+    /// Files recently pushed — pull should re-pull to get updated revision but not overwrite content.
+    /// Key: "serviceId:filePath", Value: push completion time
+    private var recentlyPushed: [String: Date] = [:]
     private var historyLogs: [String: SyncHistoryLog] = [:]
     private var _notificationManager: NotificationManager?
     private var notificationManager: NotificationManager {
@@ -570,6 +573,7 @@ public actor SyncEngine {
                         continue
                     }
 
+                    // Skip files recently pushed — server may not have propagated yet
                     // Skip write if content unchanged
                     if file.contentHash == localState.files[file.relativePath]?.lastSyncedHash {
                         unchangedCount += 1
@@ -779,6 +783,9 @@ public actor SyncEngine {
             syncStates[serviceId]?.files[filePath]?.lastSyncedHash = content.sha256Hex
             syncStates[serviceId]?.files[filePath]?.lastSyncTime = Date()
             syncStates[serviceId]?.files[filePath]?.status = .synced
+
+            // Mark as recently pushed — pull will skip overwriting for cooldown period
+            recentlyPushed["\(serviceId):\(filePath)"] = Date()
 
             // Save state
             let stateURL = serviceDir.appendingPathComponent(".api2file/state.json")
@@ -1075,7 +1082,7 @@ public actor SyncEngine {
         // be skipped — the mutation template would fail to find {boardId} at the top level.
         let isUpdateGraphQL = resource.push?.update?.type == .graphql
         for (id, record) in diff.updated {
-            let pushRecord: [String: Any]
+            var pushRecord: [String: Any]
             if !isUpdateGraphQL && shouldInverse, let rawRecord = rawLookup[id] {
                 pushRecord = InverseTransformPipeline.apply(inverseOps: inverseOps, editedRecord: record, rawRecord: rawRecord)
             } else if !isUpdateGraphQL && shouldInverse {
@@ -1083,6 +1090,14 @@ public actor SyncEngine {
             } else {
                 pushRecord = record
             }
+
+            // Inject latest revision from raw API record for optimistic concurrency.
+            // APIs like Wix silently reject updates with stale revision numbers.
+            if let rawRecord = rawLookup[id] {
+                if let rev = rawRecord["revision"] { pushRecord["revision"] = rev }
+                if let rev = rawRecord["_revision"] { pushRecord["_revision"] = rev }
+            }
+
             try await engine.pushRecord(pushRecord, resource: resource, action: .update(id: id))
         }
 
