@@ -99,8 +99,19 @@ public actor HTTPClient {
 
     // MARK: - Init
 
-    public init(session: URLSession = .shared) {
-        self.session = session
+    /// Shared URLSession configured for HTTP/2 multiplexing and connection reuse
+    private static let sharedHTTP2Session: URLSession = {
+        let config = URLSessionConfiguration.default
+        config.httpMaximumConnectionsPerHost = 6
+        config.timeoutIntervalForRequest = 30
+        config.timeoutIntervalForResource = 120
+        config.httpShouldUsePipelining = true
+        config.requestCachePolicy = .reloadIgnoringLocalCacheData
+        return URLSession(configuration: config)
+    }()
+
+    public init(session: URLSession? = nil) {
+        self.session = session ?? Self.sharedHTTP2Session
     }
 
     // MARK: - Auth

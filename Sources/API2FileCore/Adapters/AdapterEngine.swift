@@ -31,10 +31,16 @@ public struct PullResult: @unchecked Sendable {
     /// Raw API records keyed by relative file path (pre-transform).
     /// Used to write object files and support inverse transforms on push.
     public let rawRecordsByFile: [String: [[String: Any]]]
+    /// ETag from the API response (for conditional requests on next pull).
+    public let responseETag: String?
+    /// True if the server returned 304 Not Modified (nothing changed).
+    public let notModified: Bool
 
-    public init(files: [SyncableFile], rawRecordsByFile: [String: [[String: Any]]] = [:]) {
+    public init(files: [SyncableFile], rawRecordsByFile: [String: [[String: Any]]] = [:], responseETag: String? = nil, notModified: Bool = false) {
         self.files = files
         self.rawRecordsByFile = rawRecordsByFile
+        self.responseETag = responseETag
+        self.notModified = notModified
     }
 }
 
@@ -55,20 +61,64 @@ public actor AdapterEngine {
 
     // MARK: - Pull All
 
-    /// Pull all resources defined in the adapter config and write them to files.
+    /// Pull all resources defined in the adapter config in parallel.
+    /// - Parameters:
+    ///   - concurrency: Max concurrent API requests (default 6)
+    ///   - resourcesToSkip: Resource names to skip this cycle (e.g., empty backoff)
     /// - Returns: PullResult containing all synced files and raw records.
-    public func pullAll() async throws -> PullResult {
+    public func pullAll(concurrency: Int = 6, resourcesToSkip: Set<String> = []) async throws -> PullResult {
+        let resources = config.resources.filter { !resourcesToSkip.contains($0.name) }
+
+        // Parallel pull with bounded concurrency
+        let results = await withTaskGroup(of: (String, PullResult?).self, returning: [(String, PullResult)].self) { group in
+            var active = 0
+            var index = 0
+            var collected: [(String, PullResult)] = []
+
+            // Seed initial batch
+            while active < concurrency && index < resources.count {
+                let resource = resources[index]
+                group.addTask { [self] in
+                    do {
+                        let result = try await self.pull(resource: resource)
+                        return (resource.name, result)
+                    } catch {
+                        print("[AdapterEngine] Failed to pull resource '\(resource.name)': \(error)")
+                        return (resource.name, nil)
+                    }
+                }
+                active += 1
+                index += 1
+            }
+
+            // As each completes, add the next
+            for await (name, result) in group {
+                if let result { collected.append((name, result)) }
+                active -= 1
+                if index < resources.count {
+                    let resource = resources[index]
+                    group.addTask { [self] in
+                        do {
+                            let result = try await self.pull(resource: resource)
+                            return (resource.name, result)
+                        } catch {
+                            print("[AdapterEngine] Failed to pull resource '\(resource.name)': \(error)")
+                            return (resource.name, nil)
+                        }
+                    }
+                    active += 1
+                    index += 1
+                }
+            }
+
+            return collected
+        }
+
         var allFiles: [SyncableFile] = []
         var allRawRecords: [String: [[String: Any]]] = [:]
-        for resource in config.resources {
-            do {
-                let result = try await pull(resource: resource)
-                allFiles.append(contentsOf: result.files)
-                allRawRecords.merge(result.rawRecordsByFile) { _, new in new }
-            } catch {
-                print("[AdapterEngine] Failed to pull resource '\(resource.name)': \(error)")
-                // Continue with other resources instead of aborting
-            }
+        for (_, result) in results {
+            allFiles.append(contentsOf: result.files)
+            allRawRecords.merge(result.rawRecordsByFile) { _, new in new }
         }
         return PullResult(files: allFiles, rawRecordsByFile: allRawRecords)
     }
@@ -79,8 +129,9 @@ public actor AdapterEngine {
     /// - Parameters:
     ///   - resource: The resource configuration
     ///   - updatedSince: If set, only fetch records updated after this date (incremental sync)
+    ///   - eTag: If set, send If-None-Match header for conditional requests (requires supportsETag)
     /// - Returns: PullResult containing files and raw API records
-    public func pull(resource: ResourceConfig, updatedSince: Date? = nil) async throws -> PullResult {
+    public func pull(resource: ResourceConfig, updatedSince: Date? = nil, eTag: String? = nil) async throws -> PullResult {
         guard var pullConfig = resource.pull else {
             throw AdapterError.noPullConfig(resource.name)
         }
@@ -90,8 +141,18 @@ public actor AdapterEngine {
             pullConfig = injectUpdatedSince(since, into: pullConfig)
         }
 
+        // Pass ETag for conditional request if the resource supports it
+        let requestETag = (pullConfig.supportsETag == true) ? eTag : nil
+
         // Fetch all records (handles pagination)
-        let records = try await fetchAllRecords(pullConfig: pullConfig)
+        let fetchResult = try await fetchAllRecords(pullConfig: pullConfig, eTag: requestETag)
+
+        // 304 Not Modified — nothing changed since last pull
+        if fetchResult.notModified {
+            return PullResult(files: [], responseETag: fetchResult.responseETag, notModified: true)
+        }
+
+        let records = fetchResult.records
 
         // Media mode: download binary files from URLs instead of converting to formats
         if pullConfig.type == .media, let mediaConfig = pullConfig.mediaConfig {
@@ -139,7 +200,7 @@ public actor AdapterEngine {
             }
         }
 
-        return PullResult(files: allFiles, rawRecordsByFile: rawRecordsByFile)
+        return PullResult(files: allFiles, rawRecordsByFile: rawRecordsByFile, responseETag: fetchResult.responseETag)
     }
 
     // MARK: - Push
@@ -355,14 +416,23 @@ public actor AdapterEngine {
 
     // MARK: - Private — Fetching
 
+    private struct FetchResult {
+        let records: [[String: Any]]
+        let responseETag: String?
+        let notModified: Bool
+    }
+
     /// Fetch all records from an API endpoint, handling pagination.
-    private func fetchAllRecords(pullConfig: PullConfig) async throws -> [[String: Any]] {
+    /// - Parameter eTag: Optional ETag for conditional request (If-None-Match). Only sent on first page.
+    private func fetchAllRecords(pullConfig: PullConfig, eTag: String? = nil) async throws -> FetchResult {
         var allRecords: [[String: Any]] = []
         var cursor: String? = nil
         var offset: Int = 0
         var page: Int = 1
         let pageSize = pullConfig.pagination?.pageSize ?? 100
         let maxRecords = pullConfig.pagination?.maxRecords ?? 10000
+        var responseETag: String? = nil
+        var isFirstPage = true
 
         repeat {
             // Build the request URL with template variables and pagination params
@@ -370,6 +440,12 @@ public actor AdapterEngine {
             let method = HTTPMethod(rawValue: pullConfig.method?.uppercased() ?? "GET") ?? .GET
             var headers = config.globals?.headers ?? [:]
             headers["Content-Type"] = headers["Content-Type"] ?? "application/json"
+
+            // Send If-None-Match on the first page if we have a stored ETag
+            if isFirstPage, let etag = eTag {
+                headers["If-None-Match"] = etag
+            }
+
             var body: Data? = nil
 
             if let pagination = pullConfig.pagination {
@@ -420,6 +496,17 @@ public actor AdapterEngine {
             )
 
             let response = try await httpClient.request(request)
+
+            // Capture ETag from the first page response
+            if isFirstPage {
+                responseETag = response.headers["ETag"] ?? response.headers["Etag"] ?? response.headers["etag"]
+                isFirstPage = false
+            }
+
+            // 304 Not Modified — data hasn't changed since last pull
+            if response.statusCode == 304 {
+                return FetchResult(records: [], responseETag: responseETag ?? eTag, notModified: true)
+            }
 
             // Parse response JSON — handle both objects and arrays
             let rawJSON = try JSONSerialization.jsonObject(with: response.body)
@@ -472,16 +559,16 @@ public actor AdapterEngine {
                     cursor = next
                 } else {
                     cursor = nil
-                    return allRecords
+                    return FetchResult(records: allRecords, responseETag: responseETag, notModified: false)
                 }
             case .offset:
                 if records.count < pageSize {
-                    return allRecords
+                    return FetchResult(records: allRecords, responseETag: responseETag, notModified: false)
                 }
                 offset += records.count
             case .page:
                 if records.count < pageSize {
-                    return allRecords
+                    return FetchResult(records: allRecords, responseETag: responseETag, notModified: false)
                 }
                 page += 1
             case .body:
@@ -490,20 +577,20 @@ public actor AdapterEngine {
                     if let next = nextCursor, !next.isEmpty {
                         cursor = next
                     } else {
-                        return allRecords
+                        return FetchResult(records: allRecords, responseETag: responseETag, notModified: false)
                     }
                 } else if pagination.offsetField != nil {
                     if records.count < pageSize {
-                        return allRecords
+                        return FetchResult(records: allRecords, responseETag: responseETag, notModified: false)
                     }
                     offset += records.count
                 } else {
-                    return allRecords
+                    return FetchResult(records: allRecords, responseETag: responseETag, notModified: false)
                 }
             }
         } while true
 
-        return allRecords
+        return FetchResult(records: allRecords, responseETag: responseETag, notModified: false)
     }
 
     // MARK: - Private — Pushing
@@ -714,10 +801,12 @@ public actor AdapterEngine {
             mediaConfig: pullConfig.mediaConfig,
             updatedSinceField: pullConfig.updatedSinceField,
             updatedSinceBodyPath: pullConfig.updatedSinceBodyPath,
-            updatedSinceDateFormat: pullConfig.updatedSinceDateFormat
+            updatedSinceDateFormat: pullConfig.updatedSinceDateFormat,
+            supportsETag: pullConfig.supportsETag
         )
 
-        let records = try await fetchAllRecords(pullConfig: pullConfig)
+        let fetchResult = try await fetchAllRecords(pullConfig: pullConfig)
+        let records = fetchResult.records
 
         let transforms = child.fileMapping.transforms?.pull ?? []
         let transformed = transforms.isEmpty ? records : TransformPipeline.apply(transforms, to: records)
@@ -882,7 +971,8 @@ public actor AdapterEngine {
             mediaConfig: pullConfig.mediaConfig,
             updatedSinceField: pullConfig.updatedSinceField,
             updatedSinceBodyPath: pullConfig.updatedSinceBodyPath,
-            updatedSinceDateFormat: pullConfig.updatedSinceDateFormat
+            updatedSinceDateFormat: pullConfig.updatedSinceDateFormat,
+            supportsETag: pullConfig.supportsETag
         )
     }
 

@@ -248,8 +248,9 @@ public actor SyncEngine {
             gitManagers[serviceId] = git
         }
 
-        // Compute sync interval
-        let interval = config.resources.first?.sync?.intervalSeconds ?? TimeInterval(self.config.defaultSyncInterval)
+        // Compute sync interval — use adaptive interval based on change frequency
+        let baseInterval = config.resources.first?.sync?.intervalSeconds ?? TimeInterval(self.config.defaultSyncInterval)
+        let interval = adaptiveInterval(baseInterval: baseInterval, state: state)
 
         // Register with coordinator
         let context = ServiceSyncContext(
@@ -320,6 +321,9 @@ public actor SyncEngine {
 
     // MARK: - Sync Operations
 
+    /// Max concurrent resource pulls per service
+    private static let pullConcurrency = 6
+
     private func performPull(serviceId: String) async throws {
         guard let engine = adapterEngines[serviceId] else { return }
         let serviceDir = syncFolder.appendingPathComponent(serviceId)
@@ -332,41 +336,133 @@ public actor SyncEngine {
         var localState = syncStates[serviceId] ?? SyncState()
 
         do {
-            // Determine if any resource supports incremental sync
-            let hasIncrementalSupport = engine.config.resources.contains { r in
-                r.pull?.updatedSinceField != nil || r.pull?.updatedSinceBodyPath != nil
+            // --- Optimization: skip empty resources with backoff ---
+            let resourcesToSkip = resourcesSkippedByBackoff(state: localState, config: engine.config)
+            if !resourcesToSkip.isEmpty {
+                await ActivityLogger.shared.debug(.sync, "↓ Skipping \(resourcesToSkip.count) empty resource(s) this cycle")
             }
 
-            var pullResult: PullResult
+            // --- Optimization: priority ordering — recently changed first ---
+            let sortedResources = prioritizeResources(engine.config.resources, state: localState, skip: resourcesToSkip)
+
+            // Always use per-resource parallel pull for all optimizations
+            var allFiles: [SyncableFile] = []
+            var allRawRecords: [String: [[String: Any]]] = [:]
             var isIncremental = false
 
-            if hasIncrementalSupport {
-                // Pull resources individually with incremental support
-                var allFiles: [SyncableFile] = []
-                var allRawRecords: [String: [[String: Any]]] = [:]
+            // Snapshot sync state before async loop
+            let stateSnapshot = localState
 
-                // Snapshot sync state before async loop to avoid concurrent access
-                let stateSnapshot = localState
-
-                for resource in engine.config.resources {
-                    let needsFullSync = shouldDoFullSync(serviceId: serviceId, resource: resource)
-                    let lastSync = stateSnapshot.resourceSyncTimes[resource.name]
-                    let updatedSince = (!needsFullSync && lastSync != nil) ? lastSync : nil
-
-                    let result = try await engine.pull(resource: resource, updatedSince: updatedSince)
-                    allFiles.append(contentsOf: result.files)
-                    allRawRecords.merge(result.rawRecordsByFile) { _, new in new }
-
-                    if updatedSince != nil {
-                        isIncremental = true
-                    }
-                }
-                pullResult = PullResult(files: allFiles, rawRecordsByFile: allRawRecords)
-            } else {
-                pullResult = try await engine.pullAll()
+            // --- Optimization: parallel pulls with TaskGroup ---
+            struct ResourcePullResult: Sendable {
+                let name: String
+                let result: PullResult?
+                let responseETag: String?
+                let wasIncremental: Bool
+                let wasEmpty: Bool
             }
 
+            let pullResults = await withTaskGroup(of: ResourcePullResult.self, returning: [ResourcePullResult].self) { group in
+                var active = 0
+                var index = 0
+                var collected: [ResourcePullResult] = []
+
+                // Seed initial batch
+                while active < Self.pullConcurrency && index < sortedResources.count {
+                    let resource = sortedResources[index]
+                    let needsFullSync = self.shouldDoFullSync(serviceId: serviceId, resource: resource)
+                    let lastSync = stateSnapshot.resourceSyncTimes[resource.name]
+                    let updatedSince = (!needsFullSync && lastSync != nil) ? lastSync : nil
+                    let storedETag = stateSnapshot.resourceETags[resource.name]
+
+                    group.addTask {
+                        do {
+                            let result = try await engine.pull(resource: resource, updatedSince: updatedSince, eTag: storedETag)
+                            return ResourcePullResult(
+                                name: resource.name,
+                                result: result,
+                                responseETag: result.responseETag,
+                                wasIncremental: updatedSince != nil,
+                                wasEmpty: result.files.isEmpty && !result.notModified
+                            )
+                        } catch {
+                            await ActivityLogger.shared.error(.sync, "↓ \(resource.name) pull failed: \(error.localizedDescription)")
+                            return ResourcePullResult(name: resource.name, result: nil, responseETag: nil, wasIncremental: false, wasEmpty: true)
+                        }
+                    }
+                    active += 1
+                    index += 1
+                }
+
+                for await pullResult in group {
+                    collected.append(pullResult)
+                    active -= 1
+                    if index < sortedResources.count {
+                        let resource = sortedResources[index]
+                        let needsFullSync = self.shouldDoFullSync(serviceId: serviceId, resource: resource)
+                        let lastSync = stateSnapshot.resourceSyncTimes[resource.name]
+                        let updatedSince = (!needsFullSync && lastSync != nil) ? lastSync : nil
+                        let storedETag = stateSnapshot.resourceETags[resource.name]
+
+                        group.addTask {
+                            do {
+                                let result = try await engine.pull(resource: resource, updatedSince: updatedSince, eTag: storedETag)
+                                return ResourcePullResult(
+                                    name: resource.name,
+                                    result: result,
+                                    responseETag: result.responseETag,
+                                    wasIncremental: updatedSince != nil,
+                                    wasEmpty: result.files.isEmpty && !result.notModified
+                                )
+                            } catch {
+                                await ActivityLogger.shared.error(.sync, "↓ \(resource.name) pull failed: \(error.localizedDescription)")
+                                return ResourcePullResult(name: resource.name, result: nil, responseETag: nil, wasIncremental: false, wasEmpty: true)
+                            }
+                        }
+                        active += 1
+                        index += 1
+                    }
+                }
+
+                return collected
+            }
+
+            // Process results and update state
+            for pr in pullResults {
+                // --- Optimization: ETag storage ---
+                if let newETag = pr.responseETag {
+                    localState.resourceETags[pr.name] = newETag
+                }
+
+                // --- Optimization: skip-empty tracking ---
+                if pr.wasEmpty {
+                    localState.emptyPullCounts[pr.name] = (localState.emptyPullCounts[pr.name] ?? 0) + 1
+                } else if let result = pr.result, !result.notModified {
+                    localState.emptyPullCounts[pr.name] = 0
+                    // --- Optimization: adaptive intervals — track last change ---
+                    if !result.files.isEmpty {
+                        localState.lastChangeTime[pr.name] = Date()
+                    }
+                }
+
+                guard let result = pr.result, !result.notModified else {
+                    if pr.result?.notModified == true {
+                        await ActivityLogger.shared.debug(.sync, "↓ \(pr.name) — 304 not modified")
+                    }
+                    continue
+                }
+
+                allFiles.append(contentsOf: result.files)
+                allRawRecords.merge(result.rawRecordsByFile) { _, new in new }
+
+                if pr.wasIncremental { isIncremental = true }
+            }
+
+            let pullResult = PullResult(files: allFiles, rawRecordsByFile: allRawRecords)
+
             let files = pullResult.files
+
+            var unchangedCount = 0
 
             if isIncremental {
                 // MERGE: update existing records with incremental changes
@@ -402,27 +498,40 @@ public actor SyncEngine {
                             options: resource.fileMapping.formatOptions
                         )
 
-                        suppressedPaths.insert(file.relativePath)
-                        try mergedContent.write(to: filePath, options: .atomic)
+                        // Skip write if content unchanged
+                        let mergedHash = mergedContent.sha256Hex
+                        if mergedHash == localState.files[file.relativePath]?.lastSyncedHash {
+                            unchangedCount += 1
+                            // Still update cache with merged records
+                            let cacheKey = "\(serviceId):\(file.relativePath)"
+                            lastKnownRecords[cacheKey] = transformed
+                        } else {
+                            suppressedPaths.insert(file.relativePath)
+                            try mergedContent.write(to: filePath, options: .atomic)
 
-                        // Update object file with merged raw records
-                        let objectPath = ObjectFileManager.objectFilePath(
-                            forUserFile: file.relativePath,
-                            strategy: resource.fileMapping.strategy
-                        )
-                        let objectURL = serviceDir.appendingPathComponent(objectPath)
-                        suppressedPaths.insert(objectPath)
-                        try ObjectFileManager.writeCollectionObjectFile(records: mergedRaw, to: objectURL)
+                            // Update object file with merged raw records
+                            let objectPath = ObjectFileManager.objectFilePath(
+                                forUserFile: file.relativePath,
+                                strategy: resource.fileMapping.strategy
+                            )
+                            let objectURL = serviceDir.appendingPathComponent(objectPath)
+                            suppressedPaths.insert(objectPath)
+                            try ObjectFileManager.writeCollectionObjectFile(records: mergedRaw, to: objectURL)
 
-                        // Update cache
-                        let cacheKey = "\(serviceId):\(file.relativePath)"
-                        lastKnownRecords[cacheKey] = transformed
+                            // Update cache
+                            let cacheKey = "\(serviceId):\(file.relativePath)"
+                            lastKnownRecords[cacheKey] = transformed
+                        }
                     } else {
                         // Non-collection or no resource match: write as full (same as non-incremental)
-                        suppressedPaths.insert(file.relativePath)
-                        try file.content.write(to: filePath, options: .atomic)
-                        writeObjectFile(file: file, pullResult: pullResult, serviceId: serviceId, serviceDir: serviceDir, engine: engine)
-                        cacheCollectionRecords(file: file, serviceId: serviceId, engine: engine)
+                        if file.contentHash == localState.files[file.relativePath]?.lastSyncedHash {
+                            unchangedCount += 1
+                        } else {
+                            suppressedPaths.insert(file.relativePath)
+                            try file.content.write(to: filePath, options: .atomic)
+                            writeObjectFile(file: file, pullResult: pullResult, serviceId: serviceId, serviceDir: serviceDir, engine: engine)
+                            cacheCollectionRecords(file: file, serviceId: serviceId, engine: engine)
+                        }
                     }
 
                     // Update sync state — always record hash (even for collection files without remoteId)
@@ -461,10 +570,15 @@ public actor SyncEngine {
                         continue
                     }
 
-                    suppressedPaths.insert(file.relativePath)
-                    try file.content.write(to: filePath, options: .atomic)
-                    writeObjectFile(file: file, pullResult: pullResult, serviceId: serviceId, serviceDir: serviceDir, engine: engine)
-                    cacheCollectionRecords(file: file, serviceId: serviceId, engine: engine)
+                    // Skip write if content unchanged
+                    if file.contentHash == localState.files[file.relativePath]?.lastSyncedHash {
+                        unchangedCount += 1
+                    } else {
+                        suppressedPaths.insert(file.relativePath)
+                        try file.content.write(to: filePath, options: .atomic)
+                        writeObjectFile(file: file, pullResult: pullResult, serviceId: serviceId, serviceDir: serviceDir, engine: engine)
+                        cacheCollectionRecords(file: file, serviceId: serviceId, engine: engine)
+                    }
 
                     // Update sync state — always record hash (even for collection files without remoteId)
                     // to prevent file-watcher from falsely pushing freshly-pulled files.
@@ -544,7 +658,8 @@ public actor SyncEngine {
             }
             let syncType = isIncremental ? "incremental pull" : "pulled"
             let ms = Int(Date().timeIntervalSince(startTime) * 1000)
-            await ActivityLogger.shared.info(.sync, "↓ PULL OK \(serviceId) — \(syncType) \(files.count) file(s) (\(ms)ms)")
+            let unchangedSuffix = unchangedCount > 0 ? ", \(unchangedCount) unchanged" : ""
+            await ActivityLogger.shared.info(.sync, "↓ PULL OK \(serviceId) — \(syncType) \(files.count) file(s)\(unchangedSuffix) (\(ms)ms)")
             let entry = SyncHistoryEntry(
                 serviceId: serviceId,
                 serviceName: serviceName,
@@ -552,7 +667,7 @@ public actor SyncEngine {
                 status: .success,
                 duration: Date().timeIntervalSince(startTime),
                 files: fileChanges,
-                summary: "\(syncType) \(files.count) files"
+                summary: "\(syncType) \(files.count) files\(unchangedSuffix)"
             )
             logHistory(entry, serviceId: serviceId, serviceDir: serviceDir)
         } catch {
@@ -1135,6 +1250,54 @@ public actor SyncEngine {
 
         // Full sync if: never synced, or it's time for periodic full re-sync
         return !hasLastSync || count >= fullSyncEvery
+    }
+
+    // MARK: - Sync Optimizations
+
+    /// Resources to skip this cycle based on empty-pull backoff.
+    /// After 3 consecutive empty pulls, skip every other cycle.
+    /// After 6, skip 3 out of 4. After 10+, skip 9 out of 10.
+    private func resourcesSkippedByBackoff(state: SyncState, config: AdapterConfig) -> Set<String> {
+        var skip = Set<String>()
+        let currentCycle = state.syncCounts.values.max() ?? 0
+        for resource in config.resources {
+            let emptyCount = state.emptyPullCounts[resource.name] ?? 0
+            guard emptyCount >= 3 else { continue }
+            let skipInterval: Int
+            if emptyCount >= 10 { skipInterval = 10 }
+            else if emptyCount >= 6 { skipInterval = 4 }
+            else { skipInterval = 2 }
+            if currentCycle % skipInterval != 0 {
+                skip.insert(resource.name)
+            }
+        }
+        return skip
+    }
+
+    /// Sort resources: recently changed first, never-changed/empty last.
+    private func prioritizeResources(_ resources: [ResourceConfig], state: SyncState, skip: Set<String>) -> [ResourceConfig] {
+        resources
+            .filter { !skip.contains($0.name) }
+            .sorted { a, b in
+                let aTime = state.lastChangeTime[a.name] ?? .distantPast
+                let bTime = state.lastChangeTime[b.name] ?? .distantPast
+                return aTime > bTime
+            }
+    }
+
+    /// Adaptive interval: if no resource has changed in >1h, slow down to 2x interval.
+    /// If no change in >24h, slow down to 5x. Recent changes keep the base interval.
+    private func adaptiveInterval(baseInterval: TimeInterval, state: SyncState) -> TimeInterval {
+        let now = Date()
+        let mostRecentChange = state.lastChangeTime.values.max() ?? .distantPast
+        let timeSinceChange = now.timeIntervalSince(mostRecentChange)
+
+        if timeSinceChange > 86400 { // >24 hours
+            return min(baseInterval * 5, 600) // cap at 10 minutes
+        } else if timeSinceChange > 3600 { // >1 hour
+            return min(baseInterval * 2, 300) // cap at 5 minutes
+        }
+        return baseInterval
     }
 
     /// Merge incremental (partial) records into the existing cached records.

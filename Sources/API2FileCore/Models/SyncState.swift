@@ -7,11 +7,27 @@ public struct SyncState: Codable, Sendable {
     public var resourceSyncTimes: [String: Date]
     /// Count of sync intervals since last full sync per resource name
     public var syncCounts: [String: Int]
+    /// ETag per resource name — used for HTTP conditional requests (If-None-Match / 304)
+    public var resourceETags: [String: String]
+    /// Consecutive empty pull count per resource — used for skip-empty backoff
+    public var emptyPullCounts: [String: Int]
+    /// Last time a resource had actual data changes — used for adaptive intervals
+    public var lastChangeTime: [String: Date]
 
-    public init(files: [String: FileSyncState] = [:], resourceSyncTimes: [String: Date] = [:], syncCounts: [String: Int] = [:]) {
+    public init(
+        files: [String: FileSyncState] = [:],
+        resourceSyncTimes: [String: Date] = [:],
+        syncCounts: [String: Int] = [:],
+        resourceETags: [String: String] = [:],
+        emptyPullCounts: [String: Int] = [:],
+        lastChangeTime: [String: Date] = [:]
+    ) {
         self.files = files
         self.resourceSyncTimes = resourceSyncTimes
         self.syncCounts = syncCounts
+        self.resourceETags = resourceETags
+        self.emptyPullCounts = emptyPullCounts
+        self.lastChangeTime = lastChangeTime
     }
 
     // MARK: - Persistence
