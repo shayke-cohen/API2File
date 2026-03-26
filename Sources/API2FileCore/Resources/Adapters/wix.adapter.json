@@ -145,7 +145,7 @@
           "bodyWrapper": "draftPost"
         },
         "update": {
-          "method": "PUT",
+          "method": "PATCH",
           "url": "https://www.wixapis.com/blog/v3/draft-posts/{id}",
           "bodyWrapper": "draftPost"
         },
@@ -186,41 +186,38 @@
 
       "pull": {
         "method": "POST",
-        "url": "https://www.wixapis.com/stores/v1/products/query",
+        "url": "https://www.wixapis.com/stores/v3/products/search",
         "body": {
-          "query": {
-            "paging": {
-              "limit": 100
-            }
-          },
-          "includeVariants": true
+          "paging": {
+            "limit": 100
+          }
         },
         "dataPath": "$.products",
-        "updatedSinceBodyPath": "query.filter.updatedDate.$gt"
+        "updatedSinceBodyPath": "search.filter.updatedDate.$gt"
       },
 
       "pagination": {
         "type": "body",
         "pageSize": 100,
-        "limitField": "query.paging.limit",
-        "cursorField": "query.paging.cursor",
+        "limitField": "paging.limit",
+        "cursorField": "paging.cursor",
         "nextCursorPath": "$.pagingMetadata.cursors.next"
       },
 
       "push": {
         "create": {
           "method": "POST",
-          "url": "https://www.wixapis.com/stores/v1/products",
+          "url": "https://www.wixapis.com/stores/v3/products",
           "bodyWrapper": "product"
         },
         "update": {
           "method": "PATCH",
-          "url": "https://www.wixapis.com/stores/v1/products/{id}",
+          "url": "https://www.wixapis.com/stores/v3/products/{id}",
           "bodyWrapper": "product"
         },
         "delete": {
           "method": "DELETE",
-          "url": "https://www.wixapis.com/stores/v1/products/{id}"
+          "url": "https://www.wixapis.com/stores/v3/products/{id}"
         }
       },
 
@@ -232,9 +229,8 @@
         "idField": "id",
         "transforms": {
           "pull": [
-            { "op": "flatten", "path": "priceData", "to": "" },
-            { "op": "flatten", "path": "stock", "to": "" },
-            { "op": "omit", "fields": ["media", "additionalInfoSections", "customTextFields", "variants", "productOptions"] },
+            { "op": "rename", "from": "actualPriceRange.minValue.amount", "to": "priceAmount" },
+            { "op": "omit", "fields": ["actualPriceRange", "media", "options", "modifiers", "infoSections", "mainCategoryId", "physicalProperties", "handle", "variantsInfo", "additionalRibbons", "flattenOptions", "flattenModifiers", "variantSummary", "entityEventSequence", "numericId", "visibleInPos", "inventory"] },
             { "op": "set", "field": "_url", "value": "https://manage.wix.com/dashboard/YOUR_SITE_ID_HERE/store/products/{id}" }
           ],
           "push": [
@@ -254,9 +250,24 @@
       "dashboardUrl": "https://manage.wix.com/dashboard/YOUR_SITE_ID_HERE/bookings/services",
 
       "pull": {
-        "method": "GET",
-        "url": "https://www.wixapis.com/bookings/v2/services",
+        "method": "POST",
+        "url": "https://www.wixapis.com/bookings/v2/services/query",
+        "body": {
+          "query": {
+            "paging": {
+              "limit": 100
+            }
+          }
+        },
         "dataPath": "$.services"
+      },
+
+      "pagination": {
+        "type": "body",
+        "pageSize": 100,
+        "limitField": "query.paging.limit",
+        "cursorField": "query.paging.cursor",
+        "nextCursorPath": "$.pagingMetadata.cursors.next"
       },
 
       "push": {
@@ -300,14 +311,14 @@
 
       "pull": {
         "method": "GET",
-        "url": "https://www.wixapis.com/cms/v2/collections",
+        "url": "https://www.wixapis.com/wix-data/v2/collections",
         "dataPath": "$.collections"
       },
 
       "push": {
         "update": {
           "method": "PATCH",
-          "url": "https://www.wixapis.com/cms/v2/collections/{id}"
+          "url": "https://www.wixapis.com/wix-data/v2/collections/{id}"
         }
       },
 
@@ -334,7 +345,7 @@
 
           "pull": {
             "method": "POST",
-            "url": "https://www.wixapis.com/cms/v3/items/query",
+            "url": "https://www.wixapis.com/wix-data/v2/items/query",
             "body": {
               "dataCollectionId": "{id}",
               "query": {
@@ -357,17 +368,17 @@
           "push": {
             "create": {
               "method": "POST",
-              "url": "https://www.wixapis.com/cms/v3/items",
+              "url": "https://www.wixapis.com/wix-data/v2/items",
               "bodyWrapper": "dataItem"
             },
             "update": {
               "method": "PUT",
-              "url": "https://www.wixapis.com/cms/v3/items/{id}",
+              "url": "https://www.wixapis.com/wix-data/v2/items/{id}",
               "bodyWrapper": "dataItem"
             },
             "delete": {
               "method": "DELETE",
-              "url": "https://www.wixapis.com/cms/v3/items/{id}"
+              "url": "https://www.wixapis.com/wix-data/v2/items/{id}"
             }
           },
 
