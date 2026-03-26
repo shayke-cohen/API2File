@@ -1017,8 +1017,23 @@ public actor SyncEngine {
         // Get old records (from cache or empty if first push)
         let oldRecords = lastKnownRecords[cacheKey] ?? []
 
+        // Collect fields the push transform omits — these are server-controlled
+        // and should be ignored when diffing (e.g., revision, updatedDate)
+        var pushIgnoreFields = Set<String>()
+        let pushTransforms = resource.fileMapping.transforms?.push ?? []
+        for op in pushTransforms {
+            if op.op == "omit", let fields = op.fields {
+                pushIgnoreFields.formUnion(fields)
+            }
+        }
+        // Always ignore revision fields — they're managed by the server
+        pushIgnoreFields.insert("revision")
+        pushIgnoreFields.insert("_revision")
+        pushIgnoreFields.insert("updatedDate")
+        pushIgnoreFields.insert("_updatedDate")
+
         // Diff
-        let diff = CollectionDiffer.diff(old: oldRecords, new: newRecords, idField: idField)
+        let diff = CollectionDiffer.diff(old: oldRecords, new: newRecords, idField: idField, ignoreFields: pushIgnoreFields)
 
         if diff.isEmpty {
             return nil // No actual changes
@@ -1127,11 +1142,15 @@ public actor SyncEngine {
             }
         }
 
-        // Update caches — if deletions were cancelled, keep old records so pull restores cleanly
-        if deletedIds.count == diff.deleted.count || diff.deleted.isEmpty {
+        // Update caches — use the file currently on disk (which may have been written by a
+        // concurrent pull with fresh revision/updatedDate), not our pre-push newRecords.
+        let freshURL = syncFolder.appendingPathComponent(serviceId).appendingPathComponent(filePath)
+        if let freshData = try? Data(contentsOf: freshURL),
+           let freshRecords = try? FormatConverterFactory.decode(data: freshData, format: resource.fileMapping.format, options: resource.fileMapping.formatOptions) {
+            lastKnownRecords[cacheKey] = freshRecords
+        } else if deletedIds.count == diff.deleted.count || diff.deleted.isEmpty {
             lastKnownRecords[cacheKey] = newRecords
         } else {
-            // Partial or cancelled deletes — the pull will refresh the cache
             lastKnownRecords[cacheKey] = oldRecords
         }
 

@@ -39,8 +39,12 @@ public enum CollectionDiffer {
     public static func diff(
         old oldRecords: [[String: Any]],
         new newRecords: [[String: Any]],
-        idField: String = "id"
+        idField: String = "id",
+        ignoreFields: Set<String> = []
     ) -> DiffResult {
+        // Fields to ignore in comparison: id fields + server-controlled fields
+        let skipFields = Set([idField, "_id"]).union(ignoreFields)
+
         // Build lookup of old records by ID
         var oldById: [String: [String: Any]] = [:]
         for record in oldRecords {
@@ -66,7 +70,7 @@ public enum CollectionDiffer {
         var updated: [(id: String, record: [String: Any])] = []
         for (id, newRecord) in newById {
             if let oldRecord = oldById[id] {
-                if !recordsEqual(oldRecord, newRecord, ignoringFields: [idField, "_id"]) {
+                if !recordsEqual(oldRecord, newRecord, ignoringFields: skipFields) {
                     updated.append((id: id, record: newRecord))
                 }
             } else {
