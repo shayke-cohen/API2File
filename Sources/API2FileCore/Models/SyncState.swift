@@ -30,6 +30,18 @@ public struct SyncState: Codable, Sendable {
         self.lastChangeTime = lastChangeTime
     }
 
+    // MARK: - Decodable (backwards-compatible)
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        files = try container.decode([String: FileSyncState].self, forKey: .files)
+        resourceSyncTimes = try container.decodeIfPresent([String: Date].self, forKey: .resourceSyncTimes) ?? [:]
+        syncCounts = try container.decodeIfPresent([String: Int].self, forKey: .syncCounts) ?? [:]
+        resourceETags = try container.decodeIfPresent([String: String].self, forKey: .resourceETags) ?? [:]
+        emptyPullCounts = try container.decodeIfPresent([String: Int].self, forKey: .emptyPullCounts) ?? [:]
+        lastChangeTime = try container.decodeIfPresent([String: Date].self, forKey: .lastChangeTime) ?? [:]
+    }
+
     // MARK: - Persistence
 
     public static func load(from url: URL) throws -> SyncState {
