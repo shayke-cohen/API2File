@@ -473,12 +473,17 @@ public actor SyncEngine {
                     let filePath = serviceDir.appendingPathComponent(file.relativePath)
                     try FileManager.default.createDirectory(at: filePath.deletingLastPathComponent(), withIntermediateDirectories: true)
 
-                    // Skip files with pending local changes so the queued push runs first
+                    // Skip files with very recent local changes (< 5s) so the queued push runs first.
+                    // Only skip briefly — stale hash mismatches must not block pulls permanently.
                     if let lastSyncedHash = localState.files[file.relativePath]?.lastSyncedHash,
                        let localData = try? Data(contentsOf: filePath),
                        localData.sha256Hex != lastSyncedHash {
-                        await ActivityLogger.shared.info(.sync, "↓ Skipping \(file.relativePath) — local changes pending push")
-                        continue
+                        let attrs = try? FileManager.default.attributesOfItem(atPath: filePath.path)
+                        let modDate = attrs?[.modificationDate] as? Date ?? .distantPast
+                        if Date().timeIntervalSince(modDate) < 5 {
+                            await ActivityLogger.shared.info(.sync, "↓ Skipping \(file.relativePath) — local changes pending push")
+                            continue
+                        }
                     }
 
                     if let resource = findResource(for: file.relativePath, in: engine.config),
@@ -565,15 +570,18 @@ public actor SyncEngine {
                     let filePath = serviceDir.appendingPathComponent(file.relativePath)
                     try FileManager.default.createDirectory(at: filePath.deletingLastPathComponent(), withIntermediateDirectories: true)
 
-                    // Skip files with pending local changes so the queued push runs first
+                    // Skip files with very recent local changes (< 5s) so the queued push runs first.
                     if let lastSyncedHash = localState.files[file.relativePath]?.lastSyncedHash,
                        let localData = try? Data(contentsOf: filePath),
                        localData.sha256Hex != lastSyncedHash {
-                        await ActivityLogger.shared.info(.sync, "↓ Skipping \(file.relativePath) — local changes pending push")
-                        continue
+                        let attrs = try? FileManager.default.attributesOfItem(atPath: filePath.path)
+                        let modDate = attrs?[.modificationDate] as? Date ?? .distantPast
+                        if Date().timeIntervalSince(modDate) < 5 {
+                            await ActivityLogger.shared.info(.sync, "↓ Skipping \(file.relativePath) — local changes pending push")
+                            continue
+                        }
                     }
 
-                    // Skip files recently pushed — server may not have propagated yet
                     // Skip write if content unchanged
                     if file.contentHash == localState.files[file.relativePath]?.lastSyncedHash {
                         unchangedCount += 1
