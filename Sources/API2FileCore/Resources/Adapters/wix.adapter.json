@@ -1,9 +1,9 @@
 {
   "service": "wix",
   "displayName": "Wix — Website & Business Platform",
-  "version": "1.0",
+  "version": "1.6",
   "icon": "globe",
-  "wizardDescription": "Contacts, products, blog posts, bookings",
+  "wizardDescription": "Contacts, products, blog, bookings, groups, media",
   "siteUrl": "YOUR_SITE_URL_HERE",
   "dashboardUrl": "https://manage.wix.com/dashboard/YOUR_SITE_ID_HERE/home",
   "setupFields": [
@@ -127,7 +127,11 @@
           }
         },
         "dataPath": "$.posts",
-        "updatedSinceBodyPath": "query.filter.updatedDate.$gt"
+        "detail": {
+          "method": "GET",
+          "url": "https://www.wixapis.com/blog/v3/posts/{id}?fieldsets=RICH_CONTENT",
+          "dataPath": "$.post"
+        }
       },
 
       "pagination": {
@@ -142,12 +146,20 @@
         "create": {
           "method": "POST",
           "url": "https://www.wixapis.com/blog/v3/draft-posts",
-          "bodyWrapper": "draftPost"
+          "bodyWrapper": "draftPost",
+          "followup": {
+            "method": "POST",
+            "url": "https://www.wixapis.com/blog/v3/draft-posts/{id}/publish"
+          }
         },
         "update": {
           "method": "PATCH",
           "url": "https://www.wixapis.com/blog/v3/draft-posts/{id}",
-          "bodyWrapper": "draftPost"
+          "bodyWrapper": "draftPost",
+          "followup": {
+            "method": "POST",
+            "url": "https://www.wixapis.com/blog/v3/draft-posts/{id}/publish"
+          }
         },
         "delete": {
           "method": "DELETE",
@@ -160,14 +172,20 @@
         "directory": "blog",
         "filename": "{slug|slugify}.md",
         "format": "md",
+        "formatOptions": {
+          "fieldMapping": {
+            "richContent": "richContent"
+          }
+        },
         "idField": "id",
-        "contentField": "richContent",
+        "contentField": "contentText",
         "transforms": {
           "pull": [
-            { "op": "omit", "fields": ["coverMedia", "memberId", "hashtags", "commentingEnabled", "minutesToRead", "tagIds", "pricingPlanIds"] },
+            { "op": "omit", "fields": ["categoryIds", "coverMedia", "customExcerpt", "hashtags", "internalCategoryIds", "internalRelatedPostIds", "isDemo", "media", "mostRecentContributorId", "preview", "pricingPlanIds", "relatedPostIds", "tagIds", "translations", "commentingEnabled", "minutesToRead", "contentId", "hasUnpublishedChanges", "lastPublishedDate"] },
             { "op": "set", "field": "_url", "value": "https://manage.wix.com/dashboard/YOUR_SITE_ID_HERE/blog/{id}/edit" }
           ],
           "push": [
+            { "op": "pick", "fields": ["title", "slug", "memberId", "excerpt", "contentText", "richContent", "featured", "pinned", "language"] },
             { "op": "omit", "fields": ["_url"] }
           ]
         }
@@ -213,8 +231,7 @@
         "update": {
           "method": "PATCH",
           "url": "https://www.wixapis.com/stores/v3/products/{id}",
-          "bodyWrapper": "product",
-          "bodyRootFields": ["revision"]
+          "bodyWrapper": "product"
         },
         "delete": {
           "method": "DELETE",
@@ -243,6 +260,469 @@
       "sync": {
         "interval": 120,
         "debounceMs": 1000
+      }
+    },
+    {
+      "name": "media",
+      "description": "Wix Media Manager — images, videos, documents, and audio files",
+      "dashboardUrl": "https://manage.wix.com/dashboard/YOUR_SITE_ID_HERE/media-manager",
+
+      "pull": {
+        "method": "POST",
+        "url": "https://www.wixapis.com/site-media/v1/files/search",
+        "type": "media",
+        "body": {
+          "paging": {
+            "limit": 100
+          }
+        },
+        "dataPath": "$.files",
+        "mediaConfig": {
+          "urlField": "url",
+          "filenameField": "displayName",
+          "idField": "id",
+          "sizeField": "sizeInBytes",
+          "hashField": "hash"
+        }
+      },
+
+      "push": {
+        "create": {
+          "method": "POST",
+          "url": "https://www.wixapis.com/site-media/v1/files/generate-upload-url"
+        }
+      },
+
+      "fileMapping": {
+        "strategy": "mirror",
+        "directory": "media",
+        "format": "raw",
+        "idField": "id"
+      },
+
+      "sync": {
+        "interval": 300
+      }
+    },
+    {
+      "name": "pro-gallery",
+      "description": "Media Manager images used by Wix Pro Gallery",
+      "dashboardUrl": "https://manage.wix.com/dashboard/YOUR_SITE_ID_HERE/media-manager",
+
+      "pull": {
+        "method": "POST",
+        "url": "https://www.wixapis.com/site-media/v1/files/search",
+        "type": "media",
+        "body": {
+          "paging": {
+            "limit": 100
+          }
+        },
+        "dataPath": "$.files",
+        "mediaConfig": {
+          "urlField": "url",
+          "filenameField": "displayName",
+          "idField": "id",
+          "sizeField": "sizeInBytes",
+          "hashField": "hash"
+        }
+      },
+
+      "push": {
+        "create": {
+          "method": "POST",
+          "url": "https://www.wixapis.com/site-media/v1/files/generate-upload-url"
+        }
+      },
+
+      "fileMapping": {
+        "strategy": "mirror",
+        "directory": "pro-gallery",
+        "format": "raw",
+        "idField": "id",
+        "transforms": {
+          "pull": [
+            { "op": "match", "field": "mediaType", "value": "IMAGE" }
+          ]
+        }
+      },
+
+      "sync": {
+        "interval": 300
+      }
+    },
+    {
+      "name": "pdf-viewer",
+      "description": "PDF documents stored in Media Manager for Wix PDF Viewer content",
+      "dashboardUrl": "https://manage.wix.com/dashboard/YOUR_SITE_ID_HERE/media-manager",
+
+      "pull": {
+        "method": "POST",
+        "url": "https://www.wixapis.com/site-media/v1/files/search",
+        "type": "media",
+        "body": {
+          "paging": {
+            "limit": 100
+          }
+        },
+        "dataPath": "$.files",
+        "mediaConfig": {
+          "urlField": "url",
+          "filenameField": "displayName",
+          "idField": "id",
+          "sizeField": "sizeInBytes",
+          "hashField": "hash"
+        }
+      },
+
+      "push": {
+        "create": {
+          "method": "POST",
+          "url": "https://www.wixapis.com/site-media/v1/files/generate-upload-url"
+        }
+      },
+
+      "fileMapping": {
+        "strategy": "mirror",
+        "directory": "pdf-viewer",
+        "format": "raw",
+        "idField": "id",
+        "transforms": {
+          "pull": [
+            { "op": "match", "field": "mimeType", "value": "application/pdf" }
+          ]
+        }
+      },
+
+      "sync": {
+        "interval": 300
+      }
+    },
+    {
+      "name": "wix-video",
+      "description": "Video assets stored in Media Manager for Wix Video content",
+      "dashboardUrl": "https://manage.wix.com/dashboard/YOUR_SITE_ID_HERE/media-manager",
+
+      "pull": {
+        "method": "POST",
+        "url": "https://www.wixapis.com/site-media/v1/files/search",
+        "type": "media",
+        "body": {
+          "paging": {
+            "limit": 100
+          }
+        },
+        "dataPath": "$.files",
+        "mediaConfig": {
+          "urlField": "url",
+          "filenameField": "displayName",
+          "idField": "id",
+          "sizeField": "sizeInBytes",
+          "hashField": "hash"
+        }
+      },
+
+      "push": {
+        "create": {
+          "method": "POST",
+          "url": "https://www.wixapis.com/site-media/v1/files/generate-upload-url"
+        }
+      },
+
+      "fileMapping": {
+        "strategy": "mirror",
+        "directory": "wix-video",
+        "format": "raw",
+        "idField": "id",
+        "transforms": {
+          "pull": [
+            { "op": "match", "field": "mediaType", "value": "VIDEO" }
+          ]
+        }
+      },
+
+      "sync": {
+        "interval": 300
+      }
+    },
+    {
+      "name": "wix-music-podcasts",
+      "description": "Audio assets stored in Media Manager for Wix Music and podcast playback",
+      "dashboardUrl": "https://manage.wix.com/dashboard/YOUR_SITE_ID_HERE/media-manager",
+
+      "pull": {
+        "method": "POST",
+        "url": "https://www.wixapis.com/site-media/v1/files/search",
+        "type": "media",
+        "body": {
+          "paging": {
+            "limit": 100
+          }
+        },
+        "dataPath": "$.files",
+        "mediaConfig": {
+          "urlField": "url",
+          "filenameField": "displayName",
+          "idField": "id",
+          "sizeField": "sizeInBytes",
+          "hashField": "hash"
+        }
+      },
+
+      "push": {
+        "create": {
+          "method": "POST",
+          "url": "https://www.wixapis.com/site-media/v1/files/generate-upload-url"
+        }
+      },
+
+      "fileMapping": {
+        "strategy": "mirror",
+        "directory": "wix-music-podcasts",
+        "format": "raw",
+        "idField": "id",
+        "transforms": {
+          "pull": [
+            { "op": "match", "field": "mediaType", "value": "AUDIO" }
+          ]
+        }
+      },
+
+      "sync": {
+        "interval": 300
+      }
+    },
+    {
+      "name": "bookings-services",
+      "description": "Wix Bookings services as a CSV spreadsheet",
+      "dashboardUrl": "https://manage.wix.com/dashboard/YOUR_SITE_ID_HERE/bookings/services",
+
+      "pull": {
+        "method": "POST",
+        "url": "https://www.wixapis.com/bookings/v2/services/query",
+        "body": {
+          "query": {
+            "paging": {
+              "limit": 100
+            }
+          }
+        },
+        "dataPath": "$.services"
+      },
+
+      "pagination": {
+        "type": "body",
+        "pageSize": 100,
+        "limitField": "query.paging.limit",
+        "cursorField": "query.paging.cursor",
+        "nextCursorPath": "$.pagingMetadata.cursors.next"
+      },
+
+      "push": {
+        "create": {
+          "method": "POST",
+          "url": "https://www.wixapis.com/bookings/v2/services",
+          "bodyWrapper": "service"
+        },
+        "update": {
+          "method": "PATCH",
+          "url": "https://www.wixapis.com/bookings/v2/services/{id}",
+          "bodyWrapper": "service"
+        },
+        "delete": {
+          "method": "DELETE",
+          "url": "https://www.wixapis.com/bookings/v2/services/{id}"
+        }
+      },
+
+      "fileMapping": {
+        "strategy": "collection",
+        "directory": "bookings",
+        "filename": "services.csv",
+        "format": "csv",
+        "idField": "id",
+        "pushMode": "custom",
+        "transforms": {
+          "pull": [
+            { "op": "rename", "from": "defaultCapacity", "to": "capacity" },
+            { "op": "rename", "from": "onlineBooking.enabled", "to": "onlineBookingEnabled" },
+            { "op": "omit", "fields": ["onlineBooking", "staffMemberIds", "schedule", "payment", "form", "locations", "category", "media", "links", "sortOrder", "tagLine", "description", "bookingPolicy", "extendedFields"] }
+          ],
+          "push": [
+            { "op": "omit", "fields": ["id", "type", "capacity", "onlineBookingEnabled", "createdDate", "updatedDate"] }
+          ]
+        }
+      },
+
+      "sync": {
+        "interval": 120
+      }
+    },
+    {
+      "name": "bookings-appointments",
+      "description": "Wix Bookings customer appointments and bookings",
+      "dashboardUrl": "https://manage.wix.com/dashboard/YOUR_SITE_ID_HERE/bookings/calendar",
+
+      "pull": {
+        "method": "POST",
+        "url": "https://www.wixapis.com/bookings/v2/bookings/query",
+        "body": {
+          "query": {
+            "paging": {
+              "limit": 100
+            }
+          }
+        },
+        "dataPath": "$.bookings"
+      },
+
+      "pagination": {
+        "type": "body",
+        "pageSize": 100,
+        "limitField": "query.paging.limit",
+        "cursorField": "query.paging.cursor",
+        "nextCursorPath": "$.pagingMetadata.cursors.next"
+      },
+
+      "fileMapping": {
+        "strategy": "collection",
+        "directory": "bookings",
+        "filename": "appointments.csv",
+        "format": "csv",
+        "idField": "id",
+        "readOnly": true,
+        "transforms": {
+          "pull": [
+            { "op": "rename", "from": "bookedEntity.title", "to": "serviceName" },
+            { "op": "rename", "from": "contactDetails.firstName", "to": "guestFirstName" },
+            { "op": "rename", "from": "contactDetails.lastName", "to": "guestLastName" },
+            { "op": "rename", "from": "contactDetails.email", "to": "guestEmail" },
+            { "op": "omit", "fields": ["bookedEntity", "contactDetails", "paymentDetails", "additionalFields", "extendedFields"] }
+          ]
+        }
+      },
+
+      "sync": {
+        "interval": 120
+      }
+    },
+    {
+      "name": "groups",
+      "description": "Wix Groups as a CSV spreadsheet",
+      "dashboardUrl": "https://manage.wix.com/dashboard/YOUR_SITE_ID_HERE/groups",
+
+      "pull": {
+        "method": "POST",
+        "url": "https://www.wixapis.com/social-groups-proxy/groups/v2/groups/query",
+        "body": {
+          "paging": {
+            "limit": 100
+          }
+        },
+        "dataPath": "$.groups"
+      },
+
+      "push": {
+        "create": {
+          "method": "POST",
+          "url": "https://www.wixapis.com/social-groups/v2/groups",
+          "bodyWrapper": "group"
+        },
+        "update": {
+          "method": "PATCH",
+          "url": "https://www.wixapis.com/social-groups/v2/groups/{id}",
+          "bodyWrapper": "group"
+        },
+        "delete": {
+          "method": "DELETE",
+          "url": "https://www.wixapis.com/social-groups/v2/groups/{id}"
+        }
+      },
+
+      "fileMapping": {
+        "strategy": "collection",
+        "directory": ".",
+        "filename": "groups.csv",
+        "format": "csv",
+        "idField": "id",
+        "pushMode": "custom",
+        "transforms": {
+          "pull": [
+            { "op": "rename", "from": "settings.memberWelcomeMessage", "to": "welcomeMessage" },
+            { "op": "omit", "fields": ["settings", "coverImage", "details", "createdBy", "recentActivityDate", "lastActivityDate", "pendingMembersCount"] }
+          ],
+          "push": [
+            { "op": "set", "field": "title", "value": "{name}" },
+            { "op": "set", "field": "createdBy.id", "value": "{ownerId}" },
+            { "op": "set", "field": "createdBy.identityType", "value": "MEMBER" },
+            { "op": "omit", "fields": ["id", "slug", "createdDate", "updatedDate", "memberCount", "membersCount", "welcomeMessage", "ownerId", "privacyLevel"] }
+          ]
+        }
+      },
+
+      "sync": {
+        "interval": 300
+      }
+    },
+    {
+      "name": "comments",
+      "description": "Wix Comments as a CSV spreadsheet",
+      "dashboardUrl": "https://manage.wix.com/dashboard/YOUR_SITE_ID_HERE/comments",
+
+      "pull": {
+        "method": "POST",
+        "url": "https://www.wixapis.com/comments/v1/comments/query",
+        "body": {
+          "appId": "14bcded7-0066-7c35-14d7-466cb3f09103",
+          "query": {
+            "paging": {
+              "limit": 100
+            }
+          }
+        },
+        "dataPath": "$.comments"
+      },
+
+      "push": {
+        "create": {
+          "method": "POST",
+          "url": "https://www.wixapis.com/comments/v1/comments",
+          "bodyWrapper": "comment"
+        },
+        "update": {
+          "method": "PATCH",
+          "url": "https://www.wixapis.com/comments/v1/comments/{id}",
+          "bodyWrapper": "comment"
+        },
+        "delete": {
+          "method": "DELETE",
+          "url": "https://www.wixapis.com/comments/v1/comments/{id}"
+        }
+      },
+
+      "fileMapping": {
+        "strategy": "collection",
+        "directory": ".",
+        "filename": "comments.csv",
+        "format": "csv",
+        "idField": "id",
+        "pushMode": "custom",
+        "transforms": {
+          "pull": [
+            { "op": "rename", "from": "author.memberId", "to": "authorMemberId" },
+            { "op": "rename", "from": "content.plainText", "to": "text" },
+            { "op": "omit", "fields": ["author", "content", "voteSummary", "replyCount"] }
+          ],
+          "push": [
+            { "op": "set", "field": "appId", "value": "14bcded7-0066-7c35-14d7-466cb3f09103" },
+            { "op": "set", "field": "content.plainText", "value": "{text}" },
+            { "op": "omit", "fields": ["id", "authorMemberId", "createdDate", "updatedDate", "status", "text"] }
+          ]
+        }
+      },
+
+      "sync": {
+        "interval": 300
       }
     },
     {
@@ -331,6 +811,7 @@
         "idField": "id",
         "transforms": {
           "pull": [
+            { "op": "match", "field": "displayNamespace", "value": "" },
             { "op": "set", "field": "_url", "value": "https://manage.wix.com/dashboard/YOUR_SITE_ID_HERE/wix-cms/data/{id}" }
           ],
           "push": [

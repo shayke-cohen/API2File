@@ -81,6 +81,8 @@ final class AgentGuideGeneratorTests: XCTestCase {
         // How it works
         XCTAssertTrue(guide.contains("## How it works"))
         XCTAssertTrue(guide.contains("Files sync bidirectionally"))
+        XCTAssertTrue(guide.contains("structured canonical records"))
+        XCTAssertTrue(guide.contains(".api2file/file-links.json"))
 
         // Control API with correct port
         XCTAssertTrue(guide.contains("## Control API (localhost:24842)"))
@@ -140,6 +142,34 @@ final class AgentGuideGeneratorTests: XCTestCase {
         // Control API
         XCTAssertTrue(guide.contains("curl localhost:24842/api/services/monday/sync"))
         XCTAssertTrue(guide.contains("curl localhost:24842/api/services/monday/status"))
+
+        // Canonical/projection guidance
+        XCTAssertTrue(guide.contains("Hidden `.*.objects.json` files hold the structured canonical records"))
+        XCTAssertTrue(guide.contains("`.api2file/file-links.json` links each projection to its canonical object file."))
+        XCTAssertTrue(guide.contains("Human-facing files are decoded back into canonical records before push"))
+    }
+
+    func testWixServiceGuideMentionsRicosMarkdownFlow() {
+        let config = makeConfig(
+            service: "wix",
+            displayName: "Wix",
+            resources: [
+                makeResource(
+                    name: "blog-posts",
+                    strategy: .onePerRecord,
+                    directory: "blog",
+                    format: .markdown
+                )
+            ]
+        )
+
+        let guide = AgentGuideGenerator.generateServiceGuide(
+            config: config,
+            serverPort: 24842
+        )
+
+        XCTAssertTrue(guide.contains("Wix blog Markdown files are converted to and from Wix Ricos rich content during sync"))
+        XCTAssertFalse(guide.contains("Some current builds may still auto-push primarily from the human-facing files"))
     }
 
     func testCSVResourceIncludesIdColumnWarning() {
@@ -298,5 +328,6 @@ final class AgentGuideGeneratorTests: XCTestCase {
 
         XCTAssertTrue(guide.contains("## Constraints"))
         XCTAssertTrue(guide.contains("Don't modify files in `.api2file/`"))
+        XCTAssertTrue(guide.contains("Prefer the hidden `.*.objects.json` files for high-fidelity agent edits"))
     }
 }

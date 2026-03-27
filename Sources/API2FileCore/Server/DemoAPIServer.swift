@@ -33,8 +33,13 @@ public actor DemoAPIServer {
     private var wixContacts: [DemoWixContact] = []
     private var wixBlogPosts: [DemoWixBlogPost] = []
     private var wixProducts: [DemoWixProduct] = []
+    private var wixMediaFiles: [DemoWixMediaFile] = []
     private var wixBookings: [DemoWixBooking] = []
+    private var wixAppointments: [DemoWixAppointment] = []
+    private var wixGroups: [DemoWixGroup] = []
+    private var wixComments: [DemoWixComment] = []
     private var wixCollections: [DemoWixCollection] = []
+    private var wixCollectionItems: [String: [DemoWixCollectionItem]] = [:]
 
     // Auto-increment counters
     private var nextTaskId: Int = 1
@@ -94,8 +99,13 @@ public actor DemoAPIServer {
         self.wixContacts = DemoWixContact.seedData
         self.wixBlogPosts = DemoWixBlogPost.seedData
         self.wixProducts = DemoWixProduct.seedData
+        self.wixMediaFiles = DemoWixMediaFile.seedData
         self.wixBookings = DemoWixBooking.seedData
+        self.wixAppointments = DemoWixAppointment.seedData
+        self.wixGroups = DemoWixGroup.seedData
+        self.wixComments = DemoWixComment.seedData
         self.wixCollections = DemoWixCollection.seedData
+        self.wixCollectionItems = DemoWixCollectionItem.seedData
     }
 
     private func seedAll() {
@@ -154,8 +164,13 @@ public actor DemoAPIServer {
         wixContacts = DemoWixContact.seedData
         wixBlogPosts = DemoWixBlogPost.seedData
         wixProducts = DemoWixProduct.seedData
+        wixMediaFiles = DemoWixMediaFile.seedData
         wixBookings = DemoWixBooking.seedData
+        wixAppointments = DemoWixAppointment.seedData
+        wixGroups = DemoWixGroup.seedData
+        wixComments = DemoWixComment.seedData
         wixCollections = DemoWixCollection.seedData
+        wixCollectionItems = DemoWixCollectionItem.seedData
     }
 
     // MARK: - Lifecycle
@@ -212,8 +227,14 @@ public actor DemoAPIServer {
                 print("[DemoAPI]   GET            /api/wix/contacts   — Wix CRM contacts")
                 print("[DemoAPI]   GET            /api/wix/posts      — Wix blog posts")
                 print("[DemoAPI]   GET            /api/wix/products   — Wix store products")
+                print("[DemoAPI]   GET            /api/wix/media      — Wix media manager files")
+                print("[DemoAPI]   GET            /api/wix/assets/:id — Raw asset download")
                 print("[DemoAPI]   GET            /api/wix/services   — Wix bookings services")
+                print("[DemoAPI]   GET            /api/wix/appointments — Wix booking appointments")
+                print("[DemoAPI]   GET            /api/wix/groups     — Wix groups")
+                print("[DemoAPI]   GET            /api/wix/comments   — Wix comments")
                 print("[DemoAPI]   GET            /api/wix/collections — Wix CMS collections")
+                print("[DemoAPI]   GET            /api/wix/collections/:id/items — Wix CMS collection items")
             }
         }
 
@@ -505,7 +526,11 @@ public actor DemoAPIServer {
         <ul><li><a href="/api/wix/contacts">/api/wix/contacts</a></li>
         <li><a href="/api/wix/posts">/api/wix/posts</a></li>
         <li><a href="/api/wix/products">/api/wix/products</a></li>
+        <li><a href="/api/wix/media">/api/wix/media</a></li>
         <li><a href="/api/wix/services">/api/wix/services</a></li>
+        <li><a href="/api/wix/appointments">/api/wix/appointments</a></li>
+        <li><a href="/api/wix/groups">/api/wix/groups</a></li>
+        <li><a href="/api/wix/comments">/api/wix/comments</a></li>
         <li><a href="/api/wix/collections">/api/wix/collections</a></li></ul>
         </body></html>
         """
@@ -701,8 +726,13 @@ public actor DemoAPIServer {
           <a href="/api/wix/contacts" class="wix-link">Contacts (\(wixContacts.count))</a>
           <a href="/api/wix/posts" class="wix-link">Blog Posts (\(wixBlogPosts.count))</a>
           <a href="/api/wix/products" class="wix-link">Products (\(wixProducts.count))</a>
-          <a href="/api/wix/services" class="wix-link">Bookings (\(wixBookings.count))</a>
+          <a href="/api/wix/media" class="wix-link">Media (\(wixMediaFiles.count))</a>
+          <a href="/api/wix/services" class="wix-link">Services (\(wixBookings.count))</a>
+          <a href="/api/wix/appointments" class="wix-link">Appointments (\(wixAppointments.count))</a>
+          <a href="/api/wix/groups" class="wix-link">Groups (\(wixGroups.count))</a>
+          <a href="/api/wix/comments" class="wix-link">Comments (\(wixComments.count))</a>
           <a href="/api/wix/collections" class="wix-link">Collections (\(wixCollections.count))</a>
+          <a href="/api/wix/collections/col-002/items" class="wix-link">CMS Items (\(wixCollectionItems.values.reduce(0) { $0 + $1.count }))</a>
         </div>
         """
 
@@ -1873,9 +1903,10 @@ public actor DemoAPIServer {
     // MARK: - Wix Routes (wrapped JSON responses)
 
     private func routeWix(method: String, path: String, body: Data?, connection: NWConnection) {
-        // Extract sub-resource from /api/wix/{resource}
         let suffix = String(path.dropFirst("/api/wix/".count))
-        let resource = suffix.split(separator: "/").first.map(String.init) ?? suffix
+        let parts = suffix.split(separator: "/").map(String.init)
+        let resource = parts.first ?? suffix
+        let baseURL = "http://localhost:\(port)"
 
         switch (method, resource) {
         case ("GET", "contacts"):
@@ -1883,20 +1914,53 @@ public actor DemoAPIServer {
             sendJSONDict(statusCode: 200, body: ["contacts": items], connection: connection)
 
         case ("GET", "posts"):
-            let items = wixBlogPosts.map { $0.toDict() }
-            sendJSONDict(statusCode: 200, body: ["posts": items], connection: connection)
+            if parts.count >= 2, let post = wixBlogPosts.first(where: { $0.id == parts[1] }) {
+                sendJSONDict(statusCode: 200, body: ["post": post.toDetailDict()], connection: connection)
+            } else {
+                let items = wixBlogPosts.map { $0.toSummaryDict() }
+                sendJSONDict(statusCode: 200, body: ["posts": items], connection: connection)
+            }
 
         case ("GET", "products"):
             let items = wixProducts.map { $0.toDict() }
             sendJSONDict(statusCode: 200, body: ["products": items], connection: connection)
 
+        case ("GET", "media"):
+            let items = wixMediaFiles.map { $0.toDict(baseURL: baseURL) }
+            sendJSONDict(statusCode: 200, body: ["files": items], connection: connection)
+
+        case ("GET", "assets"):
+            guard parts.count >= 2,
+                  let asset = wixMediaFiles.first(where: { $0.id == parts[1] }) else {
+                sendJSON(statusCode: 404, body: ["error": "Asset not found"], connection: connection)
+                return
+            }
+            sendBinaryResponse(statusCode: 200, body: asset.binaryData, contentType: asset.mimeType, connection: connection)
+
         case ("GET", "services"):
             let items = wixBookings.map { $0.toDict() }
             sendJSONDict(statusCode: 200, body: ["services": items], connection: connection)
 
+        case ("GET", "appointments"):
+            let items = wixAppointments.map { $0.toDict() }
+            sendJSONDict(statusCode: 200, body: ["bookings": items], connection: connection)
+
+        case ("GET", "groups"):
+            let items = wixGroups.map { $0.toDict() }
+            sendJSONDict(statusCode: 200, body: ["groups": items], connection: connection)
+
+        case ("GET", "comments"):
+            let items = wixComments.map { $0.toDict() }
+            sendJSONDict(statusCode: 200, body: ["comments": items], connection: connection)
+
         case ("GET", "collections"):
-            let items = wixCollections.map { $0.toDict() }
-            sendJSONDict(statusCode: 200, body: ["collections": items], connection: connection)
+            if parts.count >= 3, parts[2] == "items" {
+                let items = (wixCollectionItems[parts[1]] ?? []).map { $0.toDict() }
+                sendJSONDict(statusCode: 200, body: ["dataItems": items], connection: connection)
+            } else {
+                let items = wixCollections.map { $0.toDict() }
+                sendJSONDict(statusCode: 200, body: ["collections": items], connection: connection)
+            }
 
         default:
             sendJSON(statusCode: 404, body: ["error": "Not Found"], connection: connection)
@@ -1952,6 +2016,24 @@ public actor DemoAPIServer {
     private func sendJSONArray(statusCode: Int, body: [[String: Any]], connection: NWConnection) {
         let jsonData = (try? JSONSerialization.data(withJSONObject: body, options: [.sortedKeys])) ?? Data()
         sendRawResponse(statusCode: statusCode, body: jsonData, connection: connection)
+    }
+
+    private func sendBinaryResponse(statusCode: Int, body: Data, contentType: String, connection: NWConnection) {
+        let statusText: String
+        switch statusCode {
+        case 200: statusText = "OK"
+        case 201: statusText = "Created"
+        case 400: statusText = "Bad Request"
+        case 404: statusText = "Not Found"
+        default: statusText = "Unknown"
+        }
+
+        let header = "HTTP/1.1 \(statusCode) \(statusText)\r\nContent-Type: \(contentType)\r\nContent-Length: \(body.count)\r\nConnection: close\r\n\r\n"
+        var data = Data(header.utf8)
+        data.append(body)
+        connection.send(content: data, completion: .contentProcessed { _ in
+            connection.cancel()
+        })
     }
 
     private func sendRawResponse(statusCode: Int, body: Data, connection: NWConnection) {
@@ -2459,15 +2541,25 @@ public struct DemoWixBlogPost: Codable, Sendable {
     public var published: Bool
     public var firstPublishedDate: String
 
-    public func toDict() -> [String: Any] {
+    public var contentText: String {
+        richContent
+    }
+
+    public func toSummaryDict() -> [String: Any] {
         [
             "id": id,
             "title": title,
             "slug": slug,
-            "richContent": richContent,
             "published": published,
             "firstPublishedDate": firstPublishedDate
         ]
+    }
+
+    public func toDetailDict() -> [String: Any] {
+        var dict = toSummaryDict()
+        dict["richContent"] = richContent
+        dict["contentText"] = contentText
+        return dict
     }
 
     static let seedData: [DemoWixBlogPost] = [
@@ -2563,6 +2655,80 @@ public struct DemoWixProduct: Codable, Sendable {
     ]
 }
 
+// MARK: - Demo Wix Media File Model
+
+public struct DemoWixMediaFile: Codable, Sendable {
+    public var id: String
+    public var displayName: String
+    public var mediaType: String
+    public var mimeType: String
+    public var hash: String
+    public var data: String
+
+    public var sizeInBytes: Int {
+        Data(base64Encoded: data)?.count ?? 0
+    }
+
+    public var binaryData: Data {
+        Data(base64Encoded: data) ?? Data()
+    }
+
+    public func toDict(baseURL: String) -> [String: Any] {
+        [
+            "id": id,
+            "displayName": displayName,
+            "mediaType": mediaType,
+            "mimeType": mimeType,
+            "hash": hash,
+            "sizeInBytes": sizeInBytes,
+            "url": "\(baseURL)/api/wix/assets/\(id)"
+        ]
+    }
+
+    static let seedData: [DemoWixMediaFile] = [
+        DemoWixMediaFile(
+            id: "media-001-image",
+            displayName: "homepage-hero.png",
+            mediaType: "IMAGE",
+            mimeType: "image/png",
+            hash: "hash-homepage-hero",
+            data: "iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAEUlEQVR4nGO4Y2SEFTEMLQkAbRlQAcgCOpkAAAAASUVORK5CYII="
+        ),
+        DemoWixMediaFile(
+            id: "media-002-image",
+            displayName: "gallery-shot.png",
+            mediaType: "IMAGE",
+            mimeType: "image/png",
+            hash: "hash-gallery-shot",
+            data: "iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAEUlEQVR4nGMwSrmDFTEMLQkA+lVcgb/xykQAAAAASUVORK5CYII="
+        ),
+        DemoWixMediaFile(
+            id: "media-003-pdf",
+            displayName: "pricing-guide.pdf",
+            mediaType: "DOCUMENT",
+            mimeType: "application/pdf",
+            hash: "hash-pricing-guide",
+            data: "JVBERi0xLjQKMSAwIG9iajw8L1R5cGUvQ2F0YWxvZy9QYWdlcyAyIDAgUj4+ZW5kb2JqCjIgMCBvYmo8PC9UeXBlL1BhZ2VzL0tpZHNbMyAwIFJdL0NvdW50IDE+PmVuZG9iagozIDAgb2JqPDwvVHlwZS9QYWdlL01lZGlhQm94WzAgMCA2MTIgNzkyXS9QYXJlbnQgMiAwIFIvUmVzb3VyY2VzPDwvRm9udDw8L0YxIDQgMCBSPj4+Pi9Db250ZW50cyA1IDAgUj4+ZW5kb2JqCjQgMCBvYmo8PC9UeXBlL0ZvbnQvU3VidHlwZS9UeXBlMS9CYXNlRm9udC9IZWx2ZXRpY2E+PmVuZG9iago1IDAgb2JqPDwvTGVuZ3RoIDExNj4+CnN0cmVhbQpCVCAvRjEgMTggVGYgNzIgNzAwIFRkIChRMSBSZXBvcnQpIFRqIDAgLTMwIFRkIC9GMSAxMiBUZiAoUmV2ZW51ZSB1cCAyMyBwZXJjZW50LiBBY3RpdmUgdXNlcnMgcmVhY2hlZCA1MCwwMDAuKSBUaiBFVAplbmRzdHJlYW0KZW5kb2JqCnhyZWYKMCA2CjAwMDAwMDAwMDAgNjU1MzUgZiAKMDAwMDAwMDAwOSAwMDAwMCBuIAowMDAwMDAwMDU4IDAwMDAwIG4gCjAwMDAwMDAxMTUgMDAwMDAgbiAKMDAwMDAwMDI2NiAwMDAwMCBuIAowMDAwMDAwMzQwIDAwMDAwIG4gCnRyYWlsZXI8PC9TaXplIDYvUm9vdCAxIDAgUj4+CnN0YXJ0eHJlZgo1MTYKJSVFT0Y="
+        ),
+        DemoWixMediaFile(
+            id: "media-004-video",
+            displayName: "launch-teaser.mp4",
+            mediaType: "VIDEO",
+            mimeType: "video/mp4",
+            hash: "hash-launch-teaser",
+            data: "RkFLRS1NUDQtREFUQS1GT1ItREVNTw=="
+        ),
+        DemoWixMediaFile(
+            id: "media-005-audio",
+            displayName: "podcast-intro.mp3",
+            mediaType: "AUDIO",
+            mimeType: "audio/mpeg",
+            hash: "hash-podcast-intro",
+            data: "RkFLRS1NUDMtREFUQS1GT1ItREVNTw=="
+        ),
+    ]
+}
+
 // MARK: - Demo Wix Booking Model
 
 public struct DemoWixBooking: Codable, Sendable {
@@ -2604,6 +2770,175 @@ public struct DemoWixBooking: Codable, Sendable {
     ]
 }
 
+// MARK: - Demo Wix Appointment Model
+
+public struct DemoWixAppointment: Codable, Sendable {
+    public var id: String
+    public var startDate: String
+    public var endDate: String
+    public var status: String
+    public var bookedEntity: BookedEntity
+    public var contactDetails: ContactDetails
+
+    public struct BookedEntity: Codable, Sendable {
+        public var title: String
+
+        public func toDict() -> [String: Any] {
+            ["title": title]
+        }
+    }
+
+    public struct ContactDetails: Codable, Sendable {
+        public var firstName: String
+        public var lastName: String
+        public var email: String
+
+        public func toDict() -> [String: Any] {
+            ["firstName": firstName, "lastName": lastName, "email": email]
+        }
+    }
+
+    public func toDict() -> [String: Any] {
+        [
+            "id": id,
+            "startDate": startDate,
+            "endDate": endDate,
+            "status": status,
+            "bookedEntity": bookedEntity.toDict(),
+            "contactDetails": contactDetails.toDict()
+        ]
+    }
+
+    static let seedData: [DemoWixAppointment] = [
+        DemoWixAppointment(
+            id: "appt-001",
+            startDate: "2026-03-24T09:00:00Z",
+            endDate: "2026-03-24T09:30:00Z",
+            status: "CONFIRMED",
+            bookedEntity: BookedEntity(title: "One-on-One Consultation"),
+            contactDetails: ContactDetails(firstName: "Alice", lastName: "Johnson", email: "alice@example.com")
+        ),
+        DemoWixAppointment(
+            id: "appt-002",
+            startDate: "2026-03-25T14:00:00Z",
+            endDate: "2026-03-25T16:00:00Z",
+            status: "PENDING",
+            bookedEntity: BookedEntity(title: "Group Workshop"),
+            contactDetails: ContactDetails(firstName: "Bob", lastName: "Smith", email: "bob@example.com")
+        ),
+    ]
+}
+
+// MARK: - Demo Wix Group Model
+
+public struct DemoWixGroup: Codable, Sendable {
+    public var id: String
+    public var name: String
+    public var slug: String
+    public var description: String
+    public var memberCount: Int
+    public var ownerId: String
+    public var settings: Settings
+
+    public struct Settings: Codable, Sendable {
+        public var memberWelcomeMessage: String
+
+        public func toDict() -> [String: Any] {
+            ["memberWelcomeMessage": memberWelcomeMessage]
+        }
+    }
+
+    public func toDict() -> [String: Any] {
+        [
+            "id": id,
+            "name": name,
+            "slug": slug,
+            "description": description,
+            "memberCount": memberCount,
+            "ownerId": ownerId,
+            "settings": settings.toDict()
+        ]
+    }
+
+    static let seedData: [DemoWixGroup] = [
+        DemoWixGroup(
+            id: "group-001",
+            name: "Founders Circle",
+            slug: "founders-circle",
+            description: "A private group for launch partners and early members.",
+            memberCount: 42,
+            ownerId: "member-001",
+            settings: Settings(memberWelcomeMessage: "Welcome to the founders circle.")
+        ),
+        DemoWixGroup(
+            id: "group-002",
+            name: "Workshop Alumni",
+            slug: "workshop-alumni",
+            description: "Past workshop attendees sharing templates and follow-ups.",
+            memberCount: 118,
+            ownerId: "member-002",
+            settings: Settings(memberWelcomeMessage: "Introduce yourself and share what you build.")
+        ),
+    ]
+}
+
+// MARK: - Demo Wix Comment Model
+
+public struct DemoWixComment: Codable, Sendable {
+    public var id: String
+    public var entityId: String
+    public var status: String
+    public var createdDate: String
+    public var author: Author
+    public var content: Content
+
+    public struct Author: Codable, Sendable {
+        public var memberId: String
+
+        public func toDict() -> [String: Any] {
+            ["memberId": memberId]
+        }
+    }
+
+    public struct Content: Codable, Sendable {
+        public var plainText: String
+
+        public func toDict() -> [String: Any] {
+            ["plainText": plainText]
+        }
+    }
+
+    public func toDict() -> [String: Any] {
+        [
+            "id": id,
+            "entityId": entityId,
+            "status": status,
+            "createdDate": createdDate,
+            "author": author.toDict(),
+            "content": content.toDict()
+        ]
+    }
+
+    static let seedData: [DemoWixComment] = [
+        DemoWixComment(
+            id: "comment-001",
+            entityId: "bp-001-aaaa-bbbb-cccc",
+            status: "VISIBLE",
+            createdDate: "2026-03-18T09:30:00Z",
+            author: Author(memberId: "member-100"),
+            content: Content(plainText: "This walkthrough made the first sync flow much clearer.")
+        ),
+        DemoWixComment(
+            id: "comment-002",
+            entityId: "bp-002-dddd-eeee-ffff",
+            status: "VISIBLE",
+            createdDate: "2026-03-19T11:00:00Z",
+            author: Author(memberId: "member-101"),
+            content: Content(plainText: "Would love an example for media-heavy collections too.")
+        ),
+    ]
+}
+
 // MARK: - Demo Wix Collection Model
 
 public struct DemoWixCollection: Codable, Sendable {
@@ -2625,6 +2960,42 @@ public struct DemoWixCollection: Codable, Sendable {
         DemoWixCollection(id: "col-001", displayName: "Blog Posts", fields: 8, items: 24),
         DemoWixCollection(id: "col-002", displayName: "Products", fields: 12, items: 156),
         DemoWixCollection(id: "col-003", displayName: "Team Members", fields: 6, items: 8),
+    ]
+}
+
+// MARK: - Demo Wix Collection Item Model
+
+public struct DemoWixCollectionItem: Codable, Sendable {
+    public var id: String
+    public var title: String
+    public var slug: String
+    public var status: String
+    public var collectionId: String
+
+    public func toDict() -> [String: Any] {
+        [
+            "id": id,
+            "title": title,
+            "slug": slug,
+            "status": status,
+            "collectionId": collectionId
+        ]
+    }
+
+    static let seedData: [String: [DemoWixCollectionItem]] = [
+        "col-001": [
+            DemoWixCollectionItem(id: "item-blog-001", title: "Getting Started with API2File", slug: "getting-started-with-api2file", status: "PUBLISHED", collectionId: "col-001"),
+            DemoWixCollectionItem(id: "item-blog-002", title: "Advanced Sync Patterns", slug: "advanced-sync-patterns", status: "PUBLISHED", collectionId: "col-001"),
+        ],
+        "col-002": [
+            DemoWixCollectionItem(id: "item-product-001", title: "Wireless Mouse", slug: "wireless-mouse", status: "VISIBLE", collectionId: "col-002"),
+            DemoWixCollectionItem(id: "item-product-002", title: "USB-C Hub", slug: "usb-c-hub", status: "VISIBLE", collectionId: "col-002"),
+            DemoWixCollectionItem(id: "item-product-003", title: "Developer Sticker Pack", slug: "developer-sticker-pack", status: "HIDDEN", collectionId: "col-002"),
+        ],
+        "col-003": [
+            DemoWixCollectionItem(id: "item-team-001", title: "Alice Johnson", slug: "alice-johnson", status: "ACTIVE", collectionId: "col-003"),
+            DemoWixCollectionItem(id: "item-team-002", title: "Bob Smith", slug: "bob-smith", status: "ACTIVE", collectionId: "col-003"),
+        ],
     ]
 }
 

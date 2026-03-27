@@ -4,6 +4,8 @@
 
 API2File is a native macOS sync engine built in pure Swift with zero external dependencies. It uses a layered architecture: a top-level **SyncEngine** orchestrates multiple **AdapterEngine** instances (one per connected service), each interpreting a JSON config to handle API communication, data transformation, and file I/O.
 
+The design direction is a **canonical object-file model**: every resource has a structured JSON representation stored in hidden object files, and one or more human-facing files generated from that canonical data for native desktop apps and agent workflows.
+
 ## System Architecture
 
 ```
@@ -27,8 +29,9 @@ API2File is a native macOS sync engine built in pure Swift with zero external de
 │  ┌───────▼──────────────────▼──────────────────▼──────┐ │
 │  │              Shared Infrastructure                  │ │
 │  │  HTTPClient · TransformPipeline · FormatConverters  │ │
-│  │  FileMapper · GitManager · KeychainManager          │ │
-│  │  SyncCoordinator · FileWatcher · NetworkMonitor     │ │
+│  │  FileMapper · ObjectFileManager · GitManager        │ │
+│  │  KeychainManager · SyncCoordinator · FileWatcher    │ │
+│  │  NetworkMonitor                                     │ │
 │  └────────────────────────────────────────────────────┘ │
 └─────────────────────────────────────────────────────────┘
 ```
@@ -61,17 +64,19 @@ The heart of the system. Interprets adapter JSON configs to perform bidirectiona
 **Pull flow:**
 1. HTTPClient fetches data from API endpoint
 2. JSONPath extracts records from response (`$.data.items[*]`)
-3. TransformPipeline applies pull transforms (pick, omit, rename, etc.)
-4. FileMapper determines file paths based on mapping strategy
-5. FormatConverter encodes records to the target format (CSV, JSON, ICS, etc.)
-6. Files written to disk, SyncState updated
+3. Raw records are persisted to canonical object files
+4. TransformPipeline applies pull transforms (pick, omit, rename, etc.)
+5. FileMapper determines file paths based on mapping strategy
+6. FormatConverter encodes records to the target human-facing format (CSV, JSON, ICS, etc.)
+7. Human-facing files written to disk, SyncState updated
 
 **Push flow:**
-1. FormatConverter decodes local file back to records
-2. TransformPipeline applies push transforms
-3. Diff against SyncState to determine creates, updates, deletes
-4. HTTPClient sends appropriate API calls (POST/PUT/DELETE)
-5. SyncState updated on success
+1. A canonical object file change uses its structured records directly
+2. A human-facing file change is decoded back into canonical structured records
+3. TransformPipeline applies push transforms
+4. Diff against the previous canonical records to determine creates, updates, deletes
+5. HTTPClient sends appropriate API calls (POST/PUT/DELETE)
+6. Canonical object files and human-facing projections are regenerated on success
 
 **Pagination:** Supports cursor-based, offset-based, and page-based pagination — configured per resource in the adapter JSON.
 
@@ -157,6 +162,30 @@ Maps API records to filesystem paths based on the adapter's `fileMapping` config
 - `collection` — all records written to a single file (`tasks.csv`)
 - `mirror` — preserves remote directory structure
 
+### ObjectFileManager
+
+**File:** `Sources/API2FileCore/Adapters/ObjectFileManager.swift`
+
+Maintains the hidden structured JSON files that sit next to user-facing files.
+
+- `collection` resources use `.{stem}.objects.json`
+- `one-per-record` resources use `.objects/{stem}.json`
+- Stores the canonical local record model used for diffing, regeneration, and high-fidelity agent edits
+- Maps between canonical object-file paths and user-facing projection paths
+- Object-file edits are watched and pushed through the same sync engine as human-facing files
+
+### FileLinkManager
+
+**File:** `Sources/API2FileCore/Core/FileLinkManager.swift`
+
+Persists `.api2file/file-links.json`, which records the relationship between:
+
+- the human-facing projection path
+- the canonical object-file path
+- the resource name and remote ID
+
+This explicit link index lets the engine route edits on either surface back to the same canonical record safely.
+
 ### GitManager
 
 **File:** `Sources/API2FileCore/Core/GitManager.swift`
@@ -188,6 +217,8 @@ Auto-generates `CLAUDE.md` files from adapter configs so AI agents (Claude Code,
 
 Generates both root-level overview and per-service guides with resource inventory, editable fields, format instructions, and sync behavior.
 
+The guide content should steer agents toward the canonical object files for high-fidelity edits while still documenting the human-facing files used with native desktop apps.
+
 ## Data Flow
 
 ### Pull Cycle (Server → Local)
@@ -199,22 +230,25 @@ API Response (JSON)
 JSONPath extraction ($.data.items[*])
     │
     ▼
+Write canonical object files (`.*.objects.json` / `.objects/*.json`)
+    │
+    ▼
 TransformPipeline (pick, omit, rename, flatten, keyBy)
     │
     ▼
-FileMapper (determine file paths)
+FileMapper (determine human-facing file paths)
     │
     ▼
 FormatConverter.encode() (records → CSV/JSON/ICS/VCF/...)
     │
     ▼
-Write to ~/API2File/{service}/{path}
+Write human-facing files to ~/API2File/{service}/{path}
     │
     ▼
 Update .api2file/state.json (hash, remoteId, timestamp)
     │
     ▼
-GitManager.commitAll("sync: pull {service} — updated N files")
+GitManager.commitAll("sync: pull {service} — updated canonical + projected files")
 ```
 
 ### Push Cycle (Local → Server)
@@ -226,23 +260,45 @@ FileWatcher detects change (FSEvents)
 Debounce (500ms)
     │
     ▼
+If human-facing file changed:
 FormatConverter.decode() (CSV/JSON/ICS/VCF/... → records)
+    │
+    ▼
+Normalize into canonical object records
+    │
+    ├── For Wix Markdown rich content: call Wix Ricos conversion APIs when available
+    │   (`/ricos/v1/ricos-document/convert/from-ricos`, `/convert/to-ricos`)
     │
     ▼
 TransformPipeline (push transforms)
     │
     ▼
-Diff against SyncState (new/updated/deleted records)
+Diff against previous canonical records
     │
     ▼
 HTTPClient → POST/PUT/DELETE to API
     │
     ▼
+Rewrite canonical object files
+    │
+    ▼
+Regenerate human-facing projections
+    │
+    ▼
 Update .api2file/state.json
     │
     ▼
-GitManager.commitAll("sync: push {service} — {filename}")
+GitManager.commitAll("sync: push {service} — canonical + projections updated")
 ```
+
+## Canonical vs Projection Files
+
+- **Canonical object files** preserve the structured record shape needed for safe sync back to the server
+- **Human-facing files** are projections optimized for native apps like Numbers, Calendar, Contacts, Preview, Pages, and editors
+- A resource may map to more than one local file surface, but only the canonical structured representation is authoritative
+- Editing both the canonical and projected files before the same sync cycle should be treated as a conflict, not a merge heuristic
+- `.api2file/file-links.json` explicitly links projections to canonical object files
+- Wix blog Markdown is a projection of canonical `richContent` / Ricos data, not a raw storage format
 
 ## Config-Driven Design
 
@@ -333,7 +389,7 @@ API2FileApp.swift
 selectService → enterCredentials → connecting → done
                      │
                      ├── API key (SecureField)
-                     ├── ExtraFields (Wix: Site ID, Airtable: Base ID + Table Name)
+                     ├── ExtraFields (Wix: Site ID + Site URL, Airtable: Base ID + Table Name)
                      └── Placeholder substitution in adapter config JSON
 ```
 
@@ -345,7 +401,7 @@ Located at `Sources/API2FileCore/Resources/Adapters/`:
 | --- | --- | --- | --- |
 | `demo.adapter.json` | REST (localhost) | Bearer | 11 resources across all formats |
 | `monday.adapter.json` | GraphQL | Bearer | boards with items → CSV |
-| `wix.adapter.json` | REST (POST queries) | API key + Site ID header | contacts, products, blog, bookings |
+| `wix.adapter.json` | REST (POST queries + media pulls) | API key + Site ID header | contacts, blog, products, media assets, bookings, groups, comments, collections |
 | `github.adapter.json` | REST | Bearer (PAT) | repos, issues, gists, notifications, starred |
 | `airtable.adapter.json` | REST | Bearer (PAT) | records, bases |
 | 6 demo adapters | REST (localhost) | Bearer | teamboard, peoplehub, calsync, pagecraft, devops, mediamanager |

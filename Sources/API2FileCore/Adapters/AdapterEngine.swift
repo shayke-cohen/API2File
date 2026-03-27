@@ -152,20 +152,32 @@ public actor AdapterEngine {
             return PullResult(files: [], responseETag: fetchResult.responseETag, notModified: true)
         }
 
-        let records = fetchResult.records
-
-        // Media mode: download binary files from URLs instead of converting to formats
-        if pullConfig.type == .media, let mediaConfig = pullConfig.mediaConfig {
-            let mediaFiles = try await pullMediaFiles(records: records, resource: resource, mediaConfig: mediaConfig)
-            return PullResult(files: mediaFiles)
+        let records: [[String: Any]]
+        if let detail = pullConfig.detail, resource.fileMapping.strategy == .onePerRecord {
+            records = try await hydrateRecords(fetchResult.records, with: detail)
+        } else {
+            records = fetchResult.records
         }
 
         // Apply pull transforms
         let transforms = resource.fileMapping.transforms?.pull ?? []
         let transformed = transforms.isEmpty ? records : TransformPipeline.apply(transforms, to: records)
 
+        // Media mode: apply transforms first so config can filter/select files before download.
+        if pullConfig.type == .media, let mediaConfig = pullConfig.mediaConfig {
+            let mediaFiles = try await pullMediaFiles(records: transformed, resource: resource, mediaConfig: mediaConfig)
+            return PullResult(files: mediaFiles)
+        }
+
+        let fileRecords: [[String: Any]]
+        if shouldUseRicosDocumentConversion(for: resource) {
+            fileRecords = try await prepareMarkdownRecordsForPull(transformed, resource: resource)
+        } else {
+            fileRecords = transformed
+        }
+
         // Convert to files based on mapping strategy
-        let files = try mapToFiles(records: transformed, resource: resource)
+        let files = try mapToFiles(records: fileRecords, resource: resource)
 
         // Build raw records mapping keyed by file path.
         // Merge computed system fields (e.g. _url added by pull transforms) into raw records
@@ -209,7 +221,8 @@ public actor AdapterEngine {
     /// - Parameters:
     ///   - file: The local file that changed
     ///   - resource: The resource configuration for this file
-    public func push(file: SyncableFile, resource: ResourceConfig) async throws {
+    @discardableResult
+    public func push(file: SyncableFile, resource: ResourceConfig) async throws -> String? {
         guard !(file.readOnly) else {
             throw AdapterError.pushNotAllowed(file.relativePath)
         }
@@ -218,21 +231,136 @@ public actor AdapterEngine {
         }
 
         // Decode the file back to records
-        let records = try FormatConverterFactory.decode(
-            data: file.content,
-            format: file.format,
-            options: resource.fileMapping.formatOptions
-        )
+        let records: [[String: Any]]
+        if shouldUseRicosDocumentConversion(for: resource), file.format == .markdown {
+            records = try await decodeMarkdownRecordsForPush(data: file.content, resource: resource)
+        } else {
+            records = try FormatConverterFactory.decode(
+                data: file.content,
+                format: file.format,
+                options: resource.fileMapping.effectiveFormatOptions
+            )
+        }
 
         // Apply push transforms
         let transforms = resource.fileMapping.transforms?.push ?? []
         let transformed = transforms.isEmpty ? records : TransformPipeline.apply(transforms, to: records)
 
         // Push each record
+        var createdId: String?
         for record in transformed {
             let hasRemoteId = file.remoteId != nil
-            try await pushRecord(record, pushConfig: pushConfig, remoteId: file.remoteId, isUpdate: hasRemoteId)
+            let resultId = try await pushRecord(record, pushConfig: pushConfig, remoteId: file.remoteId, isUpdate: hasRemoteId)
+            if createdId == nil { createdId = resultId }
         }
+        return createdId
+    }
+
+    private func shouldUseRicosDocumentConversion(for resource: ResourceConfig) -> Bool {
+        guard resource.fileMapping.format == .markdown else { return false }
+        guard resource.fileMapping.effectiveFormatOptions?.fieldMapping?["richContent"] != nil else { return false }
+        return (config.globals?.baseUrl ?? "").contains("wixapis.com")
+    }
+
+    private func prepareMarkdownRecordsForPull(_ records: [[String: Any]], resource: ResourceConfig) async throws -> [[String: Any]] {
+        guard let contentField = resource.fileMapping.effectiveFormatOptions?.fieldMapping?["content"],
+              let richContentField = resource.fileMapping.effectiveFormatOptions?.fieldMapping?["richContent"] else {
+            return records
+        }
+
+        var convertedRecords: [[String: Any]] = []
+        convertedRecords.reserveCapacity(records.count)
+
+        for var record in records {
+            if let richDocument = record[richContentField] as? [String: Any] {
+                do {
+                    if let markdown = try await convertRicosDocumentToMarkdown(richDocument) {
+                        record[contentField] = markdown
+                    }
+                } catch {
+                    await ActivityLogger.shared.warn(.sync, "Wix Ricos → Markdown conversion failed for \(resource.name); falling back to local projection (\(error.localizedDescription))")
+                }
+            }
+            convertedRecords.append(record)
+        }
+
+        return convertedRecords
+    }
+
+    private func decodeMarkdownRecordsForPush(data: Data, resource: ResourceConfig) async throws -> [[String: Any]] {
+        guard let contentField = resource.fileMapping.effectiveFormatOptions?.fieldMapping?["content"],
+              let richContentField = resource.fileMapping.effectiveFormatOptions?.fieldMapping?["richContent"] else {
+            return try FormatConverterFactory.decode(
+                data: data,
+                format: resource.fileMapping.format,
+                options: resource.fileMapping.effectiveFormatOptions
+            )
+        }
+
+        let rawMarkdownOptions = FormatOptions(fieldMapping: ["content": contentField])
+        let rawMarkdownRecords = try MarkdownFormat.decode(data: data, options: rawMarkdownOptions)
+        let normalizedRecords = try MarkdownFormat.decode(data: data, options: resource.fileMapping.effectiveFormatOptions)
+        guard rawMarkdownRecords.count == normalizedRecords.count else {
+            return normalizedRecords
+        }
+
+        var converted: [[String: Any]] = []
+        converted.reserveCapacity(normalizedRecords.count)
+
+        for (rawRecord, normalizedRecord) in zip(rawMarkdownRecords, normalizedRecords) {
+            var merged = normalizedRecord
+            if let markdown = rawRecord[contentField] as? String {
+                do {
+                    if let document = try await convertMarkdownToRicosDocument(markdown) {
+                        merged[richContentField] = document
+                    }
+                } catch {
+                    await ActivityLogger.shared.warn(.sync, "Markdown → Wix Ricos conversion failed for \(resource.name); falling back to local projection (\(error.localizedDescription))")
+                }
+            }
+            converted.append(merged)
+        }
+
+        return converted
+    }
+
+    private func convertRicosDocumentToMarkdown(_ document: [String: Any]) async throws -> String? {
+        let body: [String: Any] = [
+            "document": document,
+            "targetFormat": "MARKDOWN",
+        ]
+        let response = try await requestJSON(
+            method: .POST,
+            url: "https://www.wixapis.com/ricos/v1/ricos-document/convert/from-ricos",
+            body: body
+        )
+        return response["markdown"] as? String
+    }
+
+    private func convertMarkdownToRicosDocument(_ markdown: String) async throws -> [String: Any]? {
+        let trimmed = markdown.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            return ["nodes": [], "metadata": ["version": 1]]
+        }
+
+        let response = try await requestJSON(
+            method: .POST,
+            url: "https://www.wixapis.com/ricos/v1/ricos-document/convert/to-ricos",
+            body: ["markdown": markdown]
+        )
+        return response["document"] as? [String: Any]
+    }
+
+    private func requestJSON(method: HTTPMethod, url: String, body: [String: Any]) async throws -> [String: Any] {
+        var headers = config.globals?.headers ?? [:]
+        headers["Content-Type"] = "application/json"
+        let bodyData = try JSONSerialization.data(withJSONObject: body, options: [])
+        let request = APIRequest(method: method, url: url, headers: headers, body: bodyData)
+        let response = try await httpClient.request(request)
+        guard let json = try JSONSerialization.jsonObject(with: response.body) as? [String: Any] else {
+            throw AdapterError.invalidResponseData
+        }
+        return json
     }
 
     // MARK: - Push Actions
@@ -422,6 +550,54 @@ public actor AdapterEngine {
         let notModified: Bool
     }
 
+    private func hydrateRecords(_ records: [[String: Any]], with detail: PullDetailConfig) async throws -> [[String: Any]] {
+        var hydrated: [[String: Any]] = []
+        hydrated.reserveCapacity(records.count)
+
+        for record in records {
+            let detailRecord = try await fetchDetailRecord(for: record, detail: detail)
+            var merged = record
+            if let detailRecord {
+                for (key, value) in detailRecord {
+                    merged[key] = value
+                }
+            }
+
+            if merged["contentText"] == nil,
+               let richContent = merged["richContent"] as? String,
+               !richContent.isEmpty {
+                merged["contentText"] = richContent
+            }
+
+            hydrated.append(merged)
+        }
+
+        return hydrated
+    }
+
+    private func fetchDetailRecord(for record: [String: Any], detail: PullDetailConfig) async throws -> [String: Any]? {
+        var vars = record
+        if let baseUrl = config.globals?.baseUrl {
+            vars["baseUrl"] = baseUrl
+        }
+        let url = TemplateEngine.render(detail.url, with: vars)
+        let method = HTTPMethod(rawValue: detail.method?.uppercased() ?? "GET") ?? .GET
+        var headers = config.globals?.headers ?? [:]
+        headers["Content-Type"] = headers["Content-Type"] ?? "application/json"
+
+        let response = try await httpClient.request(
+            APIRequest(method: method, url: url, headers: headers, body: nil)
+        )
+        let json = try JSONSerialization.jsonObject(with: response.body)
+
+        if let dataPath = detail.dataPath,
+           let extracted = JSONPath.extract(dataPath, from: json) as? [String: Any] {
+            return extracted
+        }
+
+        return json as? [String: Any]
+    }
+
     /// Fetch all records from an API endpoint, handling pagination.
     /// - Parameter eTag: Optional ETag for conditional request (If-None-Match). Only sent on first page.
     private func fetchAllRecords(pullConfig: PullConfig, eTag: String? = nil) async throws -> FetchResult {
@@ -596,12 +772,14 @@ public actor AdapterEngine {
     // MARK: - Private — Pushing
 
     /// Push a single record to the API via create or update endpoint.
+    /// Returns the remote ID of the newly created record (nil for updates or if not extractable).
+    @discardableResult
     private func pushRecord(
         _ record: [String: Any],
         pushConfig: PushConfig,
         remoteId: String?,
         isUpdate: Bool
-    ) async throws {
+    ) async throws -> String? {
         let endpoint: EndpointConfig?
         if isUpdate {
             endpoint = pushConfig.update
@@ -611,7 +789,7 @@ public actor AdapterEngine {
 
         guard let endpoint = endpoint else {
             // No endpoint for this action — skip silently (e.g., no create endpoint for a read-mostly resource)
-            return
+            return nil
         }
 
         // Resolve URL templates
@@ -661,15 +839,40 @@ public actor AdapterEngine {
             body: body
         )
 
-        _ = try await httpClient.request(request)
+        let response = try await httpClient.request(request)
+
+        // For create operations, extract the new record ID from the API response
+        var createdId: String?
+        if !isUpdate {
+            if let json = try? JSONSerialization.jsonObject(with: response.body) as? [String: Any] {
+                // Direct: { "id": "..." }
+                createdId = json["id"] as? String
+                // Wrapped: { "draftPost": { "id": "..." } } or { "contact": { "id": "..." } }
+                if createdId == nil {
+                    for (_, value) in json {
+                        if let nested = value as? [String: Any], let id = nested["id"] as? String {
+                            createdId = id
+                            break
+                        }
+                    }
+                }
+            }
+        }
 
         // Execute follow-up request if configured (e.g. Wix Blog draft → publish)
         if let followup = endpoint.followup {
-            let followupURL = TemplateEngine.render(followup.url, with: templateVars)
+            // For create operations, use the newly created ID in the followup URL
+            var followupVars = templateVars
+            if let newId = createdId {
+                followupVars["id"] = newId
+            }
+            let followupURL = TemplateEngine.render(followup.url, with: followupVars)
             let followupMethod = HTTPMethod(rawValue: followup.method?.uppercased() ?? "POST") ?? .POST
             let followupRequest = APIRequest(method: followupMethod, url: followupURL, headers: headers, body: nil)
             _ = try await httpClient.request(followupRequest)
         }
+
+        return createdId
     }
 
     // MARK: - Private — File Mapping
@@ -678,7 +881,7 @@ public actor AdapterEngine {
     private func mapToFiles(records: [[String: Any]], resource: ResourceConfig) throws -> [SyncableFile] {
         let mapping = resource.fileMapping
         let format = mapping.format
-        let options = mapping.formatOptions
+        let options = mapping.effectiveFormatOptions
         let readOnly = mapping.readOnly ?? false
         let idField = mapping.idField ?? "id"
 
@@ -689,8 +892,9 @@ public actor AdapterEngine {
                 let relativePath = FileMapper.filePath(for: record, config: mapping)
                 let data: Data
 
-                // If contentField is set, write just that field's content directly
-                if let contentField = mapping.contentField,
+                if format == .markdown {
+                    data = try FormatConverterFactory.encode(records: [record], format: format, options: options)
+                } else if let contentField = mapping.contentField,
                    let content = record[contentField] {
                     if let stringContent = content as? String {
                         data = Data(stringContent.utf8)
@@ -733,7 +937,9 @@ public actor AdapterEngine {
                 let relativePath = FileMapper.filePath(for: record, config: mapping)
                 let data: Data
 
-                if let contentField = mapping.contentField,
+                if format == .markdown {
+                    data = try FormatConverterFactory.encode(records: [record], format: format, options: options)
+                } else if let contentField = mapping.contentField,
                    let content = record[contentField] {
                     if let stringContent = content as? String {
                         data = Data(stringContent.utf8)

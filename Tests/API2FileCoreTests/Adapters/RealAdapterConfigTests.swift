@@ -134,6 +134,90 @@ final class RealAdapterConfigTests: XCTestCase {
         }
     }
 
+    func testWixAdapterLocksDownSetupFieldsAndResourceInventory() throws {
+        let config = try loadBundledAdapter(named: "wix.adapter")
+
+        XCTAssertEqual(
+            config.setupFields?.map(\.key),
+            ["wix-site-id", "wix-site-url"],
+            "Wix adapter should require both site id and site url setup fields"
+        )
+
+        let expectedResourceNames = [
+            "contacts",
+            "blog-posts",
+            "products",
+            "media",
+            "pro-gallery",
+            "pdf-viewer",
+            "wix-video",
+            "wix-music-podcasts",
+            "bookings-services",
+            "bookings-appointments",
+            "groups",
+            "comments",
+            "bookings",
+            "collections",
+        ]
+        XCTAssertEqual(
+            config.resources.map(\.name),
+            expectedResourceNames,
+            "Wix adapter top-level resources changed; update docs/tests intentionally if this is expected"
+        )
+
+        let collections = try XCTUnwrap(config.resources.first(where: { $0.name == "collections" }))
+        XCTAssertEqual(collections.fileMapping.format, .json)
+        XCTAssertEqual(collections.children?.count, 1)
+        XCTAssertTrue(
+            collections.fileMapping.transforms?.pull?.contains(where: {
+                $0.op == "match" && $0.field == "displayNamespace" && $0.value == ""
+            }) == true,
+            "Wix collections should exclude app-owned namespaces before pulling child items"
+        )
+
+        let items = try XCTUnwrap(collections.children?.first)
+        XCTAssertEqual(items.name, "items")
+        XCTAssertEqual(items.fileMapping.format, .csv)
+        XCTAssertEqual(items.fileMapping.directory, "cms/{displayName|slugify}")
+    }
+
+    func testWixAdapterLocksDownMediaAndReadOnlyBehavior() throws {
+        let config = try loadBundledAdapter(named: "wix.adapter")
+
+        for name in ["media", "pro-gallery", "pdf-viewer", "wix-video", "wix-music-podcasts"] {
+            let resource = try XCTUnwrap(config.resources.first(where: { $0.name == name }))
+            XCTAssertEqual(resource.pull?.type, .media, "\(name) should use media pull mode")
+            XCTAssertNotNil(resource.pull?.mediaConfig, "\(name) should declare mediaConfig")
+            XCTAssertEqual(resource.fileMapping.strategy, .mirror, "\(name) should mirror binary files")
+            XCTAssertEqual(resource.fileMapping.format, .raw, "\(name) should use raw binary format")
+        }
+
+        let appointments = try XCTUnwrap(config.resources.first(where: { $0.name == "bookings-appointments" }))
+        XCTAssertEqual(appointments.fileMapping.filename, "appointments.csv")
+        XCTAssertEqual(appointments.fileMapping.format, .csv)
+        XCTAssertEqual(appointments.fileMapping.readOnly, true)
+    }
+
+    func testWixBlogPostsDoNotUseUnsupportedIncrementalFilter() throws {
+        let config = try loadBundledAdapter(named: "wix.adapter")
+        let blogPosts = try XCTUnwrap(config.resources.first(where: { $0.name == "blog-posts" }))
+
+        XCTAssertNil(
+            blogPosts.pull?.updatedSinceBodyPath,
+            "Wix blog posts query does not support updatedDate filtering; keep incremental body filters disabled"
+        )
+        XCTAssertEqual(blogPosts.pull?.detail?.url, "https://www.wixapis.com/blog/v3/posts/{id}?fieldsets=RICH_CONTENT")
+        XCTAssertEqual(blogPosts.pull?.detail?.dataPath, "$.post")
+        XCTAssertEqual(blogPosts.fileMapping.contentField, "contentText")
+        XCTAssertEqual(blogPosts.fileMapping.formatOptions?.fieldMapping?["richContent"], "richContent")
+        XCTAssertTrue(
+            blogPosts.fileMapping.transforms?.push?.contains(where: {
+                $0.op == "pick" && ($0.fields ?? []).contains("richContent")
+            }) == true,
+            "Wix blog posts should explicitly pick richContent for Markdown push payloads"
+        )
+    }
+
     // MARK: - 7. Monday: Verify GraphQL Query Present
 
     func testMondayAdapterHasGraphQLQuery() throws {

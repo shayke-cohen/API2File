@@ -6,6 +6,10 @@ options:
   xcodeVersion: "15.0"
   createIntermediateGroups: true
 
+packages:
+  AppXray:
+    path: ../appxray/packages/sdk-ios
+
 settings:
   base:
     SWIFT_VERSION: "5.9"
@@ -35,6 +39,7 @@ targets:
     dependencies:
       - target: API2FileCore
         embed: true
+      - package: AppXray
     info:
       path: Sources/API2FileApp/Info.plist
     entitlements:

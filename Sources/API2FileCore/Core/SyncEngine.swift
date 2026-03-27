@@ -2,6 +2,12 @@ import Foundation
 
 /// Top-level sync engine — ties together all components for the full sync lifecycle
 public actor SyncEngine {
+    private enum AuthReadiness {
+        case loading
+        case ready
+        case unavailable
+    }
+
     private let config: GlobalConfig
     private let syncFolder: URL
     private let coordinator: SyncCoordinator
@@ -15,6 +21,7 @@ public actor SyncEngine {
     private var lastKnownRecords: [String: [[String: Any]]] = [:]
     private var suppressedPaths: Set<String> = []
     private var isPulling: [String: Bool] = [:]  // per-service pull lock
+    private var authReadiness: [String: AuthReadiness] = [:]
     /// Files recently pushed — pull should re-pull to get updated revision but not overwrite content.
     /// Key: "serviceId:filePath", Value: push completion time
     private var recentlyPushed: [String: Date] = [:]
@@ -100,7 +107,9 @@ public actor SyncEngine {
                    resource.fileMapping.effectivePushMode == .readOnly { continue }
                 let fileURL = serviceDir.appendingPathComponent(filePath)
                 guard let data = try? Data(contentsOf: fileURL) else { continue }
-                if data.sha256Hex != lastHash {
+                let attrs = try? FileManager.default.attributesOfItem(atPath: fileURL.path)
+                let modDate = attrs?[.modificationDate] as? Date ?? .distantPast
+                if data.sha256Hex != lastHash, modDate > fileState.lastSyncTime {
                     await coordinator.queuePush(serviceId: serviceId, filePath: filePath)
                     await ActivityLogger.shared.info(.sync, "↑ Queuing offline-modified file: \(serviceId) — \(filePath)")
                 }
@@ -168,6 +177,9 @@ public actor SyncEngine {
     private func registerService(_ serviceId: String) async throws {
         await ActivityLogger.shared.info(.system, "Registering service: \(serviceId)")
         let serviceDir = syncFolder.appendingPathComponent(serviceId)
+        if try await AdapterStore.shared.refreshInstalledAdapterIfNeeded(serviceDir: serviceDir) {
+            await ActivityLogger.shared.info(.system, "Refreshed deployed adapter for \(serviceId) from newer template")
+        }
         let config = try AdapterEngine.loadConfig(from: serviceDir)
 
         // Track disabled services in serviceInfos but don't start syncing
@@ -182,17 +194,19 @@ public actor SyncEngine {
                 status: .paused,
                 fileCount: state.files.count
             )
+            authReadiness.removeValue(forKey: serviceId)
             return
         }
 
         let httpClient = HTTPClient()
+        authReadiness[serviceId] = .loading
 
         // Load auth token from Keychain in background — don't block startup.
         // securityd initialization on first access from a new process can take 30-150s on macOS.
         // Retry up to 10 times (5 minutes total) to handle slow first-access or user dialogs.
         let keychainKey = config.auth.keychainKey
         let authType = config.auth.type
-        Task { [weak httpClient] in
+        Task {
             let keychain = KeychainManager()
             var token: String? = nil
             for attempt in 1...10 {
@@ -202,7 +216,13 @@ public actor SyncEngine {
                     try? await Task.sleep(nanoseconds: 30_000_000_000) // 30s between retries
                 }
             }
-            guard let token, let httpClient else { return }
+
+            guard let token else {
+                await self.markAuthUnavailable(serviceId)
+                await ActivityLogger.shared.warn(.system, "Auth unavailable for \(serviceId) — skipping authenticated pulls until credentials are updated")
+                return
+            }
+
             switch authType {
             case .bearer:
                 await httpClient.setAuthHeader("Authorization", value: "Bearer \(token)")
@@ -213,7 +233,9 @@ public actor SyncEngine {
             case .oauth2:
                 await httpClient.setAuthHeader("Authorization", value: "Bearer \(token)")
             }
+            await self.markAuthReady(serviceId)
             await ActivityLogger.shared.info(.system, "Auth loaded for \(serviceId)")
+            await self.coordinator.syncNow(serviceId: serviceId)
         }
 
         let engine = AdapterEngine(config: config, serviceDir: serviceDir, httpClient: httpClient)
@@ -233,11 +255,13 @@ public actor SyncEngine {
                 if let data = try? Data(contentsOf: fileURL),
                    let records = try? FormatConverterFactory.decode(
                        data: data, format: resource.fileMapping.format,
-                       options: resource.fileMapping.formatOptions) {
+                       options: resource.fileMapping.effectiveFormatOptions) {
                     lastKnownRecords["\(serviceId):\(filePath)"] = records
                 }
             }
         }
+
+        synchronizeFileLinks(serviceDir: serviceDir, config: config, state: state)
 
         // Load or create sync history
         let historyURL = serviceDir.appendingPathComponent(".api2file/sync-history.json")
@@ -310,6 +334,7 @@ public actor SyncEngine {
         adapterEngines.removeValue(forKey: serviceId)
         syncStates.removeValue(forKey: serviceId)
         serviceInfos.removeValue(forKey: serviceId)
+        authReadiness.removeValue(forKey: serviceId)
 
         // Re-register with updated config
         do {
@@ -329,9 +354,12 @@ public actor SyncEngine {
 
     private func performPull(serviceId: String) async throws {
         guard let engine = adapterEngines[serviceId] else { return }
+        guard await isAuthReadyToPull(serviceId: serviceId) else { return }
         let serviceDir = syncFolder.appendingPathComponent(serviceId)
         let serviceName = serviceInfos[serviceId]?.displayName ?? serviceId
         let startTime = Date()
+        isPulling[serviceId] = true
+        defer { isPulling[serviceId] = false }
         await ActivityLogger.shared.info(.sync, "↓ PULL START \(serviceId) [\(serviceName)]")
 
         // Work with a LOCAL copy of sync state to avoid exclusive access violations
@@ -488,30 +516,31 @@ public actor SyncEngine {
 
                     if let resource = findResource(for: file.relativePath, in: engine.config),
                        resource.fileMapping.strategy == .collection {
-                        // Merge incremental records with cached records
-                        let newRecords = pullResult.rawRecordsByFile[file.relativePath] ?? []
-                        let mergedRaw = mergeIncrementalRecords(
-                            serviceId: serviceId,
-                            filePath: file.relativePath,
-                            newRecords: newRecords,
+                        let cacheKey = "\(serviceId):\(file.relativePath)"
+                        let mergeResult = try IncrementalCollectionMerger.merge(
+                            existingRaw: loadExistingRawRecords(
+                                serviceDir: serviceDir,
+                                filePath: file.relativePath,
+                                resource: resource
+                            ),
+                            existingTransformed: loadExistingTransformedRecords(
+                                serviceDir: serviceDir,
+                                filePath: file.relativePath,
+                                resource: resource,
+                                cacheKey: cacheKey
+                            ),
+                            newRaw: pullResult.rawRecordsByFile[file.relativePath] ?? [],
                             resource: resource
                         )
-
-                        // Apply transforms and re-encode merged records
-                        let transforms = resource.fileMapping.transforms?.pull ?? []
-                        let transformed = transforms.isEmpty ? mergedRaw : TransformPipeline.apply(transforms, to: mergedRaw)
-                        let mergedContent = try FormatConverterFactory.encode(
-                            records: transformed,
-                            format: file.format,
-                            options: resource.fileMapping.formatOptions
-                        )
+                        let mergedRaw = mergeResult.rawRecords
+                        let transformed = mergeResult.transformedRecords
+                        let mergedContent = mergeResult.content
 
                         // Skip write if content unchanged
-                        let mergedHash = mergedContent.sha256Hex
+                        let mergedHash = mergeResult.contentHash
                         if mergedHash == localState.files[file.relativePath]?.lastSyncedHash {
                             unchangedCount += 1
                             // Still update cache with merged records
-                            let cacheKey = "\(serviceId):\(file.relativePath)"
                             lastKnownRecords[cacheKey] = transformed
                         } else {
                             suppressedPaths.insert(file.relativePath)
@@ -527,9 +556,21 @@ public actor SyncEngine {
                             try ObjectFileManager.writeCollectionObjectFile(records: mergedRaw, to: objectURL)
 
                             // Update cache
-                            let cacheKey = "\(serviceId):\(file.relativePath)"
                             lastKnownRecords[cacheKey] = transformed
                         }
+
+                        localState.files[file.relativePath] = FileSyncState(
+                            remoteId: localState.files[file.relativePath]?.remoteId ?? "",
+                            lastSyncedHash: mergedHash,
+                            lastSyncTime: Date(),
+                            status: .synced
+                        )
+                        upsertFileLink(
+                            serviceDir: serviceDir,
+                            resource: resource,
+                            userPath: file.relativePath,
+                            remoteId: localState.files[file.relativePath]?.remoteId
+                        )
                     } else {
                         // Non-collection or no resource match: write as full (same as non-incremental)
                         if file.contentHash == localState.files[file.relativePath]?.lastSyncedHash {
@@ -544,7 +585,10 @@ public actor SyncEngine {
 
                     // Update sync state — always record hash (even for collection files without remoteId)
                     // to prevent file-watcher from falsely pushing freshly-pulled files.
-                    if let remoteId = file.remoteId {
+                    if let resource = findResource(for: file.relativePath, in: engine.config),
+                       resource.fileMapping.strategy == .collection {
+                        continue
+                    } else if let remoteId = file.remoteId {
                         localState.files[file.relativePath] = FileSyncState(
                             remoteId: remoteId,
                             lastSyncedHash: file.contentHash,
@@ -561,6 +605,15 @@ public actor SyncEngine {
                             lastSyncedHash: file.contentHash,
                             lastSyncTime: Date(),
                             status: .synced
+                        )
+                    }
+
+                    if let resource = findResource(for: file.relativePath, in: engine.config) {
+                        upsertFileLink(
+                            serviceDir: serviceDir,
+                            resource: resource,
+                            userPath: file.relativePath,
+                            remoteId: localState.files[file.relativePath]?.remoteId
                         )
                     }
                 }
@@ -613,6 +666,15 @@ public actor SyncEngine {
                             status: .synced
                         )
                     }
+
+                    if let resource = findResource(for: file.relativePath, in: engine.config) {
+                        upsertFileLink(
+                            serviceDir: serviceDir,
+                            resource: resource,
+                            userPath: file.relativePath,
+                            remoteId: localState.files[file.relativePath]?.remoteId
+                        )
+                    }
                 }
             }
 
@@ -630,6 +692,16 @@ public actor SyncEngine {
                 }
                 for filePath in staleFilePaths {
                     let fileURL = serviceDir.appendingPathComponent(filePath)
+                    if let resource = findResource(for: filePath, in: engine.config) {
+                        let objectPath = ObjectFileManager.objectFilePath(
+                            forUserFile: filePath,
+                            strategy: resource.fileMapping.strategy
+                        )
+                        let objectURL = serviceDir.appendingPathComponent(objectPath)
+                        try? FileManager.default.removeItem(at: objectURL)
+                        suppressedPaths.insert(objectPath)
+                        try? FileLinkManager.removeLinks(referencingAny: [filePath, objectPath], in: serviceDir)
+                    }
                     try? FileManager.default.removeItem(at: fileURL)
                     suppressedPaths.insert(filePath)
                     localState.files.removeValue(forKey: filePath)
@@ -652,11 +724,19 @@ public actor SyncEngine {
             let stateURL = serviceDir.appendingPathComponent(".api2file/state.json")
             try localState.save(to: stateURL)
             syncStates[serviceId] = localState
+            synchronizeFileLinks(serviceDir: serviceDir, config: engine.config, state: localState)
             // Git commit
             if config.gitAutoCommit, let git = gitManagers[serviceId] {
                 if try await git.hasChanges() {
                     let syncType = isIncremental ? "incremental pull" : "pull"
-                    try await git.commitAll(message: "sync: \(syncType) \(serviceId) — updated \(files.count) files")
+                    do {
+                        try await git.commitAll(message: "sync: \(syncType) \(serviceId) — updated \(files.count) files")
+                    } catch {
+                        await ActivityLogger.shared.warn(
+                            .sync,
+                            "↓ Pull data synced for \(serviceId), but git commit failed: \(error.localizedDescription)"
+                        )
+                    }
                 }
             }
 
@@ -697,6 +777,28 @@ public actor SyncEngine {
             )
             logHistory(entry, serviceId: serviceId, serviceDir: serviceDir)
             throw error
+        }
+    }
+
+    private func markAuthReady(_ serviceId: String) {
+        authReadiness[serviceId] = .ready
+    }
+
+    private func markAuthUnavailable(_ serviceId: String) {
+        authReadiness[serviceId] = .unavailable
+    }
+
+    private func isAuthReadyToPull(serviceId: String) async -> Bool {
+        switch authReadiness[serviceId] ?? .loading {
+        case .ready:
+            return true
+        case .loading:
+            await ActivityLogger.shared.info(.system, "Skipping pull for \(serviceId) while auth is still loading")
+            return false
+        case .unavailable:
+            await ActivityLogger.shared.warn(.system, "Skipping pull for \(serviceId) — credentials are unavailable")
+            await updateServiceStatus(serviceId, status: .error, error: "Credentials unavailable. Update the service API key to resume sync.")
+            return false
         }
     }
 
@@ -777,14 +879,25 @@ public actor SyncEngine {
                     recordsDeleted: diff?.deleted.count ?? 0
                 )
             } else {
+                let existingRemoteId = syncStates[serviceId]?.files[filePath]?.remoteId
                 let file = SyncableFile(
                     relativePath: filePath,
                     format: resource.fileMapping.format,
                     content: content,
-                    remoteId: syncStates[serviceId]?.files[filePath]?.remoteId
+                    remoteId: existingRemoteId
                 )
-                try await engine.push(file: file, resource: resource)
+                let createdId = try await engine.push(file: file, resource: resource)
                 fileChange = FileChange(path: filePath, action: .uploaded)
+
+                // For new one-per-record files, create a state entry with the new remote ID
+                if existingRemoteId == nil, let newId = createdId {
+                    syncStates[serviceId]?.files[filePath] = FileSyncState(
+                        remoteId: newId,
+                        lastSyncedHash: content.sha256Hex,
+                        lastSyncTime: Date(),
+                        status: .synced
+                    )
+                }
             }
 
             // Update sync state
@@ -798,6 +911,15 @@ public actor SyncEngine {
             // Save state
             let stateURL = serviceDir.appendingPathComponent(".api2file/state.json")
             try syncStates[serviceId]?.save(to: stateURL)
+
+            if let resource = findResource(for: filePath, in: engine.config) {
+                upsertFileLink(
+                    serviceDir: serviceDir,
+                    resource: resource,
+                    userPath: filePath,
+                    remoteId: syncStates[serviceId]?.files[filePath]?.remoteId
+                )
+            }
 
             // Git commit
             if config.gitAutoCommit, let git = gitManagers[serviceId] {
@@ -864,11 +986,17 @@ public actor SyncEngine {
             if filePath.contains("~$") { continue } // Office temp files
             if filePath.contains(".dat.nosync") { continue } // macOS temp files
             if filePath.contains(".tmp.") { continue } // atomic-write temp files (e.g. file.csv.tmp.PID.N)
-            if filePath.contains(".objects/") || filePath.contains(".objects") { continue } // object files (not yet supported)
-            if filePath.hasPrefix(".") || filePath.contains("/.") { continue } // hidden files
 
             // Skip suppressed paths (written by pull or regeneration — prevents loops)
             if suppressedPaths.remove(filePath) != nil { continue }
+
+            if ObjectFileManager.isObjectFile(filePath) {
+                guard !change.flags.contains(.removed) else { continue }
+                Task { await self.performObjectPush(serviceId: serviceId, objectFilePath: filePath) }
+                continue
+            }
+
+            if filePath.hasPrefix(".") || filePath.contains("/.") { continue } // hidden files
 
             Task {
                 await coordinator.queuePush(serviceId: serviceId, filePath: filePath)
@@ -959,6 +1087,7 @@ public actor SyncEngine {
             let objectURL = serviceDir.appendingPathComponent(objectPath)
             suppressedPaths.insert(objectPath)
             try? FileManager.default.removeItem(at: objectURL)
+            try? FileLinkManager.removeLinks(referencingAny: [filePath, objectPath], in: serviceDir)
 
             // Save state
             let stateURL = serviceDir.appendingPathComponent(".api2file/state.json")
@@ -1015,7 +1144,7 @@ public actor SyncEngine {
             newRecords = try FormatConverterFactory.decode(
                 data: content,
                 format: resource.fileMapping.format,
-                options: resource.fileMapping.formatOptions
+                options: resource.fileMapping.effectiveFormatOptions
             )
         } catch {
             await ActivityLogger.shared.warn(.sync, "Skipping push for \(filePath) — decode failed: \(error.localizedDescription)")
@@ -1060,9 +1189,9 @@ public actor SyncEngine {
         let inverseOps = pullTransforms.isEmpty ? [] : InverseTransformPipeline.computeInverse(of: pullTransforms)
         let shouldInverse = resource.fileMapping.effectivePushMode == .autoReverse && !inverseOps.isEmpty
 
-        // Build raw record lookup by ID for merging
+        // Build raw record lookup by ID for merging and revision injection
         var rawLookup: [String: [String: Any]] = [:]
-        if shouldInverse, let rawRecords {
+        if let rawRecords {
             for raw in rawRecords {
                 if let id = raw[idField] as? String {
                     rawLookup[id] = raw
@@ -1154,7 +1283,7 @@ public actor SyncEngine {
         // concurrent pull with fresh revision/updatedDate), not our pre-push newRecords.
         let freshURL = syncFolder.appendingPathComponent(serviceId).appendingPathComponent(filePath)
         if let freshData = try? Data(contentsOf: freshURL),
-           let freshRecords = try? FormatConverterFactory.decode(data: freshData, format: resource.fileMapping.format, options: resource.fileMapping.formatOptions) {
+           let freshRecords = try? FormatConverterFactory.decode(data: freshData, format: resource.fileMapping.format, options: resource.fileMapping.effectiveFormatOptions) {
             lastKnownRecords[cacheKey] = freshRecords
         } else if deletedIds.count == diff.deleted.count || diff.deleted.isEmpty {
             lastKnownRecords[cacheKey] = newRecords
@@ -1197,7 +1326,7 @@ public actor SyncEngine {
 
         do {
             // Find which resource this object file belongs to
-            guard let (resource, userFilePath) = findResourceForObjectFile(objectFilePath, in: engine.config) else {
+            guard let (resource, userFilePath) = findResourceForObjectFile(objectFilePath, in: engine.config, serviceDir: serviceDir) else {
                 await ActivityLogger.shared.warn(.sync, "No resource found for object file: \(objectFilePath)")
                 return
             }
@@ -1252,13 +1381,24 @@ public actor SyncEngine {
 
             // Encode and write the user file
             let format = resource.fileMapping.format
-            let encoded = try FormatConverterFactory.encode(records: transformed, format: format, options: resource.fileMapping.formatOptions)
+            let encoded = try FormatConverterFactory.encode(records: transformed, format: format, options: resource.fileMapping.effectiveFormatOptions)
             let userFileURL = serviceDir.appendingPathComponent(userFilePath)
             suppressedPaths.insert(userFilePath)
             try encoded.write(to: userFileURL, options: .atomic)
 
             // Update lastKnownRecords cache
             lastKnownRecords["\(serviceId):\(userFilePath)"] = transformed
+            upsertFileLink(
+                serviceDir: serviceDir,
+                resource: resource,
+                userPath: userFilePath,
+                remoteId: syncStates[serviceId]?.files[userFilePath]?.remoteId
+            )
+            synchronizeFileLinks(
+                serviceDir: serviceDir,
+                config: engine.config,
+                state: syncStates[serviceId] ?? SyncState()
+            )
 
             await ActivityLogger.shared.debug(.sync, "Object file push: \(objectFilePath) → regenerated \(userFilePath)")
 
@@ -1268,12 +1408,18 @@ public actor SyncEngine {
     }
 
     /// Find the resource and user file path for a given object file path.
-    private func findResourceForObjectFile(_ objectPath: String, in config: AdapterConfig) -> (ResourceConfig, String)? {
-        for resource in config.resources {
+    private func findResourceForObjectFile(_ objectPath: String, in config: AdapterConfig, serviceDir: URL) -> (ResourceConfig, String)? {
+        if let link = try? FileLinkManager.linkForCanonicalPath(objectPath, in: serviceDir),
+           let resource = findResource(named: link.resourceName, in: config) {
+            return (resource, link.userPath)
+        }
+
+        for resource in allResources(in: config) {
             let format = resource.fileMapping.format
             if let userPath = ObjectFileManager.userFilePath(forObjectFile: objectPath, strategy: resource.fileMapping.strategy, format: format) {
                 // Verify this user path matches the resource
-                if findResource(for: userPath, in: config) != nil {
+                if let matchedResource = findResource(for: userPath, in: config),
+                   matchedResource.name == resource.name {
                     return (resource, userPath)
                 }
             }
@@ -1342,41 +1488,56 @@ public actor SyncEngine {
         return baseInterval
     }
 
-    /// Merge incremental (partial) records into the existing cached records.
-    /// Matches by idField — updates existing records and appends new ones.
-    private func mergeIncrementalRecords(
-        serviceId: String,
+    private func loadExistingRawRecords(
+        serviceDir: URL,
         filePath: String,
-        newRecords: [[String: Any]],
         resource: ResourceConfig
     ) -> [[String: Any]] {
-        let cacheKey = "\(serviceId):\(filePath)"
-        let idField = resource.fileMapping.idField ?? "id"
-        var existing = lastKnownRecords[cacheKey] ?? []
-
-        for newRecord in newRecords {
-            let newId = stringifyId(newRecord[idField])
-            if let idx = existing.firstIndex(where: { stringifyId($0[idField]) == newId && newId != nil }) {
-                existing[idx] = newRecord  // Update existing record
-            } else {
-                existing.append(newRecord)  // Append new record
-            }
+        let objectPath = ObjectFileManager.objectFilePath(
+            forUserFile: filePath,
+            strategy: resource.fileMapping.strategy
+        )
+        let objectURL = serviceDir.appendingPathComponent(objectPath)
+        if let records = try? ObjectFileManager.readCollectionObjectFile(from: objectURL) {
+            return records
         }
 
-        return existing
+        // Without an object file, only untransformed files can safely double as raw state.
+        let pullTransforms = resource.fileMapping.transforms?.pull ?? []
+        guard pullTransforms.isEmpty else { return [] }
+
+        let fileURL = serviceDir.appendingPathComponent(filePath)
+        guard let data = try? Data(contentsOf: fileURL),
+              let records = try? FormatConverterFactory.decode(
+                data: data,
+                format: resource.fileMapping.format,
+                options: resource.fileMapping.effectiveFormatOptions
+              ) else {
+            return []
+        }
+        return records
     }
 
-    /// Stringify an ID value for comparison during merge.
-    private func stringifyId(_ value: Any?) -> String? {
-        guard let value = value else { return nil }
-        switch value {
-        case let s as String: return s
-        case let n as Int: return "\(n)"
-        case let n as Double:
-            if n == n.rounded() && n < 1e15 { return "\(Int(n))" }
-            return "\(n)"
-        default: return "\(value)"
+    private func loadExistingTransformedRecords(
+        serviceDir: URL,
+        filePath: String,
+        resource: ResourceConfig,
+        cacheKey: String
+    ) -> [[String: Any]] {
+        if let cached = lastKnownRecords[cacheKey] {
+            return cached
         }
+
+        let fileURL = serviceDir.appendingPathComponent(filePath)
+        guard let data = try? Data(contentsOf: fileURL),
+              let records = try? FormatConverterFactory.decode(
+                data: data,
+                format: resource.fileMapping.format,
+                options: resource.fileMapping.effectiveFormatOptions
+              ) else {
+            return []
+        }
+        return records
     }
 
     /// Write object file with raw API records for a pulled file.
@@ -1404,13 +1565,84 @@ public actor SyncEngine {
         }
     }
 
+    private func upsertFileLink(
+        serviceDir: URL,
+        resource: ResourceConfig,
+        userPath: String,
+        remoteId: String?,
+        derivedPaths: [String] = []
+    ) {
+        let canonicalPath = ObjectFileManager.objectFilePath(
+            forUserFile: userPath,
+            strategy: resource.fileMapping.strategy
+        )
+        let entry = FileLinkEntry(
+            resourceName: resource.name,
+            mappingStrategy: resource.fileMapping.strategy,
+            remoteId: remoteId,
+            userPath: userPath,
+            canonicalPath: canonicalPath,
+            derivedPaths: derivedPaths
+        )
+        try? FileLinkManager.upsert(entry, in: serviceDir)
+    }
+
+    private func synchronizeFileLinks(serviceDir: URL, config: AdapterConfig, state: SyncState) {
+        let existingIndex = (try? FileLinkManager.load(from: serviceDir)) ?? FileLinkIndex()
+        let existingPaths = discoverUserFilePaths(in: serviceDir)
+        let candidatePaths = Set(state.files.keys).union(existingPaths)
+        var entriesByUserPath: [String: FileLinkEntry] = [:]
+
+        for userPath in candidatePaths.sorted() {
+            guard !shouldIgnoreForFileLinks(userPath),
+                  let resource = findResource(for: userPath, in: config) else { continue }
+
+            let canonicalPath = ObjectFileManager.objectFilePath(
+                forUserFile: userPath,
+                strategy: resource.fileMapping.strategy
+            )
+            let remoteId = normalizedRemoteId(state.files[userPath]?.remoteId)
+            let preserved = existingIndex.links.first { existing in
+                if let remoteId,
+                   let existingRemoteId = normalizedRemoteId(existing.remoteId),
+                   existing.resourceName == resource.name,
+                   existingRemoteId == remoteId {
+                    return true
+                }
+                return existing.userPath == userPath || existing.canonicalPath == canonicalPath
+            }
+
+            entriesByUserPath[userPath] = FileLinkEntry(
+                resourceName: resource.name,
+                mappingStrategy: resource.fileMapping.strategy,
+                remoteId: remoteId,
+                userPath: userPath,
+                canonicalPath: canonicalPath,
+                derivedPaths: preserved?.derivedPaths ?? [],
+                updatedAt: preserved?.updatedAt ?? Date()
+            )
+        }
+
+        let newIndex = FileLinkIndex(
+            links: entriesByUserPath.values.sorted { lhs, rhs in
+                if lhs.userPath == rhs.userPath {
+                    return lhs.canonicalPath < rhs.canonicalPath
+                }
+                return lhs.userPath < rhs.userPath
+            }
+        )
+
+        guard newIndex != existingIndex else { return }
+        try? FileLinkManager.save(newIndex, to: serviceDir)
+    }
+
     /// Cache decoded records for collection-strategy files (used for diffing on push).
     private func cacheCollectionRecords(file: SyncableFile, serviceId: String, engine: AdapterEngine) {
         guard let resource = findResource(for: file.relativePath, in: engine.config),
               resource.fileMapping.strategy == .collection else { return }
 
         let cacheKey = "\(serviceId):\(file.relativePath)"
-        if let records = try? FormatConverterFactory.decode(data: file.content, format: file.format, options: resource.fileMapping.formatOptions) {
+        if let records = try? FormatConverterFactory.decode(data: file.content, format: file.format, options: resource.fileMapping.effectiveFormatOptions) {
             lastKnownRecords[cacheKey] = records
         }
     }
@@ -1428,6 +1660,16 @@ public actor SyncEngine {
             if let matched = matchResource(resource, to: filePath) { return matched }
         }
         return nil
+    }
+
+    private func findResource(named resourceName: String, in config: AdapterConfig) -> ResourceConfig? {
+        allResources(in: config).first(where: { $0.name == resourceName })
+    }
+
+    private func allResources(in config: AdapterConfig) -> [ResourceConfig] {
+        config.resources.flatMap { resource in
+            [resource] + (resource.children ?? [])
+        }
     }
 
     private func matchResource(_ resource: ResourceConfig, to filePath: String) -> ResourceConfig? {
@@ -1451,9 +1693,63 @@ public actor SyncEngine {
         }
         // For one-per-record: match directory prefix
         if dir == "." || filePath.hasPrefix(dir + "/") || filePath == dir {
+            if resource.fileMapping.strategy == .onePerRecord,
+               let filenameTemplate = resource.fileMapping.filename,
+               let expectedExtension = expectedPathExtension(for: filenameTemplate) {
+                let actualExtension = URL(fileURLWithPath: filePath).pathExtension.lowercased()
+                guard actualExtension == expectedExtension else { return nil }
+            }
             return resource
         }
         return nil
+    }
+
+    private func expectedPathExtension(for filenameTemplate: String) -> String? {
+        let filename = URL(fileURLWithPath: filenameTemplate).lastPathComponent
+        guard let dot = filename.lastIndex(of: ".") else { return nil }
+        let ext = String(filename[filename.index(after: dot)...]).lowercased()
+        return ext.isEmpty ? nil : ext
+    }
+
+    private func discoverUserFilePaths(in serviceDir: URL) -> Set<String> {
+        guard let enumerator = FileManager.default.enumerator(
+            at: serviceDir,
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: [.skipsPackageDescendants]
+        ) else {
+            return []
+        }
+
+        var paths: Set<String> = []
+        for case let fileURL as URL in enumerator {
+            let relativePath = fileURL.path.replacingOccurrences(
+                of: serviceDir.path + "/",
+                with: ""
+            )
+            guard !shouldIgnoreForFileLinks(relativePath) else { continue }
+            let values = try? fileURL.resourceValues(forKeys: [.isRegularFileKey])
+            if values?.isRegularFile == true {
+                paths.insert(relativePath)
+            }
+        }
+        return paths
+    }
+
+    private func shouldIgnoreForFileLinks(_ filePath: String) -> Bool {
+        if filePath.isEmpty { return true }
+        if filePath == "CLAUDE.md" { return true }
+        if filePath.hasPrefix(".api2file/") || filePath.hasPrefix(".git/") { return true }
+        if filePath.contains("~$") || filePath.contains(".dat.nosync") || filePath.contains(".tmp.") {
+            return true
+        }
+        if ObjectFileManager.isObjectFile(filePath) { return true }
+        return filePath.hasPrefix(".") || filePath.contains("/.")
+    }
+
+    private func normalizedRemoteId(_ remoteId: String?) -> String? {
+        guard let remoteId else { return nil }
+        let trimmed = remoteId.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     private func updateServiceStatus(_ serviceId: String, status: ServiceStatus, error: String? = nil) {

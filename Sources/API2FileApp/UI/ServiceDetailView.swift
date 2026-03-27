@@ -510,8 +510,10 @@ struct ServiceDetailView: View {
     @ViewBuilder
     private func resourcePreview(serviceDir: URL) -> some View {
         if let fileURL = selectedFile {
+            let objectFileURL = canonicalObjectFileURL(for: fileURL, serviceDir: serviceDir)
             FilePreviewPanel(
                 fileURL: fileURL,
+                objectFileURL: objectFileURL,
                 serviceDir: serviceDir,
                 gitStatus: gitStatus(for: fileURL),
                 dashboardUrl: resourceForFile(fileURL, serviceDir: serviceDir)?.dashboardUrl ?? service.config.dashboardUrl
@@ -625,6 +627,21 @@ struct ServiceDetailView: View {
         return contents
             .filter { (try? $0.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true }
             .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
+    }
+
+    private func canonicalObjectFileURL(for fileURL: URL, serviceDir: URL) -> URL? {
+        let relativePath = fileURL.path.replacingOccurrences(of: serviceDir.path + "/", with: "")
+        guard let resource = resourceForFile(fileURL, serviceDir: serviceDir),
+              let objectPath = ObjectFileManager.canonicalObjectFilePath(
+                forDisplayedFile: relativePath,
+                strategy: resource.fileMapping.strategy
+              ) else {
+            return nil
+        }
+
+        let objectURL = serviceDir.appendingPathComponent(objectPath)
+        guard FileManager.default.fileExists(atPath: objectURL.path) else { return nil }
+        return objectURL
     }
 
     // MARK: - Activity Section
@@ -750,6 +767,7 @@ private struct StatCard<Content: View>: View {
 
 private struct FilePreviewPanel: View {
     let fileURL: URL
+    let objectFileURL: URL?
     let serviceDir: URL
     var gitStatus: String?
     var dashboardUrl: String?
@@ -792,6 +810,16 @@ private struct FilePreviewPanel: View {
                                 .font(.caption)
                         }
                         .controlSize(.small)
+                    }
+                    if let objectFileURL {
+                        Button {
+                            openFileInEditor(objectFileURL)
+                        } label: {
+                            Label("Object", systemImage: "curlybraces")
+                                .font(.caption)
+                        }
+                        .controlSize(.small)
+                        .help("Open the canonical object file")
                     }
                     Button {
                         openFileInEditor(fileURL)
@@ -858,6 +886,7 @@ private struct FilePreviewPanel: View {
             JSONPreviewView(json: formatted)
         case .csv(let headers, let rows):
             CSVTableView(headers: headers, rows: rows)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         case .image(let image):
             ScrollView {
                 Image(nsImage: image)
@@ -993,39 +1022,45 @@ private struct CSVTableView: View {
     var body: some View {
         ScrollView([.horizontal, .vertical]) {
             VStack(alignment: .leading, spacing: 0) {
-                // Header row
                 HStack(spacing: 0) {
                     ForEach(Array(headers.enumerated()), id: \.offset) { idx, header in
-                        Text(header)
-                            .font(.system(.caption2, design: .default))
-                            .fontWeight(.semibold)
-                            .lineLimit(1)
-                            .frame(width: columnWidth(for: idx), alignment: .leading)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 4)
+                        tableHeaderCell(header, width: columnWidth(for: idx), isLast: idx == headers.count - 1)
                     }
                 }
-                .background(Color.secondary.opacity(0.1))
+                .background(Color.secondary.opacity(0.10))
 
                 Divider()
 
-                // Data rows
                 ForEach(Array(rows.enumerated()), id: \.offset) { rowIdx, row in
                     HStack(spacing: 0) {
-                        ForEach(Array(row.prefix(headers.count).enumerated()), id: \.offset) { colIdx, cell in
-                            Text(cell)
-                                .font(.system(.caption2, design: .monospaced))
-                                .lineLimit(1)
-                                .frame(width: columnWidth(for: colIdx), alignment: .leading)
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 2)
+                        ForEach(Array(headers.enumerated()), id: \.offset) { colIdx, _ in
+                            tableDataCell(
+                                cell(at: colIdx, in: row),
+                                width: columnWidth(for: colIdx),
+                                isLast: colIdx == headers.count - 1
+                            )
                         }
                     }
-                    .background(rowIdx % 2 == 0 ? Color.clear : Color.secondary.opacity(0.04))
+                    .background(rowIdx % 2 == 0 ? Color.clear : Color.secondary.opacity(0.035))
+
+                    if rowIdx < rows.count - 1 {
+                        Divider()
+                    }
                 }
             }
+            .background(
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(Color(NSColor.controlBackgroundColor).opacity(0.65))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 10)
+                    .stroke(Color.secondary.opacity(0.12), lineWidth: 1)
+            )
             .textSelection(.enabled)
+            .padding(8)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
     private func columnWidth(for index: Int) -> CGFloat {
@@ -1038,6 +1073,44 @@ private struct CSVTableView: View {
         }
         let charWidth: CGFloat = 7
         return max(60, min(CGFloat(maxDataLen) * charWidth + 16, 220))
+    }
+
+    private func cell(at index: Int, in row: [String]) -> String {
+        guard index < row.count else { return "" }
+        return row[index]
+    }
+
+    private func tableHeaderCell(_ text: String, width: CGFloat, isLast: Bool) -> some View {
+        Text(text)
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundStyle(.primary)
+            .lineLimit(1)
+            .truncationMode(.tail)
+            .frame(width: width, alignment: .leading)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .overlay(alignment: .trailing) {
+                if !isLast {
+                    Divider().opacity(0.5)
+                }
+            }
+    }
+
+    private func tableDataCell(_ text: String, width: CGFloat, isLast: Bool) -> some View {
+        Text(text.isEmpty ? " " : text)
+            .font(.system(size: 11.5, design: .monospaced))
+            .foregroundStyle(.primary)
+            .lineLimit(2)
+            .truncationMode(.tail)
+            .multilineTextAlignment(.leading)
+            .frame(width: width, alignment: .topLeading)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .overlay(alignment: .trailing) {
+                if !isLast {
+                    Divider().opacity(0.35)
+                }
+            }
     }
 }
 

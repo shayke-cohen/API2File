@@ -180,24 +180,40 @@ public struct PullConfig: Codable, Sendable {
     public let query: String?
     public let body: JSONValue?
     public let dataPath: String?
+    public let detail: PullDetailConfig?
     public let pagination: PaginationConfig?
     public let mediaConfig: MediaConfig?
     public let updatedSinceField: String?      // URL param name (e.g. "since")
     public let updatedSinceBodyPath: String?   // body field path for date filter
     public let updatedSinceDateFormat: String? // "iso8601" (default) or "epoch"
+    public let supportsETag: Bool?             // send If-None-Match for 304 optimization
 
-    public init(method: String? = nil, url: String, type: APIType? = nil, query: String? = nil, body: JSONValue? = nil, dataPath: String? = nil, pagination: PaginationConfig? = nil, mediaConfig: MediaConfig? = nil, updatedSinceField: String? = nil, updatedSinceBodyPath: String? = nil, updatedSinceDateFormat: String? = nil) {
+    public init(method: String? = nil, url: String, type: APIType? = nil, query: String? = nil, body: JSONValue? = nil, dataPath: String? = nil, detail: PullDetailConfig? = nil, pagination: PaginationConfig? = nil, mediaConfig: MediaConfig? = nil, updatedSinceField: String? = nil, updatedSinceBodyPath: String? = nil, updatedSinceDateFormat: String? = nil, supportsETag: Bool? = nil) {
         self.method = method
         self.url = url
         self.type = type
         self.query = query
         self.body = body
         self.dataPath = dataPath
+        self.detail = detail
         self.pagination = pagination
         self.mediaConfig = mediaConfig
         self.updatedSinceField = updatedSinceField
         self.updatedSinceBodyPath = updatedSinceBodyPath
         self.updatedSinceDateFormat = updatedSinceDateFormat
+        self.supportsETag = supportsETag
+    }
+}
+
+public struct PullDetailConfig: Codable, Sendable {
+    public let method: String?
+    public let url: String
+    public let dataPath: String?
+
+    public init(method: String? = nil, url: String, dataPath: String? = nil) {
+        self.method = method
+        self.url = url
+        self.dataPath = dataPath
     }
 }
 
@@ -378,6 +394,20 @@ public struct FileMappingConfig: Codable, Sendable {
         }
         // No pull transforms — push works as-is
         return .passthrough
+    }
+
+    public var effectiveFormatOptions: FormatOptions? {
+        guard format == .markdown, let contentField else {
+            return formatOptions
+        }
+
+        var fieldMapping = formatOptions?.fieldMapping ?? [:]
+        fieldMapping["content"] = contentField
+        return FormatOptions(
+            sheetMapping: formatOptions?.sheetMapping,
+            columnTypes: formatOptions?.columnTypes,
+            fieldMapping: fieldMapping
+        )
     }
 }
 

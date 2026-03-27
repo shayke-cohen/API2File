@@ -30,6 +30,9 @@ public enum AgentGuideGenerator {
         lines.append("")
         lines.append("## How it works")
         lines.append("- Files sync bidirectionally with cloud APIs")
+        lines.append("- Hidden `.*.objects.json` files store the structured canonical records for each resource")
+        lines.append("- `.api2file/file-links.json` maps human-facing files to their canonical object files")
+        lines.append("- Human-facing files (CSV, MD, ICS, etc.) are projections optimized for native apps and browsing")
         lines.append("- Changes are git-committed automatically")
         lines.append("- Server is source of truth for conflicts")
         lines.append("- See each service's CLAUDE.md for details")
@@ -66,6 +69,8 @@ public enum AgentGuideGenerator {
         lines.append("")
         lines.append("This folder syncs bidirectionally with your \(config.displayName) account.")
         lines.append("Edit files locally → changes push to \(config.displayName) automatically.")
+        lines.append("Hidden `.*.objects.json` files hold the structured canonical records; user-facing files are projections for apps and easy browsing.")
+        lines.append("`.api2file/file-links.json` links each projection to its canonical object file.")
         lines.append("")
         lines.append("## Resources")
 
@@ -114,6 +119,11 @@ public enum AgentGuideGenerator {
         lines.append("## Sync behavior")
         lines.append("- Poll interval: \(defaultInterval) seconds")
         lines.append("- Local changes push within 500ms of saving")
+        lines.append("- Canonical object files are the intended local source of truth for structured edits")
+        lines.append("- Human-facing files are decoded back into canonical records before push")
+        if config.service == "wix" {
+            lines.append("- Wix blog Markdown files are converted to and from Wix Ricos rich content during sync")
+        }
         lines.append("- Server is source of truth — conflicts create `.conflict` files")
         lines.append("- All changes are git-committed automatically")
 
@@ -146,6 +156,7 @@ public enum AgentGuideGenerator {
         lines.append("")
         lines.append("## Constraints")
         lines.append("- Don't modify files in `.api2file/` — these are internal")
+        lines.append("- Prefer the hidden `.*.objects.json` files for high-fidelity agent edits; avoid editing both an object file and its human-facing projection before the same sync cycle")
         for constraint in Self.formatConstraints(for: config) {
             lines.append("- \(constraint)")
         }

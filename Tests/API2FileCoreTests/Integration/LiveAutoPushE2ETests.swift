@@ -19,6 +19,8 @@ final class LiveAutoPushE2ETests: XCTestCase {
     private var syncRoot: URL!     // temp dir acting as ~/API2File/
     private var serviceDir: URL!   // syncRoot/demo/
     private var engine: SyncEngine!
+    private let keychain = KeychainManager()
+    private let authKey = "api2file.demo.livetest"
 
     // MARK: - Setup / Teardown
 
@@ -53,6 +55,7 @@ final class LiveAutoPushE2ETests: XCTestCase {
 
         // Reset server to seed data
         await server.reset()
+        _ = await keychain.save(key: authKey, value: "demo-token")
 
         // Create temp sync folder structure
         // IMPORTANT: Resolve symlinks on the base temp directory so that FSEvents paths
@@ -124,6 +127,7 @@ final class LiveAutoPushE2ETests: XCTestCase {
         }
         syncRoot = nil
         serviceDir = nil
+        await keychain.delete(key: authKey)
 
         try await super.tearDown()
     }
@@ -174,6 +178,27 @@ final class LiveAutoPushE2ETests: XCTestCase {
         FileManager.default.fileExists(
             atPath: serviceDir.appendingPathComponent("tasks.csv").path
         )
+    }
+
+    private func fileLinksURL() -> URL {
+        serviceDir.appendingPathComponent(".api2file/file-links.json")
+    }
+
+    private func readFileLinks() throws -> FileLinkIndex {
+        try FileLinkManager.load(from: serviceDir)
+    }
+
+    private func tasksObjectURL() -> URL {
+        serviceDir.appendingPathComponent(".tasks.objects.json")
+    }
+
+    private func writeTasksObjectJSONTriggeringFSEvents(_ records: [[String: Any]]) throws {
+        let targetPath = tasksObjectURL()
+        let data = try JSONSerialization.data(withJSONObject: records, options: [.prettyPrinted, .sortedKeys])
+        let handle = try FileHandle(forWritingTo: targetPath)
+        handle.truncateFile(atOffset: 0)
+        handle.write(data)
+        handle.closeFile()
     }
 
     /// Write content to tasks.csv using a method that triggers FSEvents reliably.
@@ -272,6 +297,56 @@ final class LiveAutoPushE2ETests: XCTestCase {
             "Buy organic groceries from live test",
             "API should reflect the local file edit"
         )
+    }
+
+    func testInitialPullBuildsFileLinksForInstalledService() async throws {
+        try await startEngine()
+
+        try await Task.sleep(nanoseconds: 2_000_000_000)
+
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: fileLinksURL().path),
+            "file-links.json should be created during startup sync"
+        )
+
+        let links = try readFileLinks()
+        let tasksLink = try XCTUnwrap(links.links.first(where: { $0.userPath == "tasks.csv" }))
+        XCTAssertEqual(tasksLink.resourceName, "tasks")
+        XCTAssertEqual(tasksLink.canonicalPath, ".tasks.objects.json")
+    }
+
+    func testLiveObjectFileEdit_RegeneratesCSVAndPushesToAPI() async throws {
+        try await startEngine()
+
+        try await Task.sleep(nanoseconds: 2_000_000_000)
+
+        XCTAssertTrue(tasksCSVExists(), "tasks.csv should exist after initial pull")
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: tasksObjectURL().path),
+            ".tasks.objects.json should exist after initial pull"
+        )
+
+        var rawRecords = try ObjectFileManager.readCollectionObjectFile(from: tasksObjectURL())
+        guard let index = rawRecords.firstIndex(where: {
+            ($0["id"] as? Int) == 1 || ($0["id"] as? String) == "1"
+        }) else {
+            XCTFail("Could not find task with id 1 in object file")
+            return
+        }
+        rawRecords[index]["name"] = "Canonical edit from object watcher test"
+        try writeTasksObjectJSONTriggeringFSEvents(rawRecords)
+
+        try await Task.sleep(nanoseconds: 3_000_000_000)
+
+        let csv = try readTasksCSV()
+        XCTAssertTrue(
+            csv.contains("Canonical edit from object watcher test"),
+            "tasks.csv should be regenerated from the object file edit"
+        )
+
+        let apiTasks = try await getTasksFromAPI()
+        let updatedTask = apiTasks.first(where: { ($0["id"] as? Int) == 1 })
+        XCTAssertEqual(updatedTask?["name"] as? String, "Canonical edit from object watcher test")
     }
 
     // ======================================================================

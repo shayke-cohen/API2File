@@ -841,7 +841,18 @@ final class DemoServerE2ETests: XCTestCase {
         XCTAssertNotNil(post)
         XCTAssertEqual(post?["title"] as? String, "Getting Started with API2File")
         XCTAssertEqual(post?["published"] as? Bool, true)
-        let content = post?["richContent"] as? String ?? ""
+        XCTAssertNil(post?["contentText"], "Summary posts should not include full content text")
+
+        let detailRequest = APIRequest(method: .GET, url: "\(baseURL)/api/wix/posts/bp-001-aaaa-bbbb-cccc")
+        let detailResponse = try await client.request(detailRequest)
+        XCTAssertEqual(detailResponse.statusCode, 200)
+        let detailJSON = try JSONSerialization.jsonObject(with: detailResponse.body)
+        guard let detailDict = detailJSON as? [String: Any],
+              let detailedPost = detailDict["post"] as? [String: Any] else {
+            XCTFail("Expected wrapped post detail response")
+            return
+        }
+        let content = detailedPost["contentText"] as? String ?? ""
         XCTAssertTrue(content.contains("# Getting Started"))
     }
 
@@ -871,6 +882,39 @@ final class DemoServerE2ETests: XCTestCase {
         XCTAssertEqual(stock?["quantity"] as? Int, 150)
     }
 
+    // MARK: - Test: Pull Wix media from demo server
+
+    func testPullWixMediaFromDemoServer() async throws {
+        let client = makeClient()
+        let request = APIRequest(method: .GET, url: "\(baseURL)/api/wix/media")
+        let response = try await client.request(request)
+        XCTAssertEqual(response.statusCode, 200)
+
+        let json = try JSONSerialization.jsonObject(with: response.body)
+        guard let dict = json as? [String: Any],
+              let files = dict["files"] as? [[String: Any]] else {
+            XCTFail("Expected wrapped media response")
+            return
+        }
+        XCTAssertEqual(files.count, 5, "Should have 5 seed Wix media files")
+
+        let image = files.first(where: { ($0["displayName"] as? String) == "homepage-hero.png" })
+        XCTAssertNotNil(image)
+        XCTAssertEqual(image?["mediaType"] as? String, "IMAGE")
+        XCTAssertEqual(image?["mimeType"] as? String, "image/png")
+
+        let pdf = files.first(where: { ($0["displayName"] as? String) == "pricing-guide.pdf" })
+        XCTAssertNotNil(pdf)
+        XCTAssertEqual(pdf?["mimeType"] as? String, "application/pdf")
+
+        let assetURL = try XCTUnwrap(URL(string: image?["url"] as? String ?? ""))
+        let (assetData, assetResponse) = try await URLSession.shared.data(from: assetURL)
+        let httpResponse = try XCTUnwrap(assetResponse as? HTTPURLResponse)
+        XCTAssertEqual(httpResponse.statusCode, 200)
+        XCTAssertEqual(httpResponse.value(forHTTPHeaderField: "Content-Type"), "image/png")
+        XCTAssertGreaterThan(assetData.count, 0)
+    }
+
     // MARK: - Test: Pull Wix bookings from demo server
 
     func testPullWixBookingsFromDemoServer() async throws {
@@ -894,6 +938,74 @@ final class DemoServerE2ETests: XCTestCase {
         XCTAssertEqual(consultation?["price"] as? Double, 75.0)
     }
 
+    // MARK: - Test: Pull Wix appointments from demo server
+
+    func testPullWixAppointmentsFromDemoServer() async throws {
+        let client = makeClient()
+        let request = APIRequest(method: .GET, url: "\(baseURL)/api/wix/appointments")
+        let response = try await client.request(request)
+        XCTAssertEqual(response.statusCode, 200)
+
+        let json = try JSONSerialization.jsonObject(with: response.body)
+        guard let dict = json as? [String: Any],
+              let bookings = dict["bookings"] as? [[String: Any]] else {
+            XCTFail("Expected wrapped appointments response")
+            return
+        }
+        XCTAssertEqual(bookings.count, 2)
+
+        let appointment = bookings.first(where: { ($0["id"] as? String) == "appt-001" })
+        XCTAssertNotNil(appointment)
+        let bookedEntity = appointment?["bookedEntity"] as? [String: Any]
+        XCTAssertEqual(bookedEntity?["title"] as? String, "One-on-One Consultation")
+        let contactDetails = appointment?["contactDetails"] as? [String: Any]
+        XCTAssertEqual(contactDetails?["email"] as? String, "alice@example.com")
+    }
+
+    // MARK: - Test: Pull Wix groups from demo server
+
+    func testPullWixGroupsFromDemoServer() async throws {
+        let client = makeClient()
+        let request = APIRequest(method: .GET, url: "\(baseURL)/api/wix/groups")
+        let response = try await client.request(request)
+        XCTAssertEqual(response.statusCode, 200)
+
+        let json = try JSONSerialization.jsonObject(with: response.body)
+        guard let dict = json as? [String: Any],
+              let groups = dict["groups"] as? [[String: Any]] else {
+            XCTFail("Expected wrapped groups response")
+            return
+        }
+        XCTAssertEqual(groups.count, 2)
+
+        let group = groups.first(where: { ($0["slug"] as? String) == "founders-circle" })
+        XCTAssertNotNil(group)
+        let settings = group?["settings"] as? [String: Any]
+        XCTAssertEqual(settings?["memberWelcomeMessage"] as? String, "Welcome to the founders circle.")
+    }
+
+    // MARK: - Test: Pull Wix comments from demo server
+
+    func testPullWixCommentsFromDemoServer() async throws {
+        let client = makeClient()
+        let request = APIRequest(method: .GET, url: "\(baseURL)/api/wix/comments")
+        let response = try await client.request(request)
+        XCTAssertEqual(response.statusCode, 200)
+
+        let json = try JSONSerialization.jsonObject(with: response.body)
+        guard let dict = json as? [String: Any],
+              let comments = dict["comments"] as? [[String: Any]] else {
+            XCTFail("Expected wrapped comments response")
+            return
+        }
+        XCTAssertEqual(comments.count, 2)
+
+        let comment = comments.first(where: { ($0["id"] as? String) == "comment-001" })
+        XCTAssertNotNil(comment)
+        let content = comment?["content"] as? [String: Any]
+        XCTAssertTrue((content?["plainText"] as? String ?? "").contains("first sync flow"))
+    }
+
     // MARK: - Test: Pull Wix collections from demo server
 
     func testPullWixCollectionsFromDemoServer() async throws {
@@ -914,5 +1026,27 @@ final class DemoServerE2ETests: XCTestCase {
         XCTAssertNotNil(products)
         XCTAssertEqual(products?["fields"] as? Int, 12)
         XCTAssertEqual(products?["items"] as? Int, 156)
+    }
+
+    // MARK: - Test: Pull Wix collection items from demo server
+
+    func testPullWixCollectionItemsFromDemoServer() async throws {
+        let client = makeClient()
+        let request = APIRequest(method: .GET, url: "\(baseURL)/api/wix/collections/col-002/items")
+        let response = try await client.request(request)
+        XCTAssertEqual(response.statusCode, 200)
+
+        let json = try JSONSerialization.jsonObject(with: response.body)
+        guard let dict = json as? [String: Any],
+              let items = dict["dataItems"] as? [[String: Any]] else {
+            XCTFail("Expected wrapped collection items response")
+            return
+        }
+        XCTAssertEqual(items.count, 3)
+
+        let hub = items.first(where: { ($0["slug"] as? String) == "usb-c-hub" })
+        XCTAssertNotNil(hub)
+        XCTAssertEqual(hub?["status"] as? String, "VISIBLE")
+        XCTAssertEqual(hub?["collectionId"] as? String, "col-002")
     }
 }

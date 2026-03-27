@@ -259,6 +259,7 @@ public struct TemplateEngine {
 /// - `rename` — rename a field (supports dot-path for nested extraction)
 /// - `flatten` — extract a field from nested array elements into a flat array
 /// - `keyBy` — convert an array of key-value objects into a dictionary
+/// - `match` — keep only records whose field exactly matches the provided value
 public struct TransformPipeline {
 
     /// Apply a sequence of transforms to an array of records.
@@ -291,6 +292,9 @@ public struct TransformPipeline {
         case "keyBy":
             guard let path = op.path, let key = op.key, let value = op.value, let to = op.to else { return records }
             return records.map { keyBy(path: path, key: key, value: value, to: to, in: $0) }
+        case "match":
+            guard let field = op.field, let value = op.value else { return records }
+            return records.filter { matches(field: field, value: value, record: $0) }
         case "set":
             guard let field = op.field, let value = op.value else { return records }
             return records.map { set(field: field, value: value, in: $0) }
@@ -434,8 +438,39 @@ public struct TransformPipeline {
 
     private static func set(field: String, value: String, in record: [String: Any]) -> [String: Any] {
         var result = record
-        result[field] = TemplateEngine.render(value, with: record)
+        let rendered = TemplateEngine.render(value, with: record)
+        if field.contains(".") {
+            result = setDotPath(field, value: rendered, in: result)
+        } else {
+            result[field] = rendered
+        }
         return result
+    }
+
+    // MARK: - Match
+
+    private static func matches(field: String, value: String, record: [String: Any]) -> Bool {
+        let actual = resolveDotPath(field, in: record) ?? record[field]
+        if value.isEmpty {
+            switch actual {
+            case nil:
+                return true
+            case let string as String:
+                return string.isEmpty
+            default:
+                return false
+            }
+        }
+        switch actual {
+        case let string as String:
+            return string == value
+        case let number as NSNumber:
+            return number.stringValue == value
+        case let bool as Bool:
+            return String(bool) == value
+        default:
+            return false
+        }
     }
 
     // MARK: - Dot-path resolution

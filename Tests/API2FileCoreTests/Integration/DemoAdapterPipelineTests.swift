@@ -65,11 +65,11 @@ final class DemoAdapterPipelineTests: XCTestCase {
     private func makeClient() -> HTTPClient { HTTPClient() }
 
     private func fetchRecords(endpoint: String) async throws -> [[String: Any]] {
-        let client = makeClient()
-        let request = APIRequest(method: .GET, url: "\(baseURL)\(endpoint)")
-        let response = try await client.request(request)
-        XCTAssertEqual(response.statusCode, 200)
-        let json = try JSONSerialization.jsonObject(with: response.body)
+        let url = URL(string: "\(baseURL)\(endpoint)")!
+        let (data, response) = try await URLSession.shared.data(from: url)
+        let httpResponse = try XCTUnwrap(response as? HTTPURLResponse)
+        XCTAssertEqual(httpResponse.statusCode, 200)
+        let json = try JSONSerialization.jsonObject(with: data)
         if let array = json as? [[String: Any]] { return array }
         if let dict = json as? [String: Any] { return [dict] }
         XCTFail("Unexpected response format from \(endpoint)")
@@ -172,7 +172,7 @@ final class DemoAdapterPipelineTests: XCTestCase {
             let readData = try Data(contentsOf: mdFile)
             let mdString = String(data: readData, encoding: .utf8)!
             let originalContent = record["content"] as? String ?? ""
-            XCTAssertEqual(mdString, originalContent, "Markdown file should contain the note content")
+            XCTAssertTrue(mdString.contains(originalContent), "Markdown file should contain the note content")
 
             // Decode back
             let decoded = try MarkdownFormat.decode(data: readData, options: nil)
@@ -703,16 +703,30 @@ final class DemoAdapterPipelineTests: XCTestCase {
         for post in posts {
             let slug = post["slug"] as? String ?? "untitled"
             let filename = "\(slug).md"
-            let content = post["richContent"] as? String ?? ""
+            let postId = post["id"] as? String ?? ""
 
-            // Write content as markdown (simulating contentField extraction)
+            let detailRequest = APIRequest(method: .GET, url: "\(baseURL)/api/wix/posts/\(postId)")
+            let detailResponse = try await client.request(detailRequest)
+            XCTAssertEqual(detailResponse.statusCode, 200)
+            let detailJSON = try JSONSerialization.jsonObject(with: detailResponse.body)
+            guard let detailDict = detailJSON as? [String: Any],
+                  let detailedPost = detailDict["post"] as? [String: Any] else {
+                XCTFail("Expected wrapped post detail response")
+                return
+            }
+
+            let mdData = try MarkdownFormat.encode(
+                records: [detailedPost],
+                options: FormatOptions(fieldMapping: ["content": "contentText"])
+            )
+
             let mdFile = blogDir.appendingPathComponent(filename)
-            try Data(content.utf8).write(to: mdFile)
+            try mdData.write(to: mdFile)
 
-            // Read back and verify
             let readData = try Data(contentsOf: mdFile)
             let readString = String(data: readData, encoding: .utf8)!
-            XCTAssertEqual(readString, content)
+            let content = detailedPost["contentText"] as? String ?? ""
+            XCTAssertTrue(readString.contains(content))
         }
 
         // Verify files
@@ -789,6 +803,189 @@ final class DemoAdapterPipelineTests: XCTestCase {
         let mouseDecoded = decoded.first(where: { ($0["name"] as? String) == "Wireless Mouse" })
         XCTAssertNotNil(mouseDecoded)
         XCTAssertEqual(mouseDecoded?["currency"] as? String, "USD")
+    }
+
+    // MARK: - Wix: Media → Raw mirror files
+
+    func testPullPipeline_WixMediaToRawFiles() async throws {
+        let mediaURL = URL(string: "\(baseURL)/api/wix/media")!
+        let (responseData, response) = try await URLSession.shared.data(from: mediaURL)
+        let httpResponse = try XCTUnwrap(response as? HTTPURLResponse)
+        XCTAssertEqual(httpResponse.statusCode, 200)
+
+        let json = try JSONSerialization.jsonObject(with: responseData)
+        guard let dict = json as? [String: Any],
+              let files = dict["files"] as? [[String: Any]] else {
+            XCTFail("Expected wrapped media response")
+            return
+        }
+        XCTAssertEqual(files.count, 5)
+
+        let mediaDir = tempDir.appendingPathComponent("media")
+        try FileManager.default.createDirectory(at: mediaDir, withIntermediateDirectories: true)
+
+        for file in files {
+            let displayName = file["displayName"] as? String ?? "asset.bin"
+            let url = try XCTUnwrap(URL(string: file["url"] as? String ?? ""))
+            let (assetData, assetResponse) = try await URLSession.shared.data(from: url)
+            let assetHTTPResponse = try XCTUnwrap(assetResponse as? HTTPURLResponse)
+            XCTAssertEqual(assetHTTPResponse.statusCode, 200)
+
+            let decoded = try RawFormat.decode(data: assetData, options: nil)
+            let reencoded = try RawFormat.encode(records: decoded, options: nil)
+            try reencoded.write(to: mediaDir.appendingPathComponent(displayName))
+        }
+
+        let filesOnDisk = try FileManager.default.contentsOfDirectory(at: mediaDir, includingPropertiesForKeys: nil)
+        let names = filesOnDisk.map(\.lastPathComponent).sorted()
+        XCTAssertEqual(names, ["gallery-shot.png", "homepage-hero.png", "launch-teaser.mp4", "podcast-intro.mp3", "pricing-guide.pdf"])
+    }
+
+    // MARK: - Wix: Bookings Services → CSV
+
+    func testPullPipeline_WixBookingsServicesToCSV() async throws {
+        let client = makeClient()
+        let request = APIRequest(method: .GET, url: "\(baseURL)/api/wix/services")
+        let response = try await client.request(request)
+        XCTAssertEqual(response.statusCode, 200)
+
+        let json = try JSONSerialization.jsonObject(with: response.body)
+        guard let dict = json as? [String: Any],
+              let services = dict["services"] as? [[String: Any]] else {
+            XCTFail("Expected wrapped services response")
+            return
+        }
+        XCTAssertEqual(services.count, 2)
+
+        let csvData = try CSVFormat.encode(records: services, options: nil)
+        let csvFile = tempDir.appendingPathComponent("services.csv")
+        try csvData.write(to: csvFile)
+
+        let readData = try Data(contentsOf: csvFile)
+        let decoded = try CSVFormat.decode(data: readData, options: nil)
+        XCTAssertEqual(decoded.count, 2)
+
+        let workshop = decoded.first(where: { ($0["name"] as? String) == "Group Workshop" })
+        XCTAssertNotNil(workshop)
+        XCTAssertEqual(workshop?["category"] as? String, "Training")
+    }
+
+    // MARK: - Wix: Appointments → CSV
+
+    func testPullPipeline_WixAppointmentsToCSV() async throws {
+        let client = makeClient()
+        let request = APIRequest(method: .GET, url: "\(baseURL)/api/wix/appointments")
+        let response = try await client.request(request)
+        XCTAssertEqual(response.statusCode, 200)
+
+        let json = try JSONSerialization.jsonObject(with: response.body)
+        guard let dict = json as? [String: Any],
+              let bookings = dict["bookings"] as? [[String: Any]] else {
+            XCTFail("Expected wrapped appointments response")
+            return
+        }
+        XCTAssertEqual(bookings.count, 2)
+
+        let flatRecords: [[String: Any]] = bookings.map { booking in
+            var flat: [String: Any] = [:]
+            flat["id"] = booking["id"]
+            flat["startDate"] = booking["startDate"]
+            flat["endDate"] = booking["endDate"]
+            flat["status"] = booking["status"]
+            if let bookedEntity = booking["bookedEntity"] as? [String: Any] {
+                flat["serviceName"] = bookedEntity["title"]
+            }
+            if let contactDetails = booking["contactDetails"] as? [String: Any] {
+                flat["guestFirstName"] = contactDetails["firstName"]
+                flat["guestLastName"] = contactDetails["lastName"]
+                flat["guestEmail"] = contactDetails["email"]
+            }
+            return flat
+        }
+
+        let csvData = try CSVFormat.encode(records: flatRecords, options: nil)
+        let csvFile = tempDir.appendingPathComponent("appointments.csv")
+        try csvData.write(to: csvFile)
+
+        let readData = try Data(contentsOf: csvFile)
+        let decoded = try CSVFormat.decode(data: readData, options: nil)
+        XCTAssertEqual(decoded.count, 2)
+        XCTAssertEqual(decoded.first?["serviceName"] as? String, "One-on-One Consultation")
+    }
+
+    // MARK: - Wix: Groups → CSV
+
+    func testPullPipeline_WixGroupsToCSV() async throws {
+        let client = makeClient()
+        let request = APIRequest(method: .GET, url: "\(baseURL)/api/wix/groups")
+        let response = try await client.request(request)
+        XCTAssertEqual(response.statusCode, 200)
+
+        let json = try JSONSerialization.jsonObject(with: response.body)
+        guard let dict = json as? [String: Any],
+              let groups = dict["groups"] as? [[String: Any]] else {
+            XCTFail("Expected wrapped groups response")
+            return
+        }
+        XCTAssertEqual(groups.count, 2)
+
+        let flatRecords: [[String: Any]] = groups.map { group in
+            var flat = group
+            if let settings = group["settings"] as? [String: Any] {
+                flat["welcomeMessage"] = settings["memberWelcomeMessage"]
+            }
+            flat.removeValue(forKey: "settings")
+            return flat
+        }
+
+        let csvData = try CSVFormat.encode(records: flatRecords, options: nil)
+        let csvFile = tempDir.appendingPathComponent("groups.csv")
+        try csvData.write(to: csvFile)
+
+        let decoded = try CSVFormat.decode(data: try Data(contentsOf: csvFile), options: nil)
+        XCTAssertEqual(decoded.count, 2)
+        let founders = decoded.first(where: { ($0["slug"] as? String) == "founders-circle" })
+        XCTAssertEqual(founders?["welcomeMessage"] as? String, "Welcome to the founders circle.")
+    }
+
+    // MARK: - Wix: Comments → CSV
+
+    func testPullPipeline_WixCommentsToCSV() async throws {
+        let client = makeClient()
+        let request = APIRequest(method: .GET, url: "\(baseURL)/api/wix/comments")
+        let response = try await client.request(request)
+        XCTAssertEqual(response.statusCode, 200)
+
+        let json = try JSONSerialization.jsonObject(with: response.body)
+        guard let dict = json as? [String: Any],
+              let comments = dict["comments"] as? [[String: Any]] else {
+            XCTFail("Expected wrapped comments response")
+            return
+        }
+        XCTAssertEqual(comments.count, 2)
+
+        let flatRecords: [[String: Any]] = comments.map { comment in
+            var flat: [String: Any] = [:]
+            flat["id"] = comment["id"]
+            flat["entityId"] = comment["entityId"]
+            flat["status"] = comment["status"]
+            flat["createdDate"] = comment["createdDate"]
+            if let author = comment["author"] as? [String: Any] {
+                flat["authorMemberId"] = author["memberId"]
+            }
+            if let content = comment["content"] as? [String: Any] {
+                flat["text"] = content["plainText"]
+            }
+            return flat
+        }
+
+        let csvData = try CSVFormat.encode(records: flatRecords, options: nil)
+        let csvFile = tempDir.appendingPathComponent("comments.csv")
+        try csvData.write(to: csvFile)
+
+        let decoded = try CSVFormat.decode(data: try Data(contentsOf: csvFile), options: nil)
+        XCTAssertEqual(decoded.count, 2)
+        XCTAssertTrue((decoded.first?["text"] as? String ?? "").contains("first sync flow"))
     }
 
     // MARK: - Wix: Bookings → JSON (one-per-record)
@@ -868,5 +1065,31 @@ final class DemoAdapterPipelineTests: XCTestCase {
         let jsonString = String(data: readData, encoding: .utf8)!
         XCTAssertTrue(jsonString.contains("\"displayName\""), "JSON should contain displayName")
         XCTAssertTrue(jsonString.contains("\n"), "JSON should be pretty-printed")
+    }
+
+    // MARK: - Wix: Collection Items → CSV
+
+    func testPullPipeline_WixCollectionItemsToCSV() async throws {
+        let client = makeClient()
+        let request = APIRequest(method: .GET, url: "\(baseURL)/api/wix/collections/col-002/items")
+        let response = try await client.request(request)
+        XCTAssertEqual(response.statusCode, 200)
+
+        let json = try JSONSerialization.jsonObject(with: response.body)
+        guard let dict = json as? [String: Any],
+              let items = dict["dataItems"] as? [[String: Any]] else {
+            XCTFail("Expected wrapped collection item response")
+            return
+        }
+        XCTAssertEqual(items.count, 3)
+
+        let csvData = try CSVFormat.encode(records: items, options: nil)
+        let csvFile = tempDir.appendingPathComponent("items.csv")
+        try csvData.write(to: csvFile)
+
+        let decoded = try CSVFormat.decode(data: try Data(contentsOf: csvFile), options: nil)
+        XCTAssertEqual(decoded.count, 3)
+        let stickers = decoded.first(where: { ($0["slug"] as? String) == "developer-sticker-pack" })
+        XCTAssertEqual(stickers?["status"] as? String, "HIDDEN")
     }
 }
