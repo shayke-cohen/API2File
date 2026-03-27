@@ -204,10 +204,13 @@ final class DemoAdapterConfigTests: XCTestCase {
 
         let blogPosts = try XCTUnwrap(config.resources.first(where: { $0.name == "blog-posts" }))
         XCTAssertEqual(blogPosts.pull?.dataPath, "$.posts")
+        XCTAssertEqual(blogPosts.pull?.detail?.url, "http://localhost:8089/api/wix/posts/{id}")
+        XCTAssertEqual(blogPosts.pull?.detail?.dataPath, "$.post")
         XCTAssertEqual(blogPosts.fileMapping.strategy, .onePerRecord)
         XCTAssertEqual(blogPosts.fileMapping.format, .markdown)
         XCTAssertEqual(blogPosts.fileMapping.directory, "blog")
-        XCTAssertEqual(blogPosts.fileMapping.contentField, "richContent")
+        XCTAssertEqual(blogPosts.fileMapping.contentField, "contentText")
+        XCTAssertEqual(blogPosts.fileMapping.formatOptions?.fieldMapping?["richContent"], "richContent")
 
         let products = try XCTUnwrap(config.resources.first(where: { $0.name == "products" }))
         XCTAssertEqual(products.pull?.dataPath, "$.products")

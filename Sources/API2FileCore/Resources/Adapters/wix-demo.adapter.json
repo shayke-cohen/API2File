@@ -44,14 +44,28 @@
     {
       "name": "blog-posts",
       "description": "Wix blog posts as Markdown files",
-      "pull": { "method": "GET", "url": "http://localhost:8089/api/wix/posts", "dataPath": "$.posts" },
+      "pull": {
+        "method": "GET",
+        "url": "http://localhost:8089/api/wix/posts",
+        "dataPath": "$.posts",
+        "detail": {
+          "method": "GET",
+          "url": "http://localhost:8089/api/wix/posts/{id}",
+          "dataPath": "$.post"
+        }
+      },
       "fileMapping": {
         "strategy": "one-per-record",
         "directory": "blog",
         "filename": "{slug|slugify}.md",
         "format": "md",
+        "formatOptions": {
+          "fieldMapping": {
+            "richContent": "richContent"
+          }
+        },
         "idField": "id",
-        "contentField": "richContent"
+        "contentField": "contentText"
       },
       "sync": { "interval": 10, "debounceMs": 500 }
     },

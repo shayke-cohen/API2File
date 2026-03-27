@@ -1,7 +1,7 @@
 {
   "service": "wix",
   "displayName": "Wix — Website & Business Platform",
-  "version": "1.4",
+  "version": "1.6",
   "icon": "globe",
   "wizardDescription": "Contacts, products, blog, bookings, groups, media",
   "siteUrl": "YOUR_SITE_URL_HERE",
@@ -126,7 +126,12 @@
             }
           }
         },
-        "dataPath": "$.posts"
+        "dataPath": "$.posts",
+        "detail": {
+          "method": "GET",
+          "url": "https://www.wixapis.com/blog/v3/posts/{id}?fieldsets=RICH_CONTENT",
+          "dataPath": "$.post"
+        }
       },
 
       "pagination": {
@@ -167,14 +172,20 @@
         "directory": "blog",
         "filename": "{slug|slugify}.md",
         "format": "md",
+        "formatOptions": {
+          "fieldMapping": {
+            "richContent": "richContent"
+          }
+        },
         "idField": "id",
-        "contentField": "richContent",
+        "contentField": "contentText",
         "transforms": {
           "pull": [
-            { "op": "omit", "fields": ["coverMedia", "memberId", "hashtags", "commentingEnabled", "minutesToRead", "tagIds", "pricingPlanIds"] },
+            { "op": "omit", "fields": ["categoryIds", "coverMedia", "customExcerpt", "hashtags", "internalCategoryIds", "internalRelatedPostIds", "isDemo", "media", "mostRecentContributorId", "preview", "pricingPlanIds", "relatedPostIds", "tagIds", "translations", "commentingEnabled", "minutesToRead", "contentId", "hasUnpublishedChanges", "lastPublishedDate"] },
             { "op": "set", "field": "_url", "value": "https://manage.wix.com/dashboard/YOUR_SITE_ID_HERE/blog/{id}/edit" }
           ],
           "push": [
+            { "op": "pick", "fields": ["title", "slug", "memberId", "excerpt", "contentText", "richContent", "featured", "pinned", "language"] },
             { "op": "omit", "fields": ["_url"] }
           ]
         }

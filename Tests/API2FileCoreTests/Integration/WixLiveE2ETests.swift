@@ -86,6 +86,7 @@ final class WixLiveE2ETests: XCTestCase {
             "restaurant-orders",
         ]
         let preferredSourceResources = Set([
+            "blog-posts",
             "media",
             "pro-gallery",
             "pdf-viewer",
@@ -553,8 +554,53 @@ final class WixLiveE2ETests: XCTestCase {
         return result["posts"] as? [[String: Any]] ?? []
     }
 
+    private func getBlogPost(id: String) async throws -> [String: Any] {
+        let result = try await wixAPI(method: .GET, path: "/blog/v3/posts/\(id)?fieldsets=RICH_CONTENT")
+        if let post = result["post"] as? [String: Any] {
+            return post
+        }
+        return result
+    }
+
+    private func richContentDocument(markdown: String) throws -> [String: Any] {
+        let options = FormatOptions(fieldMapping: [
+            "content": "contentText",
+            "richContent": "richContent",
+        ])
+        let decoded = try MarkdownFormat.decode(data: Data(markdown.utf8), options: options)
+        return try XCTUnwrap(decoded.first?["richContent"] as? [String: Any])
+    }
+
+    private func richContentPlainText(_ value: Any?) -> String {
+        if let text = value as? String {
+            return text
+        }
+        guard let richContent = value as? [String: Any],
+              let nodes = richContent["nodes"] as? [[String: Any]]
+        else {
+            return ""
+        }
+
+        return nodes
+            .map { node in
+                let type = (node["type"] as? String)?.uppercased() ?? ""
+                switch type {
+                case "TEXT":
+                    return ((node["textData"] as? [String: Any])?["text"] as? String) ?? ""
+                default:
+                    if let childNodes = node["nodes"] as? [[String: Any]] {
+                        return richContentPlainText(["nodes": childNodes])
+                    }
+                    return ""
+                }
+            }
+            .joined(separator: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     private func createBlogPost(title: String, slug: String, excerpt: String, contentText: String) async throws -> String {
         let ownerId = try await currentGroupOwnerId()
+        let richContent = try richContentDocument(markdown: contentText)
         let createBody: [String: Any] = [
             "draftPost": [
                 "title": title,
@@ -562,6 +608,7 @@ final class WixLiveE2ETests: XCTestCase {
                 "memberId": ownerId,
                 "excerpt": excerpt,
                 "contentText": contentText,
+                "richContent": richContent,
             ],
         ]
         let result = try await wixAPI(method: .POST, path: "/blog/v3/draft-posts", body: createBody)
@@ -787,6 +834,19 @@ final class WixLiveE2ETests: XCTestCase {
             directory: "blog",
             expectedFrontMatterKeys: ["id", "title", "slug", "excerpt", "firstPublishedDate"]
         )
+    }
+
+    func testBlogPosts_Pull_WritesMarkdownBodyFromContentText() async throws {
+        let res = resource("blog-posts")
+        let result = try await engine.pull(resource: res)
+        XCTAssertFalse(result.files.isEmpty, "blog-posts pull returned no files")
+
+        let markdownFiles = result.files.filter { $0.relativePath.hasPrefix("blog/") && $0.relativePath.hasSuffix(".md") }
+        let sample = try XCTUnwrap(markdownFiles.first(where: { !$0.content.isEmpty }))
+        let content = String(decoding: sample.content, as: UTF8.self)
+        let sections = content.components(separatedBy: "\n---\n\n")
+        XCTAssertTrue(sections.count >= 2, "Expected markdown body after front matter in \(sample.relativePath)")
+        XCTAssertFalse(sections.last?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true, "Markdown body should not be empty in \(sample.relativePath)")
     }
 
     // ======================================================================
@@ -1868,6 +1928,40 @@ final class WixLiveE2ETests: XCTestCase {
         let posts = try await queryBlogPosts()
         let found = posts.first(where: { $0["id"] as? String == postId })
         XCTAssertEqual(found?["title"] as? String, updatedTitle)
+    }
+
+    func testBlogPosts_Update_MarkdownBodyPush_ReflectedOnServer() async throws {
+        let title = uniqueTestName("BlogPost")
+        let slug = title.lowercased().replacingOccurrences(of: " ", with: "-")
+        let postId = try await createBlogPost(title: title, slug: slug, excerpt: "Created by API2File", contentText: "Hello from Codex")
+        try await delay(1200)
+
+        let pullResult = try await engine.pull(resource: resource("blog-posts"))
+        let file = try XCTUnwrap(
+            pullResult.files.first(where: { $0.remoteId == postId }),
+            "Expected pulled markdown file for created post"
+        )
+
+        let originalMarkdown = String(decoding: file.content, as: UTF8.self)
+        XCTAssertTrue(originalMarkdown.contains("Hello from Codex"), "Pulled markdown should contain the original body text")
+
+        let updatedMarkdown = originalMarkdown.replacingOccurrences(of: "Hello from Codex", with: "Updated from markdown body push")
+        let pushedFile = SyncableFile(
+            relativePath: file.relativePath,
+            format: .markdown,
+            content: Data(updatedMarkdown.utf8),
+            remoteId: postId
+        )
+
+        _ = try await engine.push(file: pushedFile, resource: resource("blog-posts"))
+        try await delay(1500)
+
+        let detailedPost = try await getBlogPost(id: postId)
+        let contentText = richContentPlainText(detailedPost["richContent"])
+        XCTAssertTrue(
+            contentText.contains("Updated from markdown body push"),
+            "Live Wix post should reflect the markdown body update"
+        )
     }
 
     func testBlogPosts_Delete_RemovePost_DeletedFromServer() async throws {

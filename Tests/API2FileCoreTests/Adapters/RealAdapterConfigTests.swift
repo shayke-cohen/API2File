@@ -206,6 +206,16 @@ final class RealAdapterConfigTests: XCTestCase {
             blogPosts.pull?.updatedSinceBodyPath,
             "Wix blog posts query does not support updatedDate filtering; keep incremental body filters disabled"
         )
+        XCTAssertEqual(blogPosts.pull?.detail?.url, "https://www.wixapis.com/blog/v3/posts/{id}?fieldsets=RICH_CONTENT")
+        XCTAssertEqual(blogPosts.pull?.detail?.dataPath, "$.post")
+        XCTAssertEqual(blogPosts.fileMapping.contentField, "contentText")
+        XCTAssertEqual(blogPosts.fileMapping.formatOptions?.fieldMapping?["richContent"], "richContent")
+        XCTAssertTrue(
+            blogPosts.fileMapping.transforms?.push?.contains(where: {
+                $0.op == "pick" && ($0.fields ?? []).contains("richContent")
+            }) == true,
+            "Wix blog posts should explicitly pick richContent for Markdown push payloads"
+        )
     }
 
     // MARK: - 7. Monday: Verify GraphQL Query Present

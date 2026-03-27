@@ -152,8 +152,14 @@ public actor AdapterEngine {
             return PullResult(files: [], responseETag: fetchResult.responseETag, notModified: true)
         }
 
+        let records: [[String: Any]]
+        if let detail = pullConfig.detail, resource.fileMapping.strategy == .onePerRecord {
+            records = try await hydrateRecords(fetchResult.records, with: detail)
+        } else {
+            records = fetchResult.records
+        }
+
         // Apply pull transforms
-        let records = fetchResult.records
         let transforms = resource.fileMapping.transforms?.pull ?? []
         let transformed = transforms.isEmpty ? records : TransformPipeline.apply(transforms, to: records)
 
@@ -221,7 +227,7 @@ public actor AdapterEngine {
         let records = try FormatConverterFactory.decode(
             data: file.content,
             format: file.format,
-            options: resource.fileMapping.formatOptions
+            options: resource.fileMapping.effectiveFormatOptions
         )
 
         // Apply push transforms
@@ -423,6 +429,54 @@ public actor AdapterEngine {
         let records: [[String: Any]]
         let responseETag: String?
         let notModified: Bool
+    }
+
+    private func hydrateRecords(_ records: [[String: Any]], with detail: PullDetailConfig) async throws -> [[String: Any]] {
+        var hydrated: [[String: Any]] = []
+        hydrated.reserveCapacity(records.count)
+
+        for record in records {
+            let detailRecord = try await fetchDetailRecord(for: record, detail: detail)
+            var merged = record
+            if let detailRecord {
+                for (key, value) in detailRecord {
+                    merged[key] = value
+                }
+            }
+
+            if merged["contentText"] == nil,
+               let richContent = merged["richContent"] as? String,
+               !richContent.isEmpty {
+                merged["contentText"] = richContent
+            }
+
+            hydrated.append(merged)
+        }
+
+        return hydrated
+    }
+
+    private func fetchDetailRecord(for record: [String: Any], detail: PullDetailConfig) async throws -> [String: Any]? {
+        var vars = record
+        if let baseUrl = config.globals?.baseUrl {
+            vars["baseUrl"] = baseUrl
+        }
+        let url = TemplateEngine.render(detail.url, with: vars)
+        let method = HTTPMethod(rawValue: detail.method?.uppercased() ?? "GET") ?? .GET
+        var headers = config.globals?.headers ?? [:]
+        headers["Content-Type"] = headers["Content-Type"] ?? "application/json"
+
+        let response = try await httpClient.request(
+            APIRequest(method: method, url: url, headers: headers, body: nil)
+        )
+        let json = try JSONSerialization.jsonObject(with: response.body)
+
+        if let dataPath = detail.dataPath,
+           let extracted = JSONPath.extract(dataPath, from: json) as? [String: Any] {
+            return extracted
+        }
+
+        return json as? [String: Any]
     }
 
     /// Fetch all records from an API endpoint, handling pagination.
@@ -708,7 +762,7 @@ public actor AdapterEngine {
     private func mapToFiles(records: [[String: Any]], resource: ResourceConfig) throws -> [SyncableFile] {
         let mapping = resource.fileMapping
         let format = mapping.format
-        let options = mapping.formatOptions
+        let options = mapping.effectiveFormatOptions
         let readOnly = mapping.readOnly ?? false
         let idField = mapping.idField ?? "id"
 
@@ -719,8 +773,9 @@ public actor AdapterEngine {
                 let relativePath = FileMapper.filePath(for: record, config: mapping)
                 let data: Data
 
-                // If contentField is set, write just that field's content directly
-                if let contentField = mapping.contentField,
+                if format == .markdown {
+                    data = try FormatConverterFactory.encode(records: [record], format: format, options: options)
+                } else if let contentField = mapping.contentField,
                    let content = record[contentField] {
                     if let stringContent = content as? String {
                         data = Data(stringContent.utf8)
@@ -763,7 +818,9 @@ public actor AdapterEngine {
                 let relativePath = FileMapper.filePath(for: record, config: mapping)
                 let data: Data
 
-                if let contentField = mapping.contentField,
+                if format == .markdown {
+                    data = try FormatConverterFactory.encode(records: [record], format: format, options: options)
+                } else if let contentField = mapping.contentField,
                    let content = record[contentField] {
                     if let stringContent = content as? String {
                         data = Data(stringContent.utf8)

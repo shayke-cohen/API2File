@@ -703,16 +703,30 @@ final class DemoAdapterPipelineTests: XCTestCase {
         for post in posts {
             let slug = post["slug"] as? String ?? "untitled"
             let filename = "\(slug).md"
-            let content = post["richContent"] as? String ?? ""
+            let postId = post["id"] as? String ?? ""
 
-            // Write content as markdown (simulating contentField extraction)
+            let detailRequest = APIRequest(method: .GET, url: "\(baseURL)/api/wix/posts/\(postId)")
+            let detailResponse = try await client.request(detailRequest)
+            XCTAssertEqual(detailResponse.statusCode, 200)
+            let detailJSON = try JSONSerialization.jsonObject(with: detailResponse.body)
+            guard let detailDict = detailJSON as? [String: Any],
+                  let detailedPost = detailDict["post"] as? [String: Any] else {
+                XCTFail("Expected wrapped post detail response")
+                return
+            }
+
+            let mdData = try MarkdownFormat.encode(
+                records: [detailedPost],
+                options: FormatOptions(fieldMapping: ["content": "contentText"])
+            )
+
             let mdFile = blogDir.appendingPathComponent(filename)
-            try Data(content.utf8).write(to: mdFile)
+            try mdData.write(to: mdFile)
 
-            // Read back and verify
             let readData = try Data(contentsOf: mdFile)
             let readString = String(data: readData, encoding: .utf8)!
-            XCTAssertEqual(readString, content)
+            let content = detailedPost["contentText"] as? String ?? ""
+            XCTAssertTrue(readString.contains(content))
         }
 
         // Verify files

@@ -1914,8 +1914,12 @@ public actor DemoAPIServer {
             sendJSONDict(statusCode: 200, body: ["contacts": items], connection: connection)
 
         case ("GET", "posts"):
-            let items = wixBlogPosts.map { $0.toDict() }
-            sendJSONDict(statusCode: 200, body: ["posts": items], connection: connection)
+            if parts.count >= 2, let post = wixBlogPosts.first(where: { $0.id == parts[1] }) {
+                sendJSONDict(statusCode: 200, body: ["post": post.toDetailDict()], connection: connection)
+            } else {
+                let items = wixBlogPosts.map { $0.toSummaryDict() }
+                sendJSONDict(statusCode: 200, body: ["posts": items], connection: connection)
+            }
 
         case ("GET", "products"):
             let items = wixProducts.map { $0.toDict() }
@@ -2537,15 +2541,25 @@ public struct DemoWixBlogPost: Codable, Sendable {
     public var published: Bool
     public var firstPublishedDate: String
 
-    public func toDict() -> [String: Any] {
+    public var contentText: String {
+        richContent
+    }
+
+    public func toSummaryDict() -> [String: Any] {
         [
             "id": id,
             "title": title,
             "slug": slug,
-            "richContent": richContent,
             "published": published,
             "firstPublishedDate": firstPublishedDate
         ]
+    }
+
+    public func toDetailDict() -> [String: Any] {
+        var dict = toSummaryDict()
+        dict["richContent"] = richContent
+        dict["contentText"] = contentText
+        return dict
     }
 
     static let seedData: [DemoWixBlogPost] = [

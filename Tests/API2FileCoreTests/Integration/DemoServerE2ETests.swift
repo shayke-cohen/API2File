@@ -841,7 +841,18 @@ final class DemoServerE2ETests: XCTestCase {
         XCTAssertNotNil(post)
         XCTAssertEqual(post?["title"] as? String, "Getting Started with API2File")
         XCTAssertEqual(post?["published"] as? Bool, true)
-        let content = post?["richContent"] as? String ?? ""
+        XCTAssertNil(post?["contentText"], "Summary posts should not include full content text")
+
+        let detailRequest = APIRequest(method: .GET, url: "\(baseURL)/api/wix/posts/bp-001-aaaa-bbbb-cccc")
+        let detailResponse = try await client.request(detailRequest)
+        XCTAssertEqual(detailResponse.statusCode, 200)
+        let detailJSON = try JSONSerialization.jsonObject(with: detailResponse.body)
+        guard let detailDict = detailJSON as? [String: Any],
+              let detailedPost = detailDict["post"] as? [String: Any] else {
+            XCTFail("Expected wrapped post detail response")
+            return
+        }
+        let content = detailedPost["contentText"] as? String ?? ""
         XCTAssertTrue(content.contains("# Getting Started"))
     }
 

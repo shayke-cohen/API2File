@@ -320,6 +320,92 @@ final class FormatConverterTests: XCTestCase {
         XCTAssertEqual(decoded[0]["content"] as? String, original[0]["content"] as? String)
     }
 
+    func testMarkdownEncodePrefersRichContentFieldWhenConfigured() throws {
+        let options = FormatOptions(fieldMapping: [
+            "content": "contentText",
+            "richContent": "richContent",
+        ])
+        let record: [String: Any] = [
+            "title": "Rich Post",
+            "contentText": "fallback text",
+            "richContent": [
+                "nodes": [
+                    [
+                        "type": "HEADING",
+                        "id": "heading-1",
+                        "nodes": [
+                            [
+                                "type": "TEXT",
+                                "id": "",
+                                "nodes": [],
+                                "textData": [
+                                    "text": "Hello",
+                                    "decorations": [],
+                                ],
+                            ],
+                        ],
+                        "headingData": ["level": 2],
+                    ],
+                    [
+                        "type": "PARAGRAPH",
+                        "id": "paragraph-1",
+                        "nodes": [
+                            [
+                                "type": "TEXT",
+                                "id": "",
+                                "nodes": [],
+                                "textData": [
+                                    "text": "World",
+                                    "decorations": [],
+                                ],
+                            ],
+                        ],
+                        "paragraphData": [:],
+                    ],
+                ],
+                "documentStyle": [:],
+            ],
+        ]
+
+        let data = try MarkdownFormat.encode(records: [record], options: options)
+        let markdown = String(decoding: data, as: UTF8.self)
+
+        XCTAssertTrue(markdown.contains("title: Rich Post"))
+        XCTAssertTrue(markdown.contains("## Hello"))
+        XCTAssertTrue(markdown.contains("World"))
+        XCTAssertFalse(markdown.contains("fallback text"))
+    }
+
+    func testMarkdownDecodeBuildsRichContentWhenConfigured() throws {
+        let markdown = """
+        ---
+        title: Rich Post
+        ---
+
+        ## Heading
+
+        First paragraph.
+
+        - one
+        - two
+        """
+        let options = FormatOptions(fieldMapping: [
+            "content": "contentText",
+            "richContent": "richContent",
+        ])
+
+        let records = try MarkdownFormat.decode(data: Data(markdown.utf8), options: options)
+        let record = try XCTUnwrap(records.first)
+        XCTAssertEqual(record["title"] as? String, "Rich Post")
+        XCTAssertEqual(record["contentText"] as? String, "Heading\n\nFirst paragraph.\n\none\ntwo")
+
+        let richContent = try XCTUnwrap(record["richContent"] as? [String: Any])
+        let nodes = try XCTUnwrap(richContent["nodes"] as? [[String: Any]])
+        XCTAssertEqual(nodes.first?["type"] as? String, "HEADING")
+        XCTAssertEqual(nodes.dropFirst().first?["type"] as? String, "PARAGRAPH")
+        XCTAssertEqual(nodes.last?["type"] as? String, "BULLETED_LIST")
+    }
+
     // MARK: - YAML: Encode
 
     func testYAMLEncodeProducesKeyValueLines() throws {
