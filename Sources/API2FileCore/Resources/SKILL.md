@@ -23,7 +23,7 @@ Each resource can have two local surfaces:
 - **Canonical object files** — hidden `.*.objects.json` or `.objects/*.json` files containing structured records
 - **Human-facing files** — CSV, Markdown, ICS, VCF, PDF, etc. generated for native apps and easy browsing
 
-The design direction is that canonical object files are the local source of truth, while human-facing files are projections. Some current builds still auto-push primarily from the human-facing files, so if object-file edits do not sync automatically, run an explicit sync or edit the projected file instead.
+Canonical object files are the local source of truth, while human-facing files are projections. `.api2file/file-links.json` records the mapping between each projection and its canonical file.
 
 ---
 
@@ -37,8 +37,6 @@ Cloud API  ←→  AdapterEngine  ←→  Canonical object files  ←→  Human-
 2. **Canonical edit:** If a canonical object file is edited, the engine should push its structured records to the API and regenerate the human-facing files.
 3. **Human edit:** If a human-facing file is edited, the engine decodes it back into canonical records, pushes those records, and regenerates the human-facing files.
 4. **State update:** On success, `.api2file/state.json` is updated and git auto-commits.
-
-> **Current implementation note:** The codebase already writes object files and has a partial object-file push path, but automatic `.objects` file watching is still being completed. Treat the object files as the intended canonical surface, with the caveat that some builds may still require an explicit sync after editing them.
 
 ---
 
@@ -55,8 +53,6 @@ These files store the structured record model for a resource.
 **Collection resources:** edit the JSON array inside `.{stem}.objects.json`.
 
 **One-per-record resources:** edit the per-record JSON object in `.objects/{stem}.json`.
-
-> If your current build does not auto-push object-file edits yet, save the file and force a sync, or make the same change in the human-facing file instead.
 
 ### Collection files (CSV, XLSX, JSON arrays, YAML)
 
@@ -137,6 +133,7 @@ and pushes only the diff (e.g. `PATCH /tasks/1 { "status": "done" }`).
 - After every successful **pull** from the cloud
 - After every successful **push** to the cloud
 - After any successful regeneration from a human-facing file edit
+- Whenever `.api2file/file-links.json` is refreshed to keep canonical/projection links accurate
 
 ### What happens if they get out of sync
 
@@ -154,7 +151,17 @@ Or via the menu bar app: click the service → Sync Now.
 - Prefer canonical object-file edits for complex or nested data where the human-facing file is lossy
 - Preserve record IDs unless you intentionally want to create a new record
 - Do not edit both the canonical file and its projection before the same sync cycle
-- If a build still treats object files as internal cache for automatic watching, run an explicit sync after saving
+
+### Wix blog Markdown and Ricos
+
+Wix blog posts are a special case:
+
+- `blog/*.md` is a human-facing Markdown projection
+- `.objects/*.json` holds the canonical Wix blog record, including `richContent` / Ricos JSON
+- On pull, API2File asks Wix for `RICH_CONTENT` and converts it to Markdown
+- On push, API2File converts edited Markdown back to Wix Ricos before updating the post
+
+This means agents can work in Markdown while the canonical object preserves the richer Wix blog structure.
 
 ---
 

@@ -15,7 +15,7 @@ A native macOS application that bidirectionally syncs cloud API data to local fi
 
 **Core idea:** Any REST or GraphQL API can be mapped to a local folder of familiar files (CSV, JSON, ICS, VCF, etc.) via a JSON configuration — no code required.
 
-**Canonical file model:** Each synced resource may expose a canonical structured JSON representation (`.*.objects.json` for collection resources or `.objects/*.json` for one-per-record resources) plus one or more human-facing projections such as CSV, Markdown, ICS, or VCF. The canonical file is the sync source of truth; human-facing files are optimized for native desktop apps and agent workflows.
+**Canonical file model:** Each synced resource may expose a canonical structured JSON representation (`.*.objects.json` for collection resources or `.objects/*.json` for one-per-record resources) plus one or more human-facing projections such as CSV, Markdown, ICS, or VCF. The canonical file is the sync source of truth; human-facing files are optimized for native desktop apps and agent workflows. `.api2file/file-links.json` stores the explicit mapping between canonical files and their projections.
 
 ## Target Users
 
@@ -41,6 +41,7 @@ AI agents should prefer the canonical structured files for high-fidelity edits a
 - Extract records using JSONPath expressions
 - Apply configurable transforms (pick, omit, rename, flatten, keyBy)
 - Persist canonical structured records as object files
+- Persist canonical/projection relationships in `.api2file/file-links.json`
 - Generate local human-facing files in the configured format
 - Support cursor, offset, and page-based pagination
 
@@ -49,6 +50,7 @@ AI agents should prefer the canonical structured files for high-fidelity edits a
 - Debounce rapid edits (configurable, default 500ms)
 - When the canonical file changes, push its structured records directly
 - When a human-facing file changes, decode it back into canonical structured records first
+- For rich-content resources such as Wix blog posts, use provider conversion APIs when available to translate between canonical rich-content objects and Markdown projections
 - Apply push transforms
 - Send creates (POST), updates (PUT), and deletes (DELETE) to API
 - Regenerate human-facing files from the updated canonical records after a successful push
@@ -77,6 +79,7 @@ All format converters are bidirectional — they encode records to files and dec
 - Human-facing files may be lossy or app-optimized; canonical files preserve the structured shape needed for safe push back to the API
 - Editing either surface must converge through the canonical representation before pushing to the server
 - Editing both the canonical file and a projection before the same sync cycle must create an explicit conflict instead of silently choosing one
+- `.api2file/file-links.json` must make the mapping between canonical files and projections discoverable to the engine and AI agents
 
 ### FR-4: File Mapping Strategies
 
@@ -171,6 +174,8 @@ Five bundled adapter configs for real external services:
 
 Plus 6 demo-based adapters (TeamBoard, PeopleHub, CalSync, PageCraft, DevOps, MediaManager) showcasing all supported file formats.
 
+Wix blog posts are exposed locally as Markdown projections, but the underlying canonical object preserves Wix `richContent` / Ricos data. When available, API2File should use Wix's Rich Content conversion APIs for Markdown pull/push instead of relying only on local best-effort conversion.
+
 ## Non-Functional Requirements
 
 ### NFR-1: Zero External Dependencies
@@ -222,6 +227,7 @@ Status values: `synced`, `syncing`, `modified`, `conflict`, `error`
 
 User files contain zero sync metadata — only actual content.
 Canonical object files live alongside user-facing files and store the structured record model used for diffing, regeneration, and high-fidelity agent edits.
+`.api2file/file-links.json` records the path-level linkage between canonical files and their human-facing projections.
 
 ## Conflict Resolution
 

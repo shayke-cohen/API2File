@@ -8,6 +8,7 @@ Zero external dependencies. Pure Swift, macOS native frameworks only.
 
 - **15 file format converters** -- CSV, JSON, HTML, Markdown, YAML, ICS, VCF, EML, SVG, WEBLOC, XLSX, DOCX, PPTX, Text, Raw
 - **Config-driven adapter system** -- connect any REST/GraphQL API via `.adapter.json`, no code required
+- **Canonical object files + projections** -- hidden structured JSON files stay high-fidelity while CSV/Markdown/ICS/etc. stay human-friendly
 - **Media sync** -- generic binary file download/upload for any cloud storage API (images, videos, documents)
 - **Bidirectional sync** with smart collection diffing -- pull from API, push local edits back
 - **macOS menu bar app** (MenuBarExtra) -- always-on sync with per-service controls
@@ -161,6 +162,7 @@ Default sync folder: `~/API2File-Data/` (configurable in `GlobalConfig`).
   demo/
     .api2file/
       adapter.json            Service config
+      file-links.json         Canonical/projection path links
       state.json              Sync state
     .git/                     Auto-committed history
     CLAUDE.md                 Service-specific agent guide
@@ -190,6 +192,7 @@ Default sync folder: `~/API2File-Data/` (configurable in `GlobalConfig`).
   wix/
     .api2file/
       adapter.json            Service config (14 top-level resources)
+      file-links.json         Canonical/projection path links
       state.json              Sync state
     .git/                     Auto-committed history
     CLAUDE.md                 Service-specific agent guide
@@ -199,7 +202,9 @@ Default sync folder: `~/API2File-Data/` (configurable in `GlobalConfig`).
     comments.csv              Comments feed (Numbers)
     collections.json          CMS collection catalog (editor)
     blog/
-      my-post.md              Blog post (editor)
+      my-post.md              Blog post (Markdown projection of Wix Ricos content)
+      .objects/
+        my-post.json          Canonical blog record with richContent JSON
     bookings/
       services.csv            Booking services (Numbers)
       appointments.csv        Appointment calendar export (read-only)
@@ -218,6 +223,18 @@ Default sync folder: `~/API2File-Data/` (configurable in `GlobalConfig`).
     wix-music-podcasts/
       podcast-intro.mp3       Audio asset (Music/QuickTime)
 ```
+
+## Canonical Files
+
+API2File now keeps a hidden structured JSON representation next to synced files:
+
+- collection resources: `.{stem}.objects.json`
+- one-per-record resources: `.objects/{stem}.json`
+- link metadata: `.api2file/file-links.json`
+
+The object file is the canonical local record. Human-facing files like `contacts.csv` or `blog/my-post.md` are editable projections regenerated from that canonical state.
+
+For Wix blog posts specifically, the Markdown file is a projection of Wix `richContent` / Ricos data. API2File uses Wix's official Ricos conversion API when available so Markdown pull/push preserves headings, lists, and other rich-content structure more accurately than a plain-text projection.
 
 ## CLI Reference
 

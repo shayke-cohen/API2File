@@ -172,8 +172,19 @@ Maintains the hidden structured JSON files that sit next to user-facing files.
 - `one-per-record` resources use `.objects/{stem}.json`
 - Stores the canonical local record model used for diffing, regeneration, and high-fidelity agent edits
 - Maps between canonical object-file paths and user-facing projection paths
+- Object-file edits are watched and pushed through the same sync engine as human-facing files
 
-**Current implementation note:** The engine already writes these files on pull and has an object-file push path, but automatic `.objects` file watching is not yet fully wired in the same way as user-facing files. The architecture described here is therefore the intended steady-state model.
+### FileLinkManager
+
+**File:** `Sources/API2FileCore/Core/FileLinkManager.swift`
+
+Persists `.api2file/file-links.json`, which records the relationship between:
+
+- the human-facing projection path
+- the canonical object-file path
+- the resource name and remote ID
+
+This explicit link index lets the engine route edits on either surface back to the same canonical record safely.
 
 ### GitManager
 
@@ -255,6 +266,9 @@ FormatConverter.decode() (CSV/JSON/ICS/VCF/... → records)
     ▼
 Normalize into canonical object records
     │
+    ├── For Wix Markdown rich content: call Wix Ricos conversion APIs when available
+    │   (`/ricos/v1/ricos-document/convert/from-ricos`, `/convert/to-ricos`)
+    │
     ▼
 TransformPipeline (push transforms)
     │
@@ -283,6 +297,8 @@ GitManager.commitAll("sync: push {service} — canonical + projections updated")
 - **Human-facing files** are projections optimized for native apps like Numbers, Calendar, Contacts, Preview, Pages, and editors
 - A resource may map to more than one local file surface, but only the canonical structured representation is authoritative
 - Editing both the canonical and projected files before the same sync cycle should be treated as a conflict, not a merge heuristic
+- `.api2file/file-links.json` explicitly links projections to canonical object files
+- Wix blog Markdown is a projection of canonical `richContent` / Ricos data, not a raw storage format
 
 ## Config-Driven Design
 

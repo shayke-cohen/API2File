@@ -272,9 +272,14 @@ public actor AdapterEngine {
         convertedRecords.reserveCapacity(records.count)
 
         for var record in records {
-            if let richDocument = record[richContentField] as? [String: Any],
-               let markdown = try await convertRicosDocumentToMarkdown(richDocument) {
-                record[contentField] = markdown
+            if let richDocument = record[richContentField] as? [String: Any] {
+                do {
+                    if let markdown = try await convertRicosDocumentToMarkdown(richDocument) {
+                        record[contentField] = markdown
+                    }
+                } catch {
+                    await ActivityLogger.shared.warn(.sync, "Wix Ricos → Markdown conversion failed for \(resource.name); falling back to local projection (\(error.localizedDescription))")
+                }
             }
             convertedRecords.append(record)
         }
@@ -304,9 +309,14 @@ public actor AdapterEngine {
 
         for (rawRecord, normalizedRecord) in zip(rawMarkdownRecords, normalizedRecords) {
             var merged = normalizedRecord
-            if let markdown = rawRecord[contentField] as? String,
-               let document = try await convertMarkdownToRicosDocument(markdown) {
-                merged[richContentField] = document
+            if let markdown = rawRecord[contentField] as? String {
+                do {
+                    if let document = try await convertMarkdownToRicosDocument(markdown) {
+                        merged[richContentField] = document
+                    }
+                } catch {
+                    await ActivityLogger.shared.warn(.sync, "Markdown → Wix Ricos conversion failed for \(resource.name); falling back to local projection (\(error.localizedDescription))")
+                }
             }
             converted.append(merged)
         }

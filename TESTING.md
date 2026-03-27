@@ -450,8 +450,10 @@ open build/API2File.app
 2. Verify: both "Site ID" and "Site URL" fields appear below the API key field
 3. Verify: after sync, 14 top-level resources are pulled, including contacts, blog posts, products, groups, comments, bookings services, appointments, collections, and media-backed directories
 4. Verify: `~/API2File-Data/wix/media/`, `~/API2File-Data/wix/pdf-viewer/`, `~/API2File-Data/wix/wix-video/`, and `~/API2File-Data/wix/wix-music-podcasts/` exist with downloaded binary files
-5. Open Add Service -> select **Airtable**
-6. Verify: "Base ID" and "Table Name" fields appear
+5. Verify: `~/API2File-Data/wix/.api2file/file-links.json` exists and links `blog/*.md` files to matching `.objects/*.json` canonical files
+6. Verify: pulled Wix blog Markdown files contain body content, not just frontmatter
+7. Open Add Service -> select **Airtable**
+8. Verify: "Base ID" and "Table Name" fields appear
 
 ### 4. Test Service Detail View
 
@@ -494,6 +496,11 @@ swift test --filter "AdapterEngineIntegration|FullSyncCycle|CollectionDiffE2E"
 
 # Just bidirectional sync E2E
 swift test --filter "BidirectionalSync|RealSync"
+
+# Focused live Wix blog markdown/Ricos tests
+swift test --filter WixLiveE2ETests/testBlogPosts_Pull_WritesMarkdownBodyFromContentText
+swift test --filter WixLiveE2ETests/testBlogPosts_Update_MarkdownBodyPush_ReflectedOnServer
+swift test --filter WixLiveE2ETests/testBlogPosts_Update_MarkdownStructurePush_PreservesRichContentNodes
 
 # Just collection diffing
 swift test --filter "CollectionDiffer|CollectionDiffE2E"
