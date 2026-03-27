@@ -109,6 +109,27 @@ final class FormatConverterTests: XCTestCase {
         XCTAssertNil(records[0]["_id"])
     }
 
+    func testCSVDecodeJSONObjectCellReturnsDictionary() throws {
+        let csv = "_id,data\nabc,\"{\"\"title\"\":\"\"Featured\"\",\"\"itemCount\"\":12}\"\n"
+        let data = csv.data(using: .utf8)!
+        let records = try CSVFormat.decode(data: data, options: nil)
+
+        XCTAssertEqual(records.count, 1)
+        let dataField = try XCTUnwrap(records[0]["data"] as? [String: Any])
+        XCTAssertEqual(dataField["title"] as? String, "Featured")
+        XCTAssertEqual(dataField["itemCount"] as? Int, 12)
+    }
+
+    func testCSVDecodeJSONArrayCellReturnsArray() throws {
+        let csv = "_id,tags\nabc,\"[\"\"featured\"\",\"\"sale\"\"]\"\n"
+        let data = csv.data(using: .utf8)!
+        let records = try CSVFormat.decode(data: data, options: nil)
+
+        XCTAssertEqual(records.count, 1)
+        let tags = try XCTUnwrap(records[0]["tags"] as? [Any])
+        XCTAssertEqual(tags as? [String], ["featured", "sale"])
+    }
+
     // MARK: - CSV: Round-trip
 
     func testCSVRoundTrip() throws {
