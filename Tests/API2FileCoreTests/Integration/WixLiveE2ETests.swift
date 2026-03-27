@@ -598,6 +598,14 @@ final class WixLiveE2ETests: XCTestCase {
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    private func richContentNodeTypes(_ value: Any?) -> [String] {
+        guard let richContent = value as? [String: Any],
+              let nodes = richContent["nodes"] as? [[String: Any]] else {
+            return []
+        }
+        return nodes.compactMap { $0["type"] as? String }
+    }
+
     private func createBlogPost(title: String, slug: String, excerpt: String, contentText: String) async throws -> String {
         let ownerId = try await currentGroupOwnerId()
         let richContent = try richContentDocument(markdown: contentText)
@@ -1962,6 +1970,60 @@ final class WixLiveE2ETests: XCTestCase {
             contentText.contains("Updated from markdown body push"),
             "Live Wix post should reflect the markdown body update"
         )
+    }
+
+    func testBlogPosts_Update_MarkdownStructurePush_PreservesRichContentNodes() async throws {
+        let title = uniqueTestName("BlogRich")
+        let slug = title.lowercased().replacingOccurrences(of: " ", with: "-")
+        let ownerId = try await currentGroupOwnerId()
+        let postId = try await createBlogPost(title: title, slug: slug, excerpt: "Created by API2File", contentText: "Hello from Codex")
+        try await delay(1200)
+
+        let pullResult = try await engine.pull(resource: resource("blog-posts"))
+        let file = try XCTUnwrap(
+            pullResult.files.first(where: { $0.remoteId == postId }),
+            "Expected pulled markdown file for created post"
+        )
+
+        let updatedMarkdown = """
+        ---
+        title: \(title)
+        excerpt: Created by API2File
+        featured: false
+        language: en
+        memberId: \(ownerId)
+        pinned: false
+        slug: \(slug)
+        ---
+
+        ## Updated heading
+
+        Intro paragraph.
+
+        - first item
+        - second item
+        """
+
+        let pushedFile = SyncableFile(
+            relativePath: file.relativePath,
+            format: .markdown,
+            content: Data(updatedMarkdown.utf8),
+            remoteId: postId
+        )
+
+        _ = try await engine.push(file: pushedFile, resource: resource("blog-posts"))
+        try await delay(1500)
+
+        let detailedPost = try await getBlogPost(id: postId)
+        let nodeTypes = richContentNodeTypes(detailedPost["richContent"])
+        XCTAssertTrue(nodeTypes.contains("HEADING"), "Expected pushed markdown heading to become a Ricos heading node")
+        XCTAssertTrue(nodeTypes.contains("BULLETED_LIST"), "Expected pushed markdown bullets to become a Ricos list node")
+
+        let repulled = try await engine.pull(resource: resource("blog-posts"))
+        let repulledFile = try XCTUnwrap(repulled.files.first(where: { $0.remoteId == postId }))
+        let repulledMarkdown = String(decoding: repulledFile.content, as: UTF8.self)
+        XCTAssertTrue(repulledMarkdown.contains("## Updated heading"))
+        XCTAssertTrue(repulledMarkdown.contains("* first item") || repulledMarkdown.contains("- first item"))
     }
 
     func testBlogPosts_Delete_RemovePost_DeletedFromServer() async throws {

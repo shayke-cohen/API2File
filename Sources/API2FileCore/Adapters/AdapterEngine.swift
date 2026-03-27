@@ -169,8 +169,15 @@ public actor AdapterEngine {
             return PullResult(files: mediaFiles)
         }
 
+        let fileRecords: [[String: Any]]
+        if shouldUseRicosDocumentConversion(for: resource) {
+            fileRecords = try await prepareMarkdownRecordsForPull(transformed, resource: resource)
+        } else {
+            fileRecords = transformed
+        }
+
         // Convert to files based on mapping strategy
-        let files = try mapToFiles(records: transformed, resource: resource)
+        let files = try mapToFiles(records: fileRecords, resource: resource)
 
         // Build raw records mapping keyed by file path.
         // Merge computed system fields (e.g. _url added by pull transforms) into raw records
@@ -224,11 +231,16 @@ public actor AdapterEngine {
         }
 
         // Decode the file back to records
-        let records = try FormatConverterFactory.decode(
-            data: file.content,
-            format: file.format,
-            options: resource.fileMapping.effectiveFormatOptions
-        )
+        let records: [[String: Any]]
+        if shouldUseRicosDocumentConversion(for: resource), file.format == .markdown {
+            records = try await decodeMarkdownRecordsForPush(data: file.content, resource: resource)
+        } else {
+            records = try FormatConverterFactory.decode(
+                data: file.content,
+                format: file.format,
+                options: resource.fileMapping.effectiveFormatOptions
+            )
+        }
 
         // Apply push transforms
         let transforms = resource.fileMapping.transforms?.push ?? []
@@ -242,6 +254,103 @@ public actor AdapterEngine {
             if createdId == nil { createdId = resultId }
         }
         return createdId
+    }
+
+    private func shouldUseRicosDocumentConversion(for resource: ResourceConfig) -> Bool {
+        guard resource.fileMapping.format == .markdown else { return false }
+        guard resource.fileMapping.effectiveFormatOptions?.fieldMapping?["richContent"] != nil else { return false }
+        return (config.globals?.baseUrl ?? "").contains("wixapis.com")
+    }
+
+    private func prepareMarkdownRecordsForPull(_ records: [[String: Any]], resource: ResourceConfig) async throws -> [[String: Any]] {
+        guard let contentField = resource.fileMapping.effectiveFormatOptions?.fieldMapping?["content"],
+              let richContentField = resource.fileMapping.effectiveFormatOptions?.fieldMapping?["richContent"] else {
+            return records
+        }
+
+        var convertedRecords: [[String: Any]] = []
+        convertedRecords.reserveCapacity(records.count)
+
+        for var record in records {
+            if let richDocument = record[richContentField] as? [String: Any],
+               let markdown = try await convertRicosDocumentToMarkdown(richDocument) {
+                record[contentField] = markdown
+            }
+            convertedRecords.append(record)
+        }
+
+        return convertedRecords
+    }
+
+    private func decodeMarkdownRecordsForPush(data: Data, resource: ResourceConfig) async throws -> [[String: Any]] {
+        guard let contentField = resource.fileMapping.effectiveFormatOptions?.fieldMapping?["content"],
+              let richContentField = resource.fileMapping.effectiveFormatOptions?.fieldMapping?["richContent"] else {
+            return try FormatConverterFactory.decode(
+                data: data,
+                format: resource.fileMapping.format,
+                options: resource.fileMapping.effectiveFormatOptions
+            )
+        }
+
+        let rawMarkdownOptions = FormatOptions(fieldMapping: ["content": contentField])
+        let rawMarkdownRecords = try MarkdownFormat.decode(data: data, options: rawMarkdownOptions)
+        let normalizedRecords = try MarkdownFormat.decode(data: data, options: resource.fileMapping.effectiveFormatOptions)
+        guard rawMarkdownRecords.count == normalizedRecords.count else {
+            return normalizedRecords
+        }
+
+        var converted: [[String: Any]] = []
+        converted.reserveCapacity(normalizedRecords.count)
+
+        for (rawRecord, normalizedRecord) in zip(rawMarkdownRecords, normalizedRecords) {
+            var merged = normalizedRecord
+            if let markdown = rawRecord[contentField] as? String,
+               let document = try await convertMarkdownToRicosDocument(markdown) {
+                merged[richContentField] = document
+            }
+            converted.append(merged)
+        }
+
+        return converted
+    }
+
+    private func convertRicosDocumentToMarkdown(_ document: [String: Any]) async throws -> String? {
+        let body: [String: Any] = [
+            "document": document,
+            "targetFormat": "MARKDOWN",
+        ]
+        let response = try await requestJSON(
+            method: .POST,
+            url: "https://www.wixapis.com/ricos/v1/ricos-document/convert/from-ricos",
+            body: body
+        )
+        return response["markdown"] as? String
+    }
+
+    private func convertMarkdownToRicosDocument(_ markdown: String) async throws -> [String: Any]? {
+        let trimmed = markdown.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            return ["nodes": [], "metadata": ["version": 1]]
+        }
+
+        let response = try await requestJSON(
+            method: .POST,
+            url: "https://www.wixapis.com/ricos/v1/ricos-document/convert/to-ricos",
+            body: ["markdown": markdown]
+        )
+        return response["document"] as? [String: Any]
+    }
+
+    private func requestJSON(method: HTTPMethod, url: String, body: [String: Any]) async throws -> [String: Any] {
+        var headers = config.globals?.headers ?? [:]
+        headers["Content-Type"] = "application/json"
+        let bodyData = try JSONSerialization.data(withJSONObject: body, options: [])
+        let request = APIRequest(method: method, url: url, headers: headers, body: bodyData)
+        let response = try await httpClient.request(request)
+        guard let json = try JSONSerialization.jsonObject(with: response.body) as? [String: Any] else {
+            throw AdapterError.invalidResponseData
+        }
+        return json
     }
 
     // MARK: - Push Actions
