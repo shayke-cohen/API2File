@@ -29,11 +29,13 @@
     {
       "name": "repos",
       "description": "Your GitHub repositories as a CSV index",
+      "dashboardUrl": "https://github.com?tab=repositories",
 
       "pull": {
         "method": "GET",
         "url": "https://api.github.com/user/repos?sort=updated&direction=desc",
         "dataPath": "$",
+        "supportsETag": true,
         "pagination": {
           "type": "page",
           "pageSize": 30
@@ -63,11 +65,13 @@
     {
       "name": "issues",
       "description": "Open issues assigned to you — edit to update, add rows to create",
+      "dashboardUrl": "https://github.com/issues",
 
       "pull": {
         "method": "GET",
         "url": "https://api.github.com/issues?filter=assigned&state=open&sort=updated",
         "dataPath": "$",
+        "supportsETag": true,
         "pagination": {
           "type": "page",
           "pageSize": 50
@@ -115,11 +119,13 @@
     {
       "name": "gists",
       "description": "Your GitHub Gists as individual JSON files",
+      "dashboardUrl": "https://gist.github.com",
 
       "pull": {
         "method": "GET",
         "url": "https://api.github.com/gists",
         "dataPath": "$",
+        "supportsETag": true,
         "pagination": {
           "type": "page",
           "pageSize": 30
@@ -163,11 +169,13 @@
     {
       "name": "notifications",
       "description": "Unread GitHub notifications",
+      "dashboardUrl": "https://github.com/notifications",
 
       "pull": {
         "method": "GET",
         "url": "https://api.github.com/notifications?all=false",
         "dataPath": "$",
+        "supportsETag": true,
         "pagination": {
           "type": "page",
           "pageSize": 50
@@ -199,11 +207,13 @@
     {
       "name": "starred",
       "description": "Your starred repositories — a curated list",
+      "dashboardUrl": "https://github.com/stars",
 
       "pull": {
         "method": "GET",
         "url": "https://api.github.com/user/starred?sort=created&direction=desc",
         "dataPath": "$",
+        "supportsETag": true,
         "pagination": {
           "type": "page",
           "pageSize": 30

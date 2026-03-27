@@ -213,7 +213,8 @@
         "update": {
           "method": "PATCH",
           "url": "https://www.wixapis.com/stores/v3/products/{id}",
-          "bodyWrapper": "product"
+          "bodyWrapper": "product",
+          "bodyRootFields": ["revision"]
         },
         "delete": {
           "method": "DELETE",
@@ -307,7 +308,7 @@
     {
       "name": "collections",
       "description": "Wix CMS data collections catalog",
-      "dashboardUrl": "https://manage.wix.com/dashboard/YOUR_SITE_ID_HERE/database/data",
+      "dashboardUrl": "https://manage.wix.com/dashboard/YOUR_SITE_ID_HERE/wix-cms/data",
 
       "pull": {
         "method": "GET",
@@ -330,7 +331,7 @@
         "idField": "id",
         "transforms": {
           "pull": [
-            { "op": "set", "field": "_url", "value": "https://manage.wix.com/dashboard/YOUR_SITE_ID_HERE/database/{id}" }
+            { "op": "set", "field": "_url", "value": "https://manage.wix.com/dashboard/YOUR_SITE_ID_HERE/wix-cms/data/{id}" }
           ],
           "push": [
             { "op": "omit", "fields": ["_url"] }
@@ -390,7 +391,7 @@
             "idField": "id",
             "transforms": {
               "pull": [
-                { "op": "set", "field": "_url", "value": "https://manage.wix.com/dashboard/YOUR_SITE_ID_HERE/database/{collectionId}/{id}" }
+                { "op": "set", "field": "_url", "value": "https://manage.wix.com/dashboard/YOUR_SITE_ID_HERE/wix-cms/data/{collectionId}/{id}" }
               ],
               "push": [
                 { "op": "omit", "fields": ["_url"] }

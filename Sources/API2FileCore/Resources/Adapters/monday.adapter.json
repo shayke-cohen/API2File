@@ -28,6 +28,7 @@
     {
       "name": "boards",
       "description": "Monday.com boards with all items as CSV rows",
+      "dashboardUrl": "https://app.monday.com/boards",
 
       "pull": {
         "url": "https://api.monday.com/v2",

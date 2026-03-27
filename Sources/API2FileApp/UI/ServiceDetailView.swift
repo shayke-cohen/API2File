@@ -485,13 +485,36 @@ struct ServiceDetailView: View {
 
     // MARK: - Resource Preview (Right Pane)
 
+    /// Find the resource config that owns the selected file.
+    private func resourceForFile(_ fileURL: URL, serviceDir: URL) -> ResourceConfig? {
+        let filePath = fileURL.path
+        for resource in service.config.resources {
+            let mapping = resource.fileMapping
+            let dir = (mapping.directory == "." || mapping.directory.isEmpty)
+                ? serviceDir
+                : serviceDir.appendingPathComponent(mapping.directory)
+            if mapping.strategy == .collection {
+                if let filename = mapping.filename,
+                   dir.appendingPathComponent(filename).path == filePath {
+                    return resource
+                }
+            } else {
+                if filePath.hasPrefix(dir.path) {
+                    return resource
+                }
+            }
+        }
+        return nil
+    }
+
     @ViewBuilder
     private func resourcePreview(serviceDir: URL) -> some View {
         if let fileURL = selectedFile {
             FilePreviewPanel(
                 fileURL: fileURL,
                 serviceDir: serviceDir,
-                gitStatus: gitStatus(for: fileURL)
+                gitStatus: gitStatus(for: fileURL),
+                dashboardUrl: resourceForFile(fileURL, serviceDir: serviceDir)?.dashboardUrl ?? service.config.dashboardUrl
             ) {
                 withAnimation(.easeInOut(duration: 0.15)) { selectedFile = nil }
             }
@@ -729,6 +752,7 @@ private struct FilePreviewPanel: View {
     let fileURL: URL
     let serviceDir: URL
     var gitStatus: String?
+    var dashboardUrl: String?
     let onClose: () -> Void
 
     @State private var content: PreviewContent = .loading
@@ -759,6 +783,15 @@ private struct FilePreviewPanel: View {
                         }
                         .pickerStyle(.segmented)
                         .frame(width: 150)
+                    }
+                    if let dashboardUrl, let url = URL(string: dashboardUrl) {
+                        Button {
+                            NSWorkspace.shared.open(url)
+                        } label: {
+                            Label("Dashboard", systemImage: "arrow.up.forward.square")
+                                .font(.caption)
+                        }
+                        .controlSize(.small)
                     }
                     Button {
                         openFileInEditor(fileURL)

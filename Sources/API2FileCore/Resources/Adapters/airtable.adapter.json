@@ -43,6 +43,7 @@
     {
       "name": "records",
       "description": "Airtable records — one JSON file per record, edit and push back",
+      "dashboardUrl": "https://airtable.com/BASE_ID",
 
       "pull": {
         "method": "GET",
@@ -96,6 +97,7 @@
     {
       "name": "bases",
       "description": "Catalog of your Airtable bases — reference list",
+      "dashboardUrl": "https://airtable.com",
 
       "pull": {
         "method": "GET",
