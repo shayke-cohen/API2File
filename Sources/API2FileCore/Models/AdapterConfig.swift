@@ -185,8 +185,9 @@ public struct PullConfig: Codable, Sendable {
     public let updatedSinceField: String?      // URL param name (e.g. "since")
     public let updatedSinceBodyPath: String?   // body field path for date filter
     public let updatedSinceDateFormat: String? // "iso8601" (default) or "epoch"
+    public let supportsETag: Bool?             // send If-None-Match for 304 optimization
 
-    public init(method: String? = nil, url: String, type: APIType? = nil, query: String? = nil, body: JSONValue? = nil, dataPath: String? = nil, pagination: PaginationConfig? = nil, mediaConfig: MediaConfig? = nil, updatedSinceField: String? = nil, updatedSinceBodyPath: String? = nil, updatedSinceDateFormat: String? = nil) {
+    public init(method: String? = nil, url: String, type: APIType? = nil, query: String? = nil, body: JSONValue? = nil, dataPath: String? = nil, pagination: PaginationConfig? = nil, mediaConfig: MediaConfig? = nil, updatedSinceField: String? = nil, updatedSinceBodyPath: String? = nil, updatedSinceDateFormat: String? = nil, supportsETag: Bool? = nil) {
         self.method = method
         self.url = url
         self.type = type
@@ -198,6 +199,7 @@ public struct PullConfig: Codable, Sendable {
         self.updatedSinceField = updatedSinceField
         self.updatedSinceBodyPath = updatedSinceBodyPath
         self.updatedSinceDateFormat = updatedSinceDateFormat
+        self.supportsETag = supportsETag
     }
 }
 

@@ -3,6 +3,70 @@ import XCTest
 
 final class AdapterEngineIntegrationTests: XCTestCase {
 
+    private final class RequestCapture: @unchecked Sendable {
+        var request: URLRequest?
+    }
+
+    private final class MockURLProtocol: URLProtocol, @unchecked Sendable {
+        static var requestHandler: ((URLRequest) throws -> (HTTPURLResponse, Data))?
+
+        override class func canInit(with request: URLRequest) -> Bool {
+            true
+        }
+
+        override class func canonicalRequest(for request: URLRequest) -> URLRequest {
+            request
+        }
+
+        override func startLoading() {
+            guard let handler = Self.requestHandler else {
+                client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
+                return
+            }
+
+            do {
+                let (response, data) = try handler(request)
+                client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+                client?.urlProtocol(self, didLoad: data)
+                client?.urlProtocolDidFinishLoading(self)
+            } catch {
+                client?.urlProtocol(self, didFailWithError: error)
+            }
+        }
+
+        override func stopLoading() {}
+    }
+
+    private static func bodyData(from request: URLRequest) -> Data? {
+        if let body = request.httpBody {
+            return body
+        }
+        guard let stream = request.httpBodyStream else {
+            return nil
+        }
+
+        stream.open()
+        defer { stream.close() }
+
+        let bufferSize = 4096
+        var data = Data()
+        let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: bufferSize)
+        defer { buffer.deallocate() }
+
+        while stream.hasBytesAvailable {
+            let read = stream.read(buffer, maxLength: bufferSize)
+            if read < 0 {
+                return nil
+            }
+            if read == 0 {
+                break
+            }
+            data.append(buffer, count: read)
+        }
+
+        return data
+    }
+
     // MARK: - Properties
 
     private var tempDir: URL!
@@ -17,6 +81,7 @@ final class AdapterEngineIntegrationTests: XCTestCase {
     }
 
     override func tearDown() async throws {
+        MockURLProtocol.requestHandler = nil
         if let tempDir, FileManager.default.fileExists(atPath: tempDir.path) {
             try? FileManager.default.removeItem(at: tempDir)
         }
@@ -220,6 +285,52 @@ final class AdapterEngineIntegrationTests: XCTestCase {
             let jsonData = try JSONSerialization.data(withJSONObject: record)
             XCTAssertFalse(jsonData.isEmpty)
         }
+    }
+
+    func testWixProductsUpdate_RevisionStaysInsideProductWrapper() async throws {
+        let repoRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let data = try Data(contentsOf: repoRoot.appendingPathComponent("Sources/API2FileCore/Resources/Adapters/wix.adapter.json"))
+        let config = try JSONDecoder().decode(AdapterConfig.self, from: data)
+        let resource = try XCTUnwrap(config.resources.first(where: { $0.name == "products" }))
+
+        let sessionConfig = URLSessionConfiguration.ephemeral
+        sessionConfig.protocolClasses = [MockURLProtocol.self]
+        let session = URLSession(configuration: sessionConfig)
+        let client = HTTPClient(session: session)
+        let engine = AdapterEngine(config: config, serviceDir: tempDir, httpClient: client)
+
+        let capture = RequestCapture()
+        MockURLProtocol.requestHandler = { request in
+            capture.request = request
+            let response = HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 200, httpVersion: nil, headerFields: [:])!
+            return (response, Data("{}".utf8))
+        }
+
+        try await engine.pushRecord(
+            [
+                "id": "product-123",
+                "name": "Updated Name",
+                "revision": "237"
+            ],
+            resource: resource,
+            action: .update(id: "product-123")
+        )
+
+        let request = try XCTUnwrap(capture.request)
+        XCTAssertEqual(request.httpMethod, "PATCH")
+        XCTAssertEqual(request.url?.absoluteString, "https://www.wixapis.com/stores/v3/products/product-123")
+
+        let body = try XCTUnwrap(Self.bodyData(from: request))
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+        let product = try XCTUnwrap(json["product"] as? [String: Any])
+
+        XCTAssertEqual(product["name"] as? String, "Updated Name")
+        XCTAssertEqual(product["revision"] as? String, "237")
+        XCTAssertNil(json["revision"], "Wix V3 expects revision nested inside product, not hoisted to the root body")
     }
 
     func testPushPipeline_JSONDecode_TransformToAPIJSON() throws {

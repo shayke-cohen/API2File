@@ -6,29 +6,28 @@ import AppXray
 
 @main
 struct API2FileApp: App {
-    @StateObject private var appState = AppState()
+    @StateObject private var appState: AppState
 
     init() {
+        let state = AppState()
+        _appState = StateObject(wrappedValue: state)
+
         NSApplication.shared.setActivationPolicy(.regular)
         #if DEBUG
         AppXray.shared.start(config: AppXrayConfig(
             appName: "API2File",
             platform: AppXrayConfig.macos,
-            port: 19420
+            mode: .client
         ))
+        AppXray.shared.registerObservableObject(state, name: "appState", setters: [
+            "isPaused": { state.isPaused = $0 as! Bool }
+        ])
         #endif
     }
 
     var body: some Scene {
         MenuBarExtra {
             MenuBarView(appState: appState)
-                .onAppear {
-                    #if DEBUG
-                    AppXray.shared.registerObservableObject(appState, name: "appState", setters: [
-                        "isPaused": { appState.isPaused = $0 as! Bool }
-                    ])
-                    #endif
-                }
         } label: {
             Image(systemName: appState.menuBarIcon)
         }

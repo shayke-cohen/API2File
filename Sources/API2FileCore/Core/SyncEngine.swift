@@ -100,7 +100,9 @@ public actor SyncEngine {
                    resource.fileMapping.effectivePushMode == .readOnly { continue }
                 let fileURL = serviceDir.appendingPathComponent(filePath)
                 guard let data = try? Data(contentsOf: fileURL) else { continue }
-                if data.sha256Hex != lastHash {
+                let attrs = try? FileManager.default.attributesOfItem(atPath: fileURL.path)
+                let modDate = attrs?[.modificationDate] as? Date ?? .distantPast
+                if data.sha256Hex != lastHash, modDate > fileState.lastSyncTime {
                     await coordinator.queuePush(serviceId: serviceId, filePath: filePath)
                     await ActivityLogger.shared.info(.sync, "↑ Queuing offline-modified file: \(serviceId) — \(filePath)")
                 }
@@ -332,6 +334,8 @@ public actor SyncEngine {
         let serviceDir = syncFolder.appendingPathComponent(serviceId)
         let serviceName = serviceInfos[serviceId]?.displayName ?? serviceId
         let startTime = Date()
+        isPulling[serviceId] = true
+        defer { isPulling[serviceId] = false }
         await ActivityLogger.shared.info(.sync, "↓ PULL START \(serviceId) [\(serviceName)]")
 
         // Work with a LOCAL copy of sync state to avoid exclusive access violations
@@ -488,30 +492,31 @@ public actor SyncEngine {
 
                     if let resource = findResource(for: file.relativePath, in: engine.config),
                        resource.fileMapping.strategy == .collection {
-                        // Merge incremental records with cached records
-                        let newRecords = pullResult.rawRecordsByFile[file.relativePath] ?? []
-                        let mergedRaw = mergeIncrementalRecords(
-                            serviceId: serviceId,
-                            filePath: file.relativePath,
-                            newRecords: newRecords,
+                        let cacheKey = "\(serviceId):\(file.relativePath)"
+                        let mergeResult = try IncrementalCollectionMerger.merge(
+                            existingRaw: loadExistingRawRecords(
+                                serviceDir: serviceDir,
+                                filePath: file.relativePath,
+                                resource: resource
+                            ),
+                            existingTransformed: loadExistingTransformedRecords(
+                                serviceDir: serviceDir,
+                                filePath: file.relativePath,
+                                resource: resource,
+                                cacheKey: cacheKey
+                            ),
+                            newRaw: pullResult.rawRecordsByFile[file.relativePath] ?? [],
                             resource: resource
                         )
-
-                        // Apply transforms and re-encode merged records
-                        let transforms = resource.fileMapping.transforms?.pull ?? []
-                        let transformed = transforms.isEmpty ? mergedRaw : TransformPipeline.apply(transforms, to: mergedRaw)
-                        let mergedContent = try FormatConverterFactory.encode(
-                            records: transformed,
-                            format: file.format,
-                            options: resource.fileMapping.formatOptions
-                        )
+                        let mergedRaw = mergeResult.rawRecords
+                        let transformed = mergeResult.transformedRecords
+                        let mergedContent = mergeResult.content
 
                         // Skip write if content unchanged
-                        let mergedHash = mergedContent.sha256Hex
+                        let mergedHash = mergeResult.contentHash
                         if mergedHash == localState.files[file.relativePath]?.lastSyncedHash {
                             unchangedCount += 1
                             // Still update cache with merged records
-                            let cacheKey = "\(serviceId):\(file.relativePath)"
                             lastKnownRecords[cacheKey] = transformed
                         } else {
                             suppressedPaths.insert(file.relativePath)
@@ -527,9 +532,15 @@ public actor SyncEngine {
                             try ObjectFileManager.writeCollectionObjectFile(records: mergedRaw, to: objectURL)
 
                             // Update cache
-                            let cacheKey = "\(serviceId):\(file.relativePath)"
                             lastKnownRecords[cacheKey] = transformed
                         }
+
+                        localState.files[file.relativePath] = FileSyncState(
+                            remoteId: localState.files[file.relativePath]?.remoteId ?? "",
+                            lastSyncedHash: mergedHash,
+                            lastSyncTime: Date(),
+                            status: .synced
+                        )
                     } else {
                         // Non-collection or no resource match: write as full (same as non-incremental)
                         if file.contentHash == localState.files[file.relativePath]?.lastSyncedHash {
@@ -544,7 +555,10 @@ public actor SyncEngine {
 
                     // Update sync state — always record hash (even for collection files without remoteId)
                     // to prevent file-watcher from falsely pushing freshly-pulled files.
-                    if let remoteId = file.remoteId {
+                    if let resource = findResource(for: file.relativePath, in: engine.config),
+                       resource.fileMapping.strategy == .collection {
+                        continue
+                    } else if let remoteId = file.remoteId {
                         localState.files[file.relativePath] = FileSyncState(
                             remoteId: remoteId,
                             lastSyncedHash: file.contentHash,
@@ -656,7 +670,14 @@ public actor SyncEngine {
             if config.gitAutoCommit, let git = gitManagers[serviceId] {
                 if try await git.hasChanges() {
                     let syncType = isIncremental ? "incremental pull" : "pull"
-                    try await git.commitAll(message: "sync: \(syncType) \(serviceId) — updated \(files.count) files")
+                    do {
+                        try await git.commitAll(message: "sync: \(syncType) \(serviceId) — updated \(files.count) files")
+                    } catch {
+                        await ActivityLogger.shared.warn(
+                            .sync,
+                            "↓ Pull data synced for \(serviceId), but git commit failed: \(error.localizedDescription)"
+                        )
+                    }
                 }
             }
 
@@ -777,14 +798,25 @@ public actor SyncEngine {
                     recordsDeleted: diff?.deleted.count ?? 0
                 )
             } else {
+                let existingRemoteId = syncStates[serviceId]?.files[filePath]?.remoteId
                 let file = SyncableFile(
                     relativePath: filePath,
                     format: resource.fileMapping.format,
                     content: content,
-                    remoteId: syncStates[serviceId]?.files[filePath]?.remoteId
+                    remoteId: existingRemoteId
                 )
-                try await engine.push(file: file, resource: resource)
+                let createdId = try await engine.push(file: file, resource: resource)
                 fileChange = FileChange(path: filePath, action: .uploaded)
+
+                // For new one-per-record files, create a state entry with the new remote ID
+                if existingRemoteId == nil, let newId = createdId {
+                    syncStates[serviceId]?.files[filePath] = FileSyncState(
+                        remoteId: newId,
+                        lastSyncedHash: content.sha256Hex,
+                        lastSyncTime: Date(),
+                        status: .synced
+                    )
+                }
             }
 
             // Update sync state
@@ -1060,9 +1092,9 @@ public actor SyncEngine {
         let inverseOps = pullTransforms.isEmpty ? [] : InverseTransformPipeline.computeInverse(of: pullTransforms)
         let shouldInverse = resource.fileMapping.effectivePushMode == .autoReverse && !inverseOps.isEmpty
 
-        // Build raw record lookup by ID for merging
+        // Build raw record lookup by ID for merging and revision injection
         var rawLookup: [String: [String: Any]] = [:]
-        if shouldInverse, let rawRecords {
+        if let rawRecords {
             for raw in rawRecords {
                 if let id = raw[idField] as? String {
                     rawLookup[id] = raw
@@ -1342,41 +1374,56 @@ public actor SyncEngine {
         return baseInterval
     }
 
-    /// Merge incremental (partial) records into the existing cached records.
-    /// Matches by idField — updates existing records and appends new ones.
-    private func mergeIncrementalRecords(
-        serviceId: String,
+    private func loadExistingRawRecords(
+        serviceDir: URL,
         filePath: String,
-        newRecords: [[String: Any]],
         resource: ResourceConfig
     ) -> [[String: Any]] {
-        let cacheKey = "\(serviceId):\(filePath)"
-        let idField = resource.fileMapping.idField ?? "id"
-        var existing = lastKnownRecords[cacheKey] ?? []
-
-        for newRecord in newRecords {
-            let newId = stringifyId(newRecord[idField])
-            if let idx = existing.firstIndex(where: { stringifyId($0[idField]) == newId && newId != nil }) {
-                existing[idx] = newRecord  // Update existing record
-            } else {
-                existing.append(newRecord)  // Append new record
-            }
+        let objectPath = ObjectFileManager.objectFilePath(
+            forUserFile: filePath,
+            strategy: resource.fileMapping.strategy
+        )
+        let objectURL = serviceDir.appendingPathComponent(objectPath)
+        if let records = try? ObjectFileManager.readCollectionObjectFile(from: objectURL) {
+            return records
         }
 
-        return existing
+        // Without an object file, only untransformed files can safely double as raw state.
+        let pullTransforms = resource.fileMapping.transforms?.pull ?? []
+        guard pullTransforms.isEmpty else { return [] }
+
+        let fileURL = serviceDir.appendingPathComponent(filePath)
+        guard let data = try? Data(contentsOf: fileURL),
+              let records = try? FormatConverterFactory.decode(
+                data: data,
+                format: resource.fileMapping.format,
+                options: resource.fileMapping.formatOptions
+              ) else {
+            return []
+        }
+        return records
     }
 
-    /// Stringify an ID value for comparison during merge.
-    private func stringifyId(_ value: Any?) -> String? {
-        guard let value = value else { return nil }
-        switch value {
-        case let s as String: return s
-        case let n as Int: return "\(n)"
-        case let n as Double:
-            if n == n.rounded() && n < 1e15 { return "\(Int(n))" }
-            return "\(n)"
-        default: return "\(value)"
+    private func loadExistingTransformedRecords(
+        serviceDir: URL,
+        filePath: String,
+        resource: ResourceConfig,
+        cacheKey: String
+    ) -> [[String: Any]] {
+        if let cached = lastKnownRecords[cacheKey] {
+            return cached
         }
+
+        let fileURL = serviceDir.appendingPathComponent(filePath)
+        guard let data = try? Data(contentsOf: fileURL),
+              let records = try? FormatConverterFactory.decode(
+                data: data,
+                format: resource.fileMapping.format,
+                options: resource.fileMapping.formatOptions
+              ) else {
+            return []
+        }
+        return records
     }
 
     /// Write object file with raw API records for a pulled file.

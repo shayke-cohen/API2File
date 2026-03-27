@@ -152,17 +152,16 @@ public actor AdapterEngine {
             return PullResult(files: [], responseETag: fetchResult.responseETag, notModified: true)
         }
 
-        let records = fetchResult.records
-
-        // Media mode: download binary files from URLs instead of converting to formats
-        if pullConfig.type == .media, let mediaConfig = pullConfig.mediaConfig {
-            let mediaFiles = try await pullMediaFiles(records: records, resource: resource, mediaConfig: mediaConfig)
-            return PullResult(files: mediaFiles)
-        }
-
         // Apply pull transforms
+        let records = fetchResult.records
         let transforms = resource.fileMapping.transforms?.pull ?? []
         let transformed = transforms.isEmpty ? records : TransformPipeline.apply(transforms, to: records)
+
+        // Media mode: apply transforms first so config can filter/select files before download.
+        if pullConfig.type == .media, let mediaConfig = pullConfig.mediaConfig {
+            let mediaFiles = try await pullMediaFiles(records: transformed, resource: resource, mediaConfig: mediaConfig)
+            return PullResult(files: mediaFiles)
+        }
 
         // Convert to files based on mapping strategy
         let files = try mapToFiles(records: transformed, resource: resource)
@@ -209,7 +208,8 @@ public actor AdapterEngine {
     /// - Parameters:
     ///   - file: The local file that changed
     ///   - resource: The resource configuration for this file
-    public func push(file: SyncableFile, resource: ResourceConfig) async throws {
+    @discardableResult
+    public func push(file: SyncableFile, resource: ResourceConfig) async throws -> String? {
         guard !(file.readOnly) else {
             throw AdapterError.pushNotAllowed(file.relativePath)
         }
@@ -229,10 +229,13 @@ public actor AdapterEngine {
         let transformed = transforms.isEmpty ? records : TransformPipeline.apply(transforms, to: records)
 
         // Push each record
+        var createdId: String?
         for record in transformed {
             let hasRemoteId = file.remoteId != nil
-            try await pushRecord(record, pushConfig: pushConfig, remoteId: file.remoteId, isUpdate: hasRemoteId)
+            let resultId = try await pushRecord(record, pushConfig: pushConfig, remoteId: file.remoteId, isUpdate: hasRemoteId)
+            if createdId == nil { createdId = resultId }
         }
+        return createdId
     }
 
     // MARK: - Push Actions
@@ -596,12 +599,14 @@ public actor AdapterEngine {
     // MARK: - Private — Pushing
 
     /// Push a single record to the API via create or update endpoint.
+    /// Returns the remote ID of the newly created record (nil for updates or if not extractable).
+    @discardableResult
     private func pushRecord(
         _ record: [String: Any],
         pushConfig: PushConfig,
         remoteId: String?,
         isUpdate: Bool
-    ) async throws {
+    ) async throws -> String? {
         let endpoint: EndpointConfig?
         if isUpdate {
             endpoint = pushConfig.update
@@ -611,7 +616,7 @@ public actor AdapterEngine {
 
         guard let endpoint = endpoint else {
             // No endpoint for this action — skip silently (e.g., no create endpoint for a read-mostly resource)
-            return
+            return nil
         }
 
         // Resolve URL templates
@@ -661,15 +666,40 @@ public actor AdapterEngine {
             body: body
         )
 
-        _ = try await httpClient.request(request)
+        let response = try await httpClient.request(request)
+
+        // For create operations, extract the new record ID from the API response
+        var createdId: String?
+        if !isUpdate {
+            if let json = try? JSONSerialization.jsonObject(with: response.body) as? [String: Any] {
+                // Direct: { "id": "..." }
+                createdId = json["id"] as? String
+                // Wrapped: { "draftPost": { "id": "..." } } or { "contact": { "id": "..." } }
+                if createdId == nil {
+                    for (_, value) in json {
+                        if let nested = value as? [String: Any], let id = nested["id"] as? String {
+                            createdId = id
+                            break
+                        }
+                    }
+                }
+            }
+        }
 
         // Execute follow-up request if configured (e.g. Wix Blog draft → publish)
         if let followup = endpoint.followup {
-            let followupURL = TemplateEngine.render(followup.url, with: templateVars)
+            // For create operations, use the newly created ID in the followup URL
+            var followupVars = templateVars
+            if let newId = createdId {
+                followupVars["id"] = newId
+            }
+            let followupURL = TemplateEngine.render(followup.url, with: followupVars)
             let followupMethod = HTTPMethod(rawValue: followup.method?.uppercased() ?? "POST") ?? .POST
             let followupRequest = APIRequest(method: followupMethod, url: followupURL, headers: headers, body: nil)
             _ = try await httpClient.request(followupRequest)
         }
+
+        return createdId
     }
 
     // MARK: - Private — File Mapping

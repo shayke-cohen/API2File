@@ -251,6 +251,34 @@ final class TransformPipelineTests: XCTestCase {
         XCTAssertEqual(result[0]["name"] as? String, "Widget")
     }
 
+    func testMatchKeepsOnlyMatchingRecords() {
+        let data: [[String: Any]] = [
+            ["id": 1, "mediaType": "IMAGE"],
+            ["id": 2, "mediaType": "VIDEO"],
+            ["id": 3, "mediaType": "IMAGE"]
+        ]
+        let op = TransformOp(op: "match", value: "IMAGE", field: "mediaType")
+        let result = TransformPipeline.apply([op], to: data)
+
+        XCTAssertEqual(result.count, 2)
+        XCTAssertEqual(result.compactMap { $0["id"] as? Int }, [1, 3])
+    }
+
+    func testSetSupportsDotPathWritesNestedValues() {
+        let data: [[String: Any]] = [
+            ["id": 1, "ownerId": "abc-123"]
+        ]
+        let transforms: [TransformOp] = [
+            TransformOp(op: "set", value: "{ownerId}", field: "createdBy.id"),
+            TransformOp(op: "set", value: "MEMBER", field: "createdBy.identityType")
+        ]
+        let result = TransformPipeline.apply(transforms, to: data)
+
+        let createdBy: [String: Any]? = result[0]["createdBy"] as? [String: Any]
+        XCTAssertEqual(createdBy?["id"] as? String, "abc-123")
+        XCTAssertEqual(createdBy?["identityType"] as? String, "MEMBER")
+    }
+
     func testMultipleRecords() {
         let data: [[String: Any]] = [
             ["id": 1, "name": "Widget", "secret": "x"],
