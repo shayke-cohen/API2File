@@ -52,6 +52,13 @@ public enum ObjectFileManager {
         }
     }
 
+    /// Resolve the canonical object-file path for a user-facing file path.
+    /// Returns nil when the supplied path is already an object file.
+    public static func canonicalObjectFilePath(forDisplayedFile path: String, strategy: MappingStrategy) -> String? {
+        guard !isObjectFile(path) else { return nil }
+        return objectFilePath(forUserFile: path, strategy: strategy)
+    }
+
     /// Check if a given path is an object file (hidden `.objects.json` or inside `.objects/`).
     public static func isObjectFile(_ path: String) -> Bool {
         let filename = URL(fileURLWithPath: path).lastPathComponent

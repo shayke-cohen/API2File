@@ -134,6 +134,64 @@ final class RealAdapterConfigTests: XCTestCase {
         }
     }
 
+    func testWixAdapterLocksDownSetupFieldsAndResourceInventory() throws {
+        let config = try loadBundledAdapter(named: "wix.adapter")
+
+        XCTAssertEqual(
+            config.setupFields?.map(\.key),
+            ["wix-site-id", "wix-site-url"],
+            "Wix adapter should require both site id and site url setup fields"
+        )
+
+        let expectedResourceNames = [
+            "contacts",
+            "blog-posts",
+            "products",
+            "media",
+            "pro-gallery",
+            "pdf-viewer",
+            "wix-video",
+            "wix-music-podcasts",
+            "bookings-services",
+            "bookings-appointments",
+            "groups",
+            "comments",
+            "bookings",
+            "collections",
+        ]
+        XCTAssertEqual(
+            config.resources.map(\.name),
+            expectedResourceNames,
+            "Wix adapter top-level resources changed; update docs/tests intentionally if this is expected"
+        )
+
+        let collections = try XCTUnwrap(config.resources.first(where: { $0.name == "collections" }))
+        XCTAssertEqual(collections.fileMapping.format, .json)
+        XCTAssertEqual(collections.children?.count, 1)
+
+        let items = try XCTUnwrap(collections.children?.first)
+        XCTAssertEqual(items.name, "items")
+        XCTAssertEqual(items.fileMapping.format, .csv)
+        XCTAssertEqual(items.fileMapping.directory, "cms/{displayName|slugify}")
+    }
+
+    func testWixAdapterLocksDownMediaAndReadOnlyBehavior() throws {
+        let config = try loadBundledAdapter(named: "wix.adapter")
+
+        for name in ["media", "pro-gallery", "pdf-viewer", "wix-video", "wix-music-podcasts"] {
+            let resource = try XCTUnwrap(config.resources.first(where: { $0.name == name }))
+            XCTAssertEqual(resource.pull?.type, .media, "\(name) should use media pull mode")
+            XCTAssertNotNil(resource.pull?.mediaConfig, "\(name) should declare mediaConfig")
+            XCTAssertEqual(resource.fileMapping.strategy, .mirror, "\(name) should mirror binary files")
+            XCTAssertEqual(resource.fileMapping.format, .raw, "\(name) should use raw binary format")
+        }
+
+        let appointments = try XCTUnwrap(config.resources.first(where: { $0.name == "bookings-appointments" }))
+        XCTAssertEqual(appointments.fileMapping.filename, "appointments.csv")
+        XCTAssertEqual(appointments.fileMapping.format, .csv)
+        XCTAssertEqual(appointments.fileMapping.readOnly, true)
+    }
+
     // MARK: - 7. Monday: Verify GraphQL Query Present
 
     func testMondayAdapterHasGraphQLQuery() throws {

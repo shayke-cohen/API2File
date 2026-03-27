@@ -176,51 +176,92 @@ final class DemoAdapterConfigTests: XCTestCase {
         XCTAssertEqual(config.auth.type, .bearer)
         XCTAssertEqual(config.auth.keychainKey, "api2file.wix-demo.key")
         XCTAssertEqual(config.globals?.baseUrl, "http://localhost:8089")
-        XCTAssertEqual(config.resources.count, 5)
+        XCTAssertEqual(config.resources.count, 14)
 
-        // Contacts resource
-        let contacts = config.resources[0]
-        XCTAssertEqual(contacts.name, "contacts")
+        let expectedNames = [
+            "contacts",
+            "blog-posts",
+            "products",
+            "media",
+            "pro-gallery",
+            "pdf-viewer",
+            "wix-video",
+            "wix-music-podcasts",
+            "bookings-services",
+            "bookings-appointments",
+            "groups",
+            "comments",
+            "bookings",
+            "collections",
+        ]
+        XCTAssertEqual(config.resources.map(\.name), expectedNames)
+
+        let contacts = try XCTUnwrap(config.resources.first(where: { $0.name == "contacts" }))
         XCTAssertEqual(contacts.pull?.dataPath, "$.contacts")
         XCTAssertEqual(contacts.fileMapping.strategy, .collection)
         XCTAssertEqual(contacts.fileMapping.format, .csv)
         XCTAssertEqual(contacts.fileMapping.filename, "contacts.csv")
-        XCTAssertNotNil(contacts.fileMapping.transforms?.pull)
-        XCTAssertEqual(contacts.fileMapping.transforms?.pull?.count, 4)
 
-        // Blog posts resource
-        let blogPosts = config.resources[1]
-        XCTAssertEqual(blogPosts.name, "blog-posts")
+        let blogPosts = try XCTUnwrap(config.resources.first(where: { $0.name == "blog-posts" }))
         XCTAssertEqual(blogPosts.pull?.dataPath, "$.posts")
         XCTAssertEqual(blogPosts.fileMapping.strategy, .onePerRecord)
         XCTAssertEqual(blogPosts.fileMapping.format, .markdown)
         XCTAssertEqual(blogPosts.fileMapping.directory, "blog")
         XCTAssertEqual(blogPosts.fileMapping.contentField, "richContent")
 
-        // Products resource
-        let products = config.resources[2]
-        XCTAssertEqual(products.name, "products")
+        let products = try XCTUnwrap(config.resources.first(where: { $0.name == "products" }))
         XCTAssertEqual(products.pull?.dataPath, "$.products")
         XCTAssertEqual(products.fileMapping.strategy, .collection)
         XCTAssertEqual(products.fileMapping.format, .csv)
         XCTAssertEqual(products.fileMapping.filename, "products.csv")
-        XCTAssertNotNil(products.fileMapping.transforms?.pull)
 
-        // Bookings resource
-        let bookings = config.resources[3]
-        XCTAssertEqual(bookings.name, "bookings")
+        for name in ["media", "pro-gallery", "pdf-viewer", "wix-video", "wix-music-podcasts"] {
+            let resource = try XCTUnwrap(config.resources.first(where: { $0.name == name }))
+            XCTAssertEqual(resource.pull?.dataPath, "$.files")
+            XCTAssertEqual(resource.pull?.type, .media)
+            XCTAssertNotNil(resource.pull?.mediaConfig)
+            XCTAssertEqual(resource.fileMapping.strategy, .mirror)
+            XCTAssertEqual(resource.fileMapping.format, .raw)
+        }
+
+        let services = try XCTUnwrap(config.resources.first(where: { $0.name == "bookings-services" }))
+        XCTAssertEqual(services.pull?.dataPath, "$.services")
+        XCTAssertEqual(services.fileMapping.strategy, .collection)
+        XCTAssertEqual(services.fileMapping.format, .csv)
+        XCTAssertEqual(services.fileMapping.directory, "bookings")
+        XCTAssertEqual(services.fileMapping.filename, "services.csv")
+
+        let appointments = try XCTUnwrap(config.resources.first(where: { $0.name == "bookings-appointments" }))
+        XCTAssertEqual(appointments.pull?.dataPath, "$.bookings")
+        XCTAssertEqual(appointments.fileMapping.filename, "appointments.csv")
+        XCTAssertEqual(appointments.fileMapping.readOnly, true)
+
+        let groups = try XCTUnwrap(config.resources.first(where: { $0.name == "groups" }))
+        XCTAssertEqual(groups.pull?.dataPath, "$.groups")
+        XCTAssertEqual(groups.fileMapping.filename, "groups.csv")
+
+        let comments = try XCTUnwrap(config.resources.first(where: { $0.name == "comments" }))
+        XCTAssertEqual(comments.pull?.dataPath, "$.comments")
+        XCTAssertEqual(comments.fileMapping.filename, "comments.csv")
+
+        let bookings = try XCTUnwrap(config.resources.first(where: { $0.name == "bookings" }))
         XCTAssertEqual(bookings.pull?.dataPath, "$.services")
         XCTAssertEqual(bookings.fileMapping.strategy, .onePerRecord)
         XCTAssertEqual(bookings.fileMapping.format, .json)
-        XCTAssertEqual(bookings.fileMapping.readOnly, true)
 
-        // Collections resource
-        let collections = config.resources[4]
-        XCTAssertEqual(collections.name, "collections")
+        let collections = try XCTUnwrap(config.resources.first(where: { $0.name == "collections" }))
         XCTAssertEqual(collections.pull?.dataPath, "$.collections")
         XCTAssertEqual(collections.fileMapping.strategy, .collection)
         XCTAssertEqual(collections.fileMapping.format, .json)
-        XCTAssertEqual(collections.fileMapping.readOnly, true)
+        XCTAssertEqual(collections.fileMapping.filename, "collections.json")
+        XCTAssertEqual(collections.children?.count, 1)
+
+        let items = try XCTUnwrap(collections.children?.first)
+        XCTAssertEqual(items.name, "items")
+        XCTAssertEqual(items.pull?.dataPath, "$.dataItems")
+        XCTAssertEqual(items.fileMapping.directory, "cms/{displayName|slugify}")
+        XCTAssertEqual(items.fileMapping.filename, "items.csv")
+        XCTAssertEqual(items.fileMapping.format, .csv)
     }
 
     // MARK: - All adapters share same base URL

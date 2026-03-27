@@ -132,7 +132,7 @@ Tests/
 | --- | --- | --- | --- | --- |
 | **Demo** | `demo.adapter.json` | None | tasks, contacts, events, notes, pages, config, services, incidents, logos, photos, documents, spreadsheets, reports, presentations, emails, bookmarks, settings, snippets | CSV, VCF, ICS, MD, HTML, JSON, SVG, XLSX, DOCX, PPTX, EML, WEBLOC, YAML, TXT, Raw |
 | **Monday.com** | `monday.adapter.json` | Bearer token | boards (with items via GraphQL) | CSV |
-| **Wix** | `wix.adapter.json` | API key + Site ID header | contacts, blog-posts, products, bookings, collections (+ children items) | CSV, MD, JSON |
+| **Wix** | `wix.adapter.json` | API key + Site ID header | contacts, blog-posts, products, media, pro-gallery, pdf-viewer, wix-video, wix-music-podcasts, bookings-services, bookings-appointments, groups, comments, bookings, collections (+ items child) | CSV, MD, JSON, Raw |
 | **GitHub** | `github.adapter.json` | Bearer (PAT) | repos, issues, gists, notifications, starred | CSV, JSON |
 | **Airtable** | `airtable.adapter.json` | Bearer (PAT) + Base/Table ID | records, bases | JSON |
 
@@ -148,7 +148,7 @@ These adapters point at the local demo server (`localhost:8089`) and showcase re
 | **PageCraft** | `pagecraft.adapter.json` | CMS | pages (HTML), blog-posts (MD), config (JSON) |
 | **DevOps** | `devops.adapter.json` | Infrastructure monitoring | services (JSON per record), incidents (CSV) |
 | **MediaManager** | `mediamanager.adapter.json` | Digital assets | logos (SVG), photos (PNG raw), documents (PDF raw) |
-| **Wix Demo** | `wix-demo.adapter.json` | Wix mock | contacts (CSV), blog-posts (MD), products (CSV), bookings (JSON), collections (JSON) |
+| **Wix Demo** | `wix-demo.adapter.json` | Wix mock | contacts (CSV), blog-posts (MD), products (CSV), media/pro-gallery/pdf-viewer/video/audio (Raw), bookings-services (CSV), bookings-appointments (CSV), groups (CSV), comments (CSV), bookings (JSON), collections (JSON + items CSV) |
 
 ## Sync Folder Structure
 
@@ -189,25 +189,34 @@ Default sync folder: `~/API2File-Data/` (configurable in `GlobalConfig`).
       monthly-summary.docx    Word document (Pages/Word)
   wix/
     .api2file/
-      adapter.json            Service config (11 resources)
+      adapter.json            Service config (14 top-level resources)
       state.json              Sync state
     .git/                     Auto-committed history
     CLAUDE.md                 Service-specific agent guide
     contacts.csv              CRM contacts (Numbers)
     products.csv              Store products (Numbers)
-    members.csv               Site members (Numbers, read-only)
-    site-properties.json      Site settings (editor, read-only)
+    groups.csv                Groups directory (Numbers)
+    comments.csv              Comments feed (Numbers)
+    collections.json          CMS collection catalog (editor)
     blog/
       my-post.md              Blog post (editor)
+    bookings/
+      services.csv            Booking services (Numbers)
+      appointments.csv        Appointment calendar export (read-only)
+      one-on-one-consultation.json
     cms/
-      projects.csv            CMS projects (Numbers)
-      todos.csv               CMS todos (Numbers)
-      orders.csv              Store orders (Numbers, read-only)
-      events.csv              CMS events (Numbers)
-      blog-tags.csv           Blog tags (Numbers, read-only)
+      products/
+        items.csv             CMS collection items (Numbers)
     media/
-      photo.jpg               Downloaded media file (Preview)
-      document.pdf            Downloaded document (Preview)
+      homepage-hero.png       Downloaded media file (Preview)
+    pro-gallery/
+      gallery-shot.png        Gallery image (Preview)
+    pdf-viewer/
+      pricing-guide.pdf       PDF asset (Preview)
+    wix-video/
+      launch-teaser.mp4       Video asset (QuickTime)
+    wix-music-podcasts/
+      podcast-intro.mp3       Audio asset (Music/QuickTime)
 ```
 
 ## CLI Reference
@@ -331,7 +340,7 @@ Connect any REST or GraphQL API by dropping an `.adapter.json` file into `Source
   "type": "apiKey",
   "keychainKey": "api2file.wix.key",
   "setup": {
-    "instructions": "Go to dev.wix.com → API Keys → Generate. Also set wix-site-id in globals.headers."
+    "instructions": "Go to dev.wix.com → API Keys → Generate. Use Add Service to fill Site ID and Site URL."
   }
 },
 "globals": {

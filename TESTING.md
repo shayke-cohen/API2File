@@ -447,9 +447,9 @@ open build/API2File.app
 ### 3. Test Wix/Airtable extra fields
 
 1. Open Add Service -> select **Wix**
-2. Verify: "Site ID" field appears below the API key field
-3. Verify: after sync, 11 resources are pulled (contacts, products, blog posts, CMS collections, members, site properties, media)
-4. Verify: `~/API2File-Data/wix/media/` directory exists with downloaded binary files
+2. Verify: both "Site ID" and "Site URL" fields appear below the API key field
+3. Verify: after sync, 14 top-level resources are pulled, including contacts, blog posts, products, groups, comments, bookings services, appointments, collections, and media-backed directories
+4. Verify: `~/API2File-Data/wix/media/`, `~/API2File-Data/wix/pdf-viewer/`, `~/API2File-Data/wix/wix-video/`, and `~/API2File-Data/wix/wix-music-podcasts/` exist with downloaded binary files
 5. Open Add Service -> select **Airtable**
 6. Verify: "Base ID" and "Table Name" fields appear
 

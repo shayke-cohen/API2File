@@ -2,8 +2,8 @@
 name: api2file
 description: Guide for agents and users working in an API2File sync folder (~/API2File-Data/
   or similar). Covers how to edit synced files (CSV, JSON, Markdown, VCF, ICS, etc.)
-  to push changes back to the cloud, what the hidden .*.objects.json cache files are
-  and why you must not edit them, conflict handling, the Control API, and the complete
+  to push changes back to the cloud, what the hidden .*.objects.json structured files are,
+  how they relate to human-facing projections, conflict handling, the Control API, and the complete
   .adapter.json schema for adding new cloud service adapters.
 ---
 
@@ -18,30 +18,49 @@ Editing a file here automatically pushes the change back to the cloud within the
 configured debounce window (usually 500 ms). Pulling from the cloud overwrites local files
 and commits the result to git.
 
+Each resource can have two local surfaces:
+
+- **Canonical object files** — hidden `.*.objects.json` or `.objects/*.json` files containing structured records
+- **Human-facing files** — CSV, Markdown, ICS, VCF, PDF, etc. generated for native apps and easy browsing
+
+The design direction is that canonical object files are the local source of truth, while human-facing files are projections. Some current builds still auto-push primarily from the human-facing files, so if object-file edits do not sync automatically, run an explicit sync or edit the projected file instead.
+
 ---
 
 ## How the sync loop works
 
-```
-Cloud API  ←→  AdapterEngine  ←→  Local files  ←→  You / Agent
-                     ↑
-               .*.objects.json  (diff cache — do not touch)
+``` 
+Cloud API  ←→  AdapterEngine  ←→  Canonical object files  ←→  Human-facing files  ←→  You / Agent
 ```
 
-1. **Pull:** AdapterEngine calls the cloud API, applies pull transforms, writes files to disk,
-   and saves the raw pre-transform records to hidden `.*.objects.json` cache files.
-2. **File change detected:** FileWatcher sees the save and queues a push (debounced 500 ms).
-3. **Push:** Engine reads the edited file, diffs against the cached `.*.objects.json`,
-   and calls the API for only the changed records (create / update / delete).
+1. **Pull:** AdapterEngine calls the cloud API, writes canonical object files, applies pull transforms, and regenerates the human-facing files.
+2. **Canonical edit:** If a canonical object file is edited, the engine should push its structured records to the API and regenerate the human-facing files.
+3. **Human edit:** If a human-facing file is edited, the engine decodes it back into canonical records, pushes those records, and regenerates the human-facing files.
 4. **State update:** On success, `.api2file/state.json` is updated and git auto-commits.
+
+> **Current implementation note:** The codebase already writes object files and has a partial object-file push path, but automatic `.objects` file watching is still being completed. Treat the object files as the intended canonical surface, with the caveat that some builds may still require an explicit sync after editing them.
 
 ---
 
 ## Editing files to push changes
 
+### Canonical object files (`.*.objects.json`, `.objects/*.json`)
+
+These files store the structured record model for a resource.
+
+- Prefer editing these files for **high-fidelity agent workflows**, complex nested data, and any task where a CSV/Markdown/ICS projection would lose fields.
+- After a successful canonical edit, API2File should push the structured records to the server and regenerate the human-facing files.
+- Avoid editing both a canonical object file and its projected human-facing file before the same sync cycle.
+
+**Collection resources:** edit the JSON array inside `.{stem}.objects.json`.
+
+**One-per-record resources:** edit the per-record JSON object in `.objects/{stem}.json`.
+
+> If your current build does not auto-push object-file edits yet, save the file and force a sync, or make the same change in the human-facing file instead.
+
 ### Collection files (CSV, XLSX, JSON arrays, YAML)
 
-These contain **all records in one file** — a spreadsheet or JSON array.
+These contain **all records in one file** — a spreadsheet or JSON array generated from the canonical object records.
 
 | Format | Opens in | Example file |
 |---|---|---|
@@ -50,16 +69,14 @@ These contain **all records in one file** — a spreadsheet or JSON array.
 | `.json` (array) | VS Code, any text editor | `bases.json` |
 | `.yaml` | Any text editor | `settings.yaml` |
 
-**To update a record:** Edit the value in the row/object and save. The engine diffs
-the file against the cached objects, identifies the changed row by its `_id` column,
-and calls `PATCH`/`PUT` on the API for that record only.
+**To update a record:** Edit the value in the row/object and save. The engine decodes the file back into canonical structured records, diffs against the previous canonical object file, and calls `PATCH`/`PUT` on the API for only the changed records.
 
 **To create a record:** Add a new row (CSV) or object (JSON array). Leave the `_id` column
-empty or omit the `id` field — the engine treats rows without a known ID as new records and
-calls `POST` on the API. The response ID is stored back.
+empty or omit the `id` field — the engine treats rows without a known ID as new canonical records and
+calls `POST` on the API. The response ID is stored back into the canonical object file and the projection.
 
 **To delete a record:** Delete the row from the file (CSV) or remove the object (JSON). The
-engine detects the missing ID in the diff and calls `DELETE` on the API.
+engine detects the missing ID in the canonical diff and calls `DELETE` on the API.
 
 > **IMPORTANT — never modify the `_id` column.** It is the link between the local row and
 > the remote record. Changing or clearing it causes the engine to treat the row as a new
@@ -73,14 +90,13 @@ engine detects the missing ID in the diff and calls `DELETE` on the API.
 ### One-per-record files (MD, HTML, VCF, ICS, JSON objects, SVG, EML, WEBLOC, TXT)
 
 Each file is one record. The filename encodes the record identity (e.g. `alice-smith.vcf`,
-`meeting-notes.md`).
+`meeting-notes.md`). These files are human-facing projections of the canonical per-record JSON object.
 
-**To update:** Edit and save the file. The engine looks up the remote ID from
-`.api2file/state.json` and calls `PATCH`/`PUT`.
+**To update:** Edit and save the file. The engine decodes it back into the canonical record, looks up the remote ID from `.api2file/state.json`, and calls `PATCH`/`PUT`.
 
 **To create:** Create a new file with the correct extension in the resource's directory.
 Use the same naming convention as existing files (slugified title/name). The engine
-calls `POST` on the next sync cycle.
+creates the corresponding canonical record and calls `POST` on the next sync cycle.
 
 **To delete:** Delete the file. The engine calls `DELETE` after a 5-second grace period.
 
@@ -97,12 +113,13 @@ The CLAUDE.md in each service folder marks read-only resources explicitly.
 ## The hidden `.*.objects.json` files
 
 You will see hidden files like `.tasks.objects.json`, `.config.objects.json`, `.deck.objects.json`
-alongside your synced files. **Do not edit these files.**
+alongside your synced files. These files store the structured canonical record model for the resource.
 
 ### What they are
 
-After every successful pull, the engine writes the raw API records (before any pull transforms
-are applied) to these hidden JSON files. They serve as the diff baseline for the next push.
+After every successful pull, the engine writes the structured API records (before any human-facing
+projection encoding) to these hidden JSON files. They serve as the canonical local representation
+used for diffing, regeneration, and high-fidelity edits.
 
 Example — `.tasks.objects.json` contains the last-known server state:
 ```json
@@ -112,13 +129,14 @@ Example — `.tasks.objects.json` contains the last-known server state:
 ]
 ```
 
-When you change `tasks.csv`, the engine re-reads it, compares against `.tasks.objects.json`,
+When you change `tasks.csv`, the engine re-reads it, updates the canonical `.tasks.objects.json`,
 and pushes only the diff (e.g. `PATCH /tasks/1 { "status": "done" }`).
 
 ### When they are updated
 
 - After every successful **pull** from the cloud
-- After every successful **push** to the cloud (the local file state is re-cached)
+- After every successful **push** to the cloud
+- After any successful regeneration from a human-facing file edit
 
 ### What happens if they get out of sync
 
@@ -131,11 +149,12 @@ curl -X POST localhost:21567/api/services/<serviceId>/sync
 
 Or via the menu bar app: click the service → Sync Now.
 
-### Why you must not edit them
+### How to edit them safely
 
-The diff algorithm compares IDs from `.objects.json` against the current file. If you manually
-edit `.objects.json`, the engine will compute a wrong diff and may create duplicates or delete
-records on the server.
+- Prefer canonical object-file edits for complex or nested data where the human-facing file is lossy
+- Preserve record IDs unless you intentionally want to create a new record
+- Do not edit both the canonical file and its projection before the same sync cycle
+- If a build still treats object files as internal cache for automatic watching, run an explicit sync after saving
 
 ---
 

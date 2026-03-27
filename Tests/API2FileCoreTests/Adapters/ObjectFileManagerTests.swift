@@ -200,6 +200,29 @@ final class ObjectFileManagerTests: XCTestCase {
         XCTAssertEqual(mirrorPath, collectionPath)
     }
 
+    func testCanonicalObjectFilePathForDisplayedCollectionFile() {
+        XCTAssertEqual(
+            ObjectFileManager.canonicalObjectFilePath(forDisplayedFile: "tasks.csv", strategy: .collection),
+            ".tasks.objects.json"
+        )
+    }
+
+    func testCanonicalObjectFilePathForDisplayedRecordFile() {
+        XCTAssertEqual(
+            ObjectFileManager.canonicalObjectFilePath(forDisplayedFile: "blog/post.md", strategy: .onePerRecord),
+            "blog/.objects/post.json"
+        )
+    }
+
+    func testCanonicalObjectFilePathReturnsNilForObjectFile() {
+        XCTAssertNil(
+            ObjectFileManager.canonicalObjectFilePath(
+                forDisplayedFile: "blog/.objects/post.json",
+                strategy: .onePerRecord
+            )
+        )
+    }
+
     func testIsObjectFileInsideNestedObjectsDir() {
         XCTAssertTrue(ObjectFileManager.isObjectFile("a/b/c/.objects/d.json"))
     }

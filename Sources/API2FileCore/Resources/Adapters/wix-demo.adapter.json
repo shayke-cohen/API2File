@@ -23,13 +23,7 @@
     {
       "name": "contacts",
       "description": "Wix CRM contacts as a CSV spreadsheet",
-
-      "pull": {
-        "method": "GET",
-        "url": "http://localhost:8089/api/wix/contacts",
-        "dataPath": "$.contacts"
-      },
-
+      "pull": { "method": "GET", "url": "http://localhost:8089/api/wix/contacts", "dataPath": "$.contacts" },
       "fileMapping": {
         "strategy": "collection",
         "directory": ".",
@@ -45,118 +39,255 @@
           ]
         }
       },
-
-      "sync": {
-        "interval": 10,
-        "debounceMs": 500
-      }
+      "sync": { "interval": 10, "debounceMs": 500 }
     },
     {
       "name": "blog-posts",
       "description": "Wix blog posts as Markdown files",
-
-      "pull": {
-        "method": "GET",
-        "url": "http://localhost:8089/api/wix/posts",
-        "dataPath": "$.posts"
-      },
-
+      "pull": { "method": "GET", "url": "http://localhost:8089/api/wix/posts", "dataPath": "$.posts" },
       "fileMapping": {
         "strategy": "one-per-record",
         "directory": "blog",
         "filename": "{slug|slugify}.md",
         "format": "md",
         "idField": "id",
-        "contentField": "richContent",
-        "transforms": {
-          "pull": [
-            { "op": "omit", "fields": ["coverMedia", "memberId", "hashtags", "commentingEnabled", "minutesToRead", "tagIds", "pricingPlanIds"] }
-          ]
-        }
+        "contentField": "richContent"
       },
-
-      "sync": {
-        "interval": 10,
-        "debounceMs": 500
-      }
+      "sync": { "interval": 10, "debounceMs": 500 }
     },
     {
       "name": "products",
       "description": "Wix Store products as a CSV catalog",
-
-      "pull": {
-        "method": "GET",
-        "url": "http://localhost:8089/api/wix/products",
-        "dataPath": "$.products"
-      },
-
+      "pull": { "method": "GET", "url": "http://localhost:8089/api/wix/products", "dataPath": "$.products" },
       "fileMapping": {
         "strategy": "collection",
         "directory": ".",
         "filename": "products.csv",
         "format": "csv",
-        "idField": "id",
-        "transforms": {
-          "pull": [
-            { "op": "flatten", "path": "priceData", "to": "" },
-            { "op": "flatten", "path": "stock", "to": "" },
-            { "op": "omit", "fields": ["media", "additionalInfoSections", "customTextFields", "variants", "productOptions"] }
-          ]
+        "idField": "id"
+      },
+      "sync": { "interval": 10, "debounceMs": 500 }
+    },
+    {
+      "name": "media",
+      "description": "Wix Media Manager files",
+      "pull": {
+        "method": "GET",
+        "url": "http://localhost:8089/api/wix/media",
+        "type": "media",
+        "dataPath": "$.files",
+        "mediaConfig": {
+          "urlField": "url",
+          "filenameField": "displayName",
+          "idField": "id",
+          "sizeField": "sizeInBytes",
+          "hashField": "hash"
         }
       },
-
-      "sync": {
-        "interval": 10,
-        "debounceMs": 500
-      }
+      "fileMapping": {
+        "strategy": "mirror",
+        "directory": "media",
+        "format": "raw",
+        "idField": "id"
+      },
+      "sync": { "interval": 10, "debounceMs": 500 }
+    },
+    {
+      "name": "pro-gallery",
+      "description": "Media Manager images used by Pro Gallery",
+      "pull": {
+        "method": "GET",
+        "url": "http://localhost:8089/api/wix/media",
+        "type": "media",
+        "dataPath": "$.files",
+        "mediaConfig": {
+          "urlField": "url",
+          "filenameField": "displayName",
+          "idField": "id",
+          "sizeField": "sizeInBytes",
+          "hashField": "hash"
+        }
+      },
+      "fileMapping": {
+        "strategy": "mirror",
+        "directory": "pro-gallery",
+        "format": "raw",
+        "idField": "id",
+        "transforms": { "pull": [{ "op": "match", "field": "mediaType", "value": "IMAGE" }] }
+      },
+      "sync": { "interval": 10, "debounceMs": 500 }
+    },
+    {
+      "name": "pdf-viewer",
+      "description": "PDF documents stored in Media Manager",
+      "pull": {
+        "method": "GET",
+        "url": "http://localhost:8089/api/wix/media",
+        "type": "media",
+        "dataPath": "$.files",
+        "mediaConfig": {
+          "urlField": "url",
+          "filenameField": "displayName",
+          "idField": "id",
+          "sizeField": "sizeInBytes",
+          "hashField": "hash"
+        }
+      },
+      "fileMapping": {
+        "strategy": "mirror",
+        "directory": "pdf-viewer",
+        "format": "raw",
+        "idField": "id",
+        "transforms": { "pull": [{ "op": "match", "field": "mimeType", "value": "application/pdf" }] }
+      },
+      "sync": { "interval": 10, "debounceMs": 500 }
+    },
+    {
+      "name": "wix-video",
+      "description": "Video assets stored in Media Manager",
+      "pull": {
+        "method": "GET",
+        "url": "http://localhost:8089/api/wix/media",
+        "type": "media",
+        "dataPath": "$.files",
+        "mediaConfig": {
+          "urlField": "url",
+          "filenameField": "displayName",
+          "idField": "id",
+          "sizeField": "sizeInBytes",
+          "hashField": "hash"
+        }
+      },
+      "fileMapping": {
+        "strategy": "mirror",
+        "directory": "wix-video",
+        "format": "raw",
+        "idField": "id",
+        "transforms": { "pull": [{ "op": "match", "field": "mediaType", "value": "VIDEO" }] }
+      },
+      "sync": { "interval": 10, "debounceMs": 500 }
+    },
+    {
+      "name": "wix-music-podcasts",
+      "description": "Audio assets stored in Media Manager",
+      "pull": {
+        "method": "GET",
+        "url": "http://localhost:8089/api/wix/media",
+        "type": "media",
+        "dataPath": "$.files",
+        "mediaConfig": {
+          "urlField": "url",
+          "filenameField": "displayName",
+          "idField": "id",
+          "sizeField": "sizeInBytes",
+          "hashField": "hash"
+        }
+      },
+      "fileMapping": {
+        "strategy": "mirror",
+        "directory": "wix-music-podcasts",
+        "format": "raw",
+        "idField": "id",
+        "transforms": { "pull": [{ "op": "match", "field": "mediaType", "value": "AUDIO" }] }
+      },
+      "sync": { "interval": 10, "debounceMs": 500 }
+    },
+    {
+      "name": "bookings-services",
+      "description": "Wix Bookings services as a CSV spreadsheet",
+      "pull": { "method": "GET", "url": "http://localhost:8089/api/wix/services", "dataPath": "$.services" },
+      "fileMapping": {
+        "strategy": "collection",
+        "directory": "bookings",
+        "filename": "services.csv",
+        "format": "csv",
+        "idField": "id"
+      },
+      "sync": { "interval": 10, "debounceMs": 500 }
+    },
+    {
+      "name": "bookings-appointments",
+      "description": "Wix Bookings customer appointments and bookings",
+      "pull": { "method": "GET", "url": "http://localhost:8089/api/wix/appointments", "dataPath": "$.bookings" },
+      "fileMapping": {
+        "strategy": "collection",
+        "directory": "bookings",
+        "filename": "appointments.csv",
+        "format": "csv",
+        "idField": "id",
+        "readOnly": true
+      },
+      "sync": { "interval": 10, "debounceMs": 500 }
+    },
+    {
+      "name": "groups",
+      "description": "Wix Groups as a CSV spreadsheet",
+      "pull": { "method": "GET", "url": "http://localhost:8089/api/wix/groups", "dataPath": "$.groups" },
+      "fileMapping": {
+        "strategy": "collection",
+        "directory": ".",
+        "filename": "groups.csv",
+        "format": "csv",
+        "idField": "id"
+      },
+      "sync": { "interval": 10, "debounceMs": 500 }
+    },
+    {
+      "name": "comments",
+      "description": "Wix Comments as a CSV spreadsheet",
+      "pull": { "method": "GET", "url": "http://localhost:8089/api/wix/comments", "dataPath": "$.comments" },
+      "fileMapping": {
+        "strategy": "collection",
+        "directory": ".",
+        "filename": "comments.csv",
+        "format": "csv",
+        "idField": "id"
+      },
+      "sync": { "interval": 10, "debounceMs": 500 }
     },
     {
       "name": "bookings",
       "description": "Wix Bookings services as JSON files",
-
-      "pull": {
-        "method": "GET",
-        "url": "http://localhost:8089/api/wix/services",
-        "dataPath": "$.services"
-      },
-
+      "pull": { "method": "GET", "url": "http://localhost:8089/api/wix/services", "dataPath": "$.services" },
       "fileMapping": {
         "strategy": "one-per-record",
         "directory": "bookings",
         "filename": "{name|slugify}.json",
         "format": "json",
-        "idField": "id",
-        "readOnly": true
+        "idField": "id"
       },
-
-      "sync": {
-        "interval": 10,
-        "debounceMs": 500
-      }
+      "sync": { "interval": 10, "debounceMs": 500 }
     },
     {
       "name": "collections",
       "description": "Wix CMS data collections catalog",
-
-      "pull": {
-        "method": "GET",
-        "url": "http://localhost:8089/api/wix/collections",
-        "dataPath": "$.collections"
-      },
-
+      "pull": { "method": "GET", "url": "http://localhost:8089/api/wix/collections", "dataPath": "$.collections" },
       "fileMapping": {
         "strategy": "collection",
         "directory": ".",
         "filename": "collections.json",
         "format": "json",
-        "idField": "id",
-        "readOnly": true
+        "idField": "id"
       },
-
-      "sync": {
-        "interval": 10,
-        "debounceMs": 500
-      }
+      "children": [
+        {
+          "name": "items",
+          "description": "Items in this CMS collection",
+          "pull": {
+            "method": "GET",
+            "url": "http://localhost:8089/api/wix/collections/{id}/items",
+            "dataPath": "$.dataItems"
+          },
+          "fileMapping": {
+            "strategy": "collection",
+            "directory": "cms/{displayName|slugify}",
+            "filename": "items.csv",
+            "format": "csv",
+            "idField": "id"
+          }
+        }
+      ],
+      "sync": { "interval": 10, "debounceMs": 500 }
     }
   ]
 }
