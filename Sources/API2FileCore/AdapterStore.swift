@@ -108,7 +108,192 @@ public actor AdapterStore {
         return contents.contains { $0.lastPathComponent.hasSuffix(".adapter_new.json") }
     }
 
+    /// Refresh an installed service adapter from the newest available template when the
+    /// bundled or user template version is newer than the deployed copy.
+    /// Returns true when the deployed adapter.json was rewritten.
+    public func refreshInstalledAdapterIfNeeded(serviceDir: URL) throws -> Bool {
+        let deployedURL = serviceDir.appendingPathComponent(".api2file/adapter.json")
+        guard FileManager.default.fileExists(atPath: deployedURL.path) else { return false }
+
+        let deployedData = try Data(contentsOf: deployedURL)
+        let decoder = JSONDecoder()
+        let deployedConfig = try decoder.decode(AdapterConfig.self, from: deployedData)
+        guard let template = try latestTemplate(for: deployedConfig.service) else { return false }
+        guard isNewer(template.config.version, than: deployedConfig.version) else { return false }
+
+        let refreshedConfig = try refreshedInstalledConfig(from: deployedConfig, template: template)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let refreshedData = try encoder.encode(refreshedConfig)
+
+        if refreshedData == deployedData { return false }
+        try refreshedData.write(to: deployedURL, options: .atomic)
+        return true
+    }
+
     // MARK: - Private
+
+    private func latestTemplate(for serviceId: String) throws -> AdapterTemplate? {
+        let bundled = try bundledTemplate(for: serviceId)
+        let user = try userTemplate(for: serviceId)
+
+        switch (bundled, user) {
+        case (nil, nil):
+            return nil
+        case let (template?, nil), let (nil, template?):
+            return template
+        case let (bundled?, user?):
+            return isNewer(bundled.config.version, than: user.config.version) ? bundled : user
+        }
+    }
+
+    private func bundledTemplate(for serviceId: String) throws -> AdapterTemplate? {
+        guard let adaptersDir = Bundle.module.url(forResource: "Adapters", withExtension: nil, subdirectory: "Resources") else {
+            return nil
+        }
+        let url = adaptersDir.appendingPathComponent("\(serviceId).adapter.json")
+        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+        return try loadTemplate(at: url)
+    }
+
+    private func userTemplate(for serviceId: String) throws -> AdapterTemplate? {
+        let url = AdapterStore.userAdaptersURL.appendingPathComponent("\(serviceId).adapter.json")
+        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+        return try loadTemplate(at: url)
+    }
+
+    private func loadTemplate(at url: URL) throws -> AdapterTemplate {
+        let data = try Data(contentsOf: url)
+        let rawJSON = String(data: data, encoding: .utf8) ?? ""
+        let config = try JSONDecoder().decode(AdapterConfig.self, from: data)
+        return AdapterTemplate(config: config, rawJSON: rawJSON)
+    }
+
+    private func refreshedInstalledConfig(from deployed: AdapterConfig, template: AdapterTemplate) throws -> AdapterConfig {
+        let substitutions = try resolveSetupFieldValues(from: deployed, using: template.config.setupFields ?? [])
+
+        var rawJSON = template.rawJSON
+        for field in template.config.setupFields ?? [] {
+            guard let value = substitutions[field.key] else {
+                throw NSError(domain: "AdapterStore", code: 1, userInfo: [
+                    NSLocalizedDescriptionKey: "Missing value for setup field '\(field.key)' while refreshing adapter"
+                ])
+            }
+            rawJSON = rawJSON.replacingOccurrences(of: field.templateKey, with: value)
+        }
+
+        let decoded = try JSONDecoder().decode(AdapterConfig.self, from: Data(rawJSON.utf8))
+        return mergedConfig(templateConfig: decoded, deployedConfig: deployed)
+    }
+
+    private func resolveSetupFieldValues(from deployed: AdapterConfig, using fields: [SetupField]) throws -> [String: String] {
+        var values: [String: String] = [:]
+
+        for field in fields {
+            if let value = extractSetupFieldValue(field.key, from: deployed) {
+                values[field.key] = value
+            } else {
+                throw NSError(domain: "AdapterStore", code: 2, userInfo: [
+                    NSLocalizedDescriptionKey: "Could not recover setup field '\(field.key)' from deployed adapter"
+                ])
+            }
+        }
+
+        return values
+    }
+
+    private func extractSetupFieldValue(_ key: String, from config: AdapterConfig) -> String? {
+        if let headerValue = config.globals?.headers?[key], !headerValue.isEmpty {
+            return headerValue
+        }
+
+        switch key {
+        case let k where k.hasSuffix("-site-url"):
+            return config.siteUrl
+        case "base-id":
+            return airtableURLSegments(from: config).baseId
+        case "table-name":
+            return airtableURLSegments(from: config).tableName
+        default:
+            return nil
+        }
+    }
+
+    private func airtableURLSegments(from config: AdapterConfig) -> (baseId: String?, tableName: String?) {
+        let urls = config.resources.flatMap { resource -> [String] in
+            var collected: [String] = []
+            if let pullURL = resource.pull?.url { collected.append(pullURL) }
+            if let createURL = resource.push?.create?.url { collected.append(createURL) }
+            if let updateURL = resource.push?.update?.url { collected.append(updateURL) }
+            if let deleteURL = resource.push?.delete?.url { collected.append(deleteURL) }
+            if let dashboardURL = resource.dashboardUrl { collected.append(dashboardURL) }
+            return collected
+        }
+
+        for urlString in urls {
+            guard let url = URL(string: urlString) else { continue }
+            let parts = url.pathComponents.filter { $0 != "/" }
+            if let apiIndex = parts.firstIndex(of: "v0"), parts.count > apiIndex + 2 {
+                return (parts[apiIndex + 1], parts[apiIndex + 2])
+            }
+            if let baseComponent = parts.first(where: { $0.hasPrefix("app") }) {
+                let tableComponent = parts.drop { !$0.hasPrefix("app") }.dropFirst().first
+                return (baseComponent, tableComponent)
+            }
+        }
+
+        return (nil, nil)
+    }
+
+    private func mergedConfig(templateConfig: AdapterConfig, deployedConfig: AdapterConfig) -> AdapterConfig {
+        let mergedGlobals = mergedGlobalsConfig(templateConfig.globals, deployedConfig.globals)
+        let deployedResourcesByName = Dictionary(uniqueKeysWithValues: deployedConfig.resources.map { ($0.name, $0) })
+        var mergedResources = templateConfig.resources.map { templateResource in
+            guard let deployedResource = deployedResourcesByName[templateResource.name] else { return templateResource }
+            return ResourceConfig(
+                name: templateResource.name,
+                description: templateResource.description ?? deployedResource.description,
+                pull: templateResource.pull,
+                push: templateResource.push,
+                fileMapping: templateResource.fileMapping,
+                children: templateResource.children,
+                sync: templateResource.sync ?? deployedResource.sync,
+                siteUrl: templateResource.siteUrl ?? deployedResource.siteUrl,
+                dashboardUrl: templateResource.dashboardUrl ?? deployedResource.dashboardUrl
+            )
+        }
+        let templateResourceNames = Set(templateConfig.resources.map(\.name))
+        mergedResources.append(contentsOf: deployedConfig.resources.filter { !templateResourceNames.contains($0.name) })
+
+        return AdapterConfig(
+            service: templateConfig.service,
+            displayName: templateConfig.displayName,
+            version: templateConfig.version,
+            auth: templateConfig.auth,
+            globals: mergedGlobals,
+            resources: mergedResources,
+            icon: templateConfig.icon,
+            wizardDescription: templateConfig.wizardDescription,
+            setupFields: templateConfig.setupFields,
+            hidden: templateConfig.hidden,
+            enabled: deployedConfig.enabled ?? templateConfig.enabled,
+            siteUrl: templateConfig.siteUrl ?? deployedConfig.siteUrl,
+            dashboardUrl: templateConfig.dashboardUrl ?? deployedConfig.dashboardUrl
+        )
+    }
+
+    private func mergedGlobalsConfig(_ template: GlobalsConfig?, _ deployed: GlobalsConfig?) -> GlobalsConfig? {
+        guard template != nil || deployed != nil else { return nil }
+        var headers = template?.headers ?? [:]
+        for (key, value) in deployed?.headers ?? [:] where headers[key] == nil {
+            headers[key] = value
+        }
+        return GlobalsConfig(
+            baseUrl: template?.baseUrl ?? deployed?.baseUrl,
+            headers: headers.isEmpty ? nil : headers,
+            method: template?.method ?? deployed?.method
+        )
+    }
 
     private func isNewer(_ v1: String, than v2: String) -> Bool {
         let parts1 = v1.split(separator: ".").compactMap { Int($0) }

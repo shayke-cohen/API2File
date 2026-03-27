@@ -168,6 +168,12 @@ final class RealAdapterConfigTests: XCTestCase {
         let collections = try XCTUnwrap(config.resources.first(where: { $0.name == "collections" }))
         XCTAssertEqual(collections.fileMapping.format, .json)
         XCTAssertEqual(collections.children?.count, 1)
+        XCTAssertTrue(
+            collections.fileMapping.transforms?.pull?.contains(where: {
+                $0.op == "match" && $0.field == "displayNamespace" && $0.value == ""
+            }) == true,
+            "Wix collections should exclude app-owned namespaces before pulling child items"
+        )
 
         let items = try XCTUnwrap(collections.children?.first)
         XCTAssertEqual(items.name, "items")
@@ -190,6 +196,16 @@ final class RealAdapterConfigTests: XCTestCase {
         XCTAssertEqual(appointments.fileMapping.filename, "appointments.csv")
         XCTAssertEqual(appointments.fileMapping.format, .csv)
         XCTAssertEqual(appointments.fileMapping.readOnly, true)
+    }
+
+    func testWixBlogPostsDoNotUseUnsupportedIncrementalFilter() throws {
+        let config = try loadBundledAdapter(named: "wix.adapter")
+        let blogPosts = try XCTUnwrap(config.resources.first(where: { $0.name == "blog-posts" }))
+
+        XCTAssertNil(
+            blogPosts.pull?.updatedSinceBodyPath,
+            "Wix blog posts query does not support updatedDate filtering; keep incremental body filters disabled"
+        )
     }
 
     // MARK: - 7. Monday: Verify GraphQL Query Present

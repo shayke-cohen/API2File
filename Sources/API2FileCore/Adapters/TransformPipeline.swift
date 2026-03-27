@@ -451,6 +451,16 @@ public struct TransformPipeline {
 
     private static func matches(field: String, value: String, record: [String: Any]) -> Bool {
         let actual = resolveDotPath(field, in: record) ?? record[field]
+        if value.isEmpty {
+            switch actual {
+            case nil:
+                return true
+            case let string as String:
+                return string.isEmpty
+            default:
+                return false
+            }
+        }
         switch actual {
         case let string as String:
             return string == value

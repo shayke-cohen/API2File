@@ -2,6 +2,12 @@ import Foundation
 
 /// Top-level sync engine — ties together all components for the full sync lifecycle
 public actor SyncEngine {
+    private enum AuthReadiness {
+        case loading
+        case ready
+        case unavailable
+    }
+
     private let config: GlobalConfig
     private let syncFolder: URL
     private let coordinator: SyncCoordinator
@@ -15,6 +21,7 @@ public actor SyncEngine {
     private var lastKnownRecords: [String: [[String: Any]]] = [:]
     private var suppressedPaths: Set<String> = []
     private var isPulling: [String: Bool] = [:]  // per-service pull lock
+    private var authReadiness: [String: AuthReadiness] = [:]
     /// Files recently pushed — pull should re-pull to get updated revision but not overwrite content.
     /// Key: "serviceId:filePath", Value: push completion time
     private var recentlyPushed: [String: Date] = [:]
@@ -170,6 +177,9 @@ public actor SyncEngine {
     private func registerService(_ serviceId: String) async throws {
         await ActivityLogger.shared.info(.system, "Registering service: \(serviceId)")
         let serviceDir = syncFolder.appendingPathComponent(serviceId)
+        if try await AdapterStore.shared.refreshInstalledAdapterIfNeeded(serviceDir: serviceDir) {
+            await ActivityLogger.shared.info(.system, "Refreshed deployed adapter for \(serviceId) from newer template")
+        }
         let config = try AdapterEngine.loadConfig(from: serviceDir)
 
         // Track disabled services in serviceInfos but don't start syncing
@@ -184,17 +194,19 @@ public actor SyncEngine {
                 status: .paused,
                 fileCount: state.files.count
             )
+            authReadiness.removeValue(forKey: serviceId)
             return
         }
 
         let httpClient = HTTPClient()
+        authReadiness[serviceId] = .loading
 
         // Load auth token from Keychain in background — don't block startup.
         // securityd initialization on first access from a new process can take 30-150s on macOS.
         // Retry up to 10 times (5 minutes total) to handle slow first-access or user dialogs.
         let keychainKey = config.auth.keychainKey
         let authType = config.auth.type
-        Task { [weak httpClient] in
+        Task {
             let keychain = KeychainManager()
             var token: String? = nil
             for attempt in 1...10 {
@@ -204,7 +216,13 @@ public actor SyncEngine {
                     try? await Task.sleep(nanoseconds: 30_000_000_000) // 30s between retries
                 }
             }
-            guard let token, let httpClient else { return }
+
+            guard let token else {
+                await self.markAuthUnavailable(serviceId)
+                await ActivityLogger.shared.warn(.system, "Auth unavailable for \(serviceId) — skipping authenticated pulls until credentials are updated")
+                return
+            }
+
             switch authType {
             case .bearer:
                 await httpClient.setAuthHeader("Authorization", value: "Bearer \(token)")
@@ -215,7 +233,9 @@ public actor SyncEngine {
             case .oauth2:
                 await httpClient.setAuthHeader("Authorization", value: "Bearer \(token)")
             }
+            await self.markAuthReady(serviceId)
             await ActivityLogger.shared.info(.system, "Auth loaded for \(serviceId)")
+            await self.coordinator.syncNow(serviceId: serviceId)
         }
 
         let engine = AdapterEngine(config: config, serviceDir: serviceDir, httpClient: httpClient)
@@ -312,6 +332,7 @@ public actor SyncEngine {
         adapterEngines.removeValue(forKey: serviceId)
         syncStates.removeValue(forKey: serviceId)
         serviceInfos.removeValue(forKey: serviceId)
+        authReadiness.removeValue(forKey: serviceId)
 
         // Re-register with updated config
         do {
@@ -331,6 +352,7 @@ public actor SyncEngine {
 
     private func performPull(serviceId: String) async throws {
         guard let engine = adapterEngines[serviceId] else { return }
+        guard await isAuthReadyToPull(serviceId: serviceId) else { return }
         let serviceDir = syncFolder.appendingPathComponent(serviceId)
         let serviceName = serviceInfos[serviceId]?.displayName ?? serviceId
         let startTime = Date()
@@ -718,6 +740,28 @@ public actor SyncEngine {
             )
             logHistory(entry, serviceId: serviceId, serviceDir: serviceDir)
             throw error
+        }
+    }
+
+    private func markAuthReady(_ serviceId: String) {
+        authReadiness[serviceId] = .ready
+    }
+
+    private func markAuthUnavailable(_ serviceId: String) {
+        authReadiness[serviceId] = .unavailable
+    }
+
+    private func isAuthReadyToPull(serviceId: String) async -> Bool {
+        switch authReadiness[serviceId] ?? .loading {
+        case .ready:
+            return true
+        case .loading:
+            await ActivityLogger.shared.info(.system, "Skipping pull for \(serviceId) while auth is still loading")
+            return false
+        case .unavailable:
+            await ActivityLogger.shared.warn(.system, "Skipping pull for \(serviceId) — credentials are unavailable")
+            await updateServiceStatus(serviceId, status: .error, error: "Credentials unavailable. Update the service API key to resume sync.")
+            return false
         }
     }
 

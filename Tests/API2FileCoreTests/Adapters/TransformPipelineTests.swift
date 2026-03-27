@@ -264,6 +264,18 @@ final class TransformPipelineTests: XCTestCase {
         XCTAssertEqual(result.compactMap { $0["id"] as? Int }, [1, 3])
     }
 
+    func testMatchEmptyValueKeepsMissingOrEmptyFields() {
+        let data: [[String: Any]] = [
+            ["id": 1],
+            ["id": 2, "displayNamespace": ""],
+            ["id": 3, "displayNamespace": "Stores"],
+        ]
+        let op = TransformOp(op: "match", value: "", field: "displayNamespace")
+        let result = TransformPipeline.apply([op], to: data)
+
+        XCTAssertEqual(result.compactMap { $0["id"] as? Int }, [1, 2])
+    }
+
     func testSetSupportsDotPathWritesNestedValues() {
         let data: [[String: Any]] = [
             ["id": 1, "ownerId": "abc-123"]

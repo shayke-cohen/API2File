@@ -1,7 +1,7 @@
 {
   "service": "wix",
   "displayName": "Wix — Website & Business Platform",
-  "version": "1.2",
+  "version": "1.4",
   "icon": "globe",
   "wizardDescription": "Contacts, products, blog, bookings, groups, media",
   "siteUrl": "YOUR_SITE_URL_HERE",
@@ -126,8 +126,7 @@
             }
           }
         },
-        "dataPath": "$.posts",
-        "updatedSinceBodyPath": "query.filter.updatedDate.$gt"
+        "dataPath": "$.posts"
       },
 
       "pagination": {
@@ -801,6 +800,7 @@
         "idField": "id",
         "transforms": {
           "pull": [
+            { "op": "match", "field": "displayNamespace", "value": "" },
             { "op": "set", "field": "_url", "value": "https://manage.wix.com/dashboard/YOUR_SITE_ID_HERE/wix-cms/data/{id}" }
           ],
           "push": [
