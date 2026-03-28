@@ -1,9 +1,9 @@
 {
   "service": "wix",
   "displayName": "Wix — Website & Business Platform",
-  "version": "1.6",
+  "version": "2.4",
   "icon": "globe",
-  "wizardDescription": "Contacts, products, blog, bookings, groups, media",
+  "wizardDescription": "Contacts, products, orders, forms, members, blog, bookings, groups, media",
   "siteUrl": "YOUR_SITE_URL_HERE",
   "dashboardUrl": "https://manage.wix.com/dashboard/YOUR_SITE_ID_HERE/home",
   "setupFields": [
@@ -72,12 +72,12 @@
         "create": {
           "method": "POST",
           "url": "https://www.wixapis.com/contacts/v4/contacts",
-          "bodyWrapper": "info"
+          "bodyType": "wix-contact-create"
         },
         "update": {
           "method": "PATCH",
           "url": "https://www.wixapis.com/contacts/v4/contacts/{id}",
-          "bodyWrapper": "info"
+          "bodyType": "wix-contact-update"
         },
         "delete": {
           "method": "DELETE",
@@ -93,7 +93,7 @@
         "idField": "id",
         "transforms": {
           "pull": [
-            { "op": "flatten", "path": "info.name", "to": "" },
+            { "op": "spread", "path": "info.name" },
             { "op": "flatten", "path": "info.emails", "to": "emails" },
             { "op": "flatten", "path": "info.phones", "to": "phones" },
             { "op": "omit", "fields": ["info", "revision", "source", "lastActivity"] },
@@ -226,12 +226,12 @@
         "create": {
           "method": "POST",
           "url": "https://www.wixapis.com/stores/v3/products",
-          "bodyWrapper": "product"
+          "bodyType": "wix-product-create"
         },
         "update": {
           "method": "PATCH",
           "url": "https://www.wixapis.com/stores/v3/products/{id}",
-          "bodyWrapper": "product"
+          "bodyType": "wix-product-update"
         },
         "delete": {
           "method": "DELETE",
@@ -260,6 +260,357 @@
       "sync": {
         "interval": 120,
         "debounceMs": 1000
+      }
+    },
+    {
+      "name": "orders",
+      "description": "Wix eCommerce orders as a CSV spreadsheet",
+      "dashboardUrl": "https://manage.wix.com/dashboard/YOUR_SITE_ID_HERE/store/orders",
+
+      "pull": {
+        "method": "POST",
+        "url": "https://www.wixapis.com/ecom/v1/orders/search",
+        "body": {
+          "cursorPaging": {
+            "limit": 100
+          }
+        },
+        "dataPath": "$.orders"
+      },
+
+      "pagination": {
+        "type": "body",
+        "pageSize": 100,
+        "limitField": "cursorPaging.limit",
+        "cursorField": "cursorPaging.cursor",
+        "nextCursorPath": "$.metadata.cursors.next"
+      },
+
+      "push": {
+        "update": {
+          "method": "PATCH",
+          "url": "https://www.wixapis.com/ecom/v1/orders/{id}",
+          "bodyWrapper": "order"
+        }
+      },
+
+      "fileMapping": {
+        "strategy": "collection",
+        "directory": ".",
+        "filename": "orders.csv",
+        "format": "csv",
+        "idField": "id",
+        "pushMode": "custom",
+        "transforms": {
+          "pull": [
+            { "op": "rename", "from": "number", "to": "orderNumber" },
+            { "op": "rename", "from": "buyerInfo.email", "to": "buyerEmail" },
+            { "op": "rename", "from": "billingInfo.contactDetails.firstName", "to": "billingFirstName" },
+            { "op": "rename", "from": "billingInfo.contactDetails.lastName", "to": "billingLastName" },
+            { "op": "rename", "from": "billingInfo.contactDetails.phone", "to": "billingPhone" },
+            { "op": "rename", "from": "billingInfo.address.addressLine1", "to": "billingAddressLine1" },
+            { "op": "rename", "from": "billingInfo.address.addressLine2", "to": "billingAddressLine2" },
+            { "op": "rename", "from": "billingInfo.address.city", "to": "billingCity" },
+            { "op": "rename", "from": "billingInfo.address.subdivision", "to": "billingSubdivision" },
+            { "op": "rename", "from": "billingInfo.address.postalCode", "to": "billingPostalCode" },
+            { "op": "rename", "from": "billingInfo.address.country", "to": "billingCountry" },
+            { "op": "rename", "from": "recipientInfo.contactDetails.firstName", "to": "recipientFirstName" },
+            { "op": "rename", "from": "recipientInfo.contactDetails.lastName", "to": "recipientLastName" },
+            { "op": "rename", "from": "recipientInfo.contactDetails.phone", "to": "recipientPhone" },
+            { "op": "rename", "from": "recipientInfo.address.addressLine1", "to": "recipientAddressLine1" },
+            { "op": "rename", "from": "recipientInfo.address.addressLine2", "to": "recipientAddressLine2" },
+            { "op": "rename", "from": "recipientInfo.address.city", "to": "recipientCity" },
+            { "op": "rename", "from": "recipientInfo.address.subdivision", "to": "recipientSubdivision" },
+            { "op": "rename", "from": "recipientInfo.address.postalCode", "to": "recipientPostalCode" },
+            { "op": "rename", "from": "recipientInfo.address.country", "to": "recipientCountry" },
+            { "op": "rename", "from": "shippingInfo.logistics.shippingDestination.contactDetails.firstName", "to": "shippingFirstName" },
+            { "op": "rename", "from": "shippingInfo.logistics.shippingDestination.contactDetails.lastName", "to": "shippingLastName" },
+            { "op": "rename", "from": "shippingInfo.logistics.shippingDestination.contactDetails.phone", "to": "shippingPhone" },
+            { "op": "rename", "from": "shippingInfo.logistics.shippingDestination.address.addressLine1", "to": "shippingAddressLine1" },
+            { "op": "rename", "from": "shippingInfo.logistics.shippingDestination.address.addressLine2", "to": "shippingAddressLine2" },
+            { "op": "rename", "from": "shippingInfo.logistics.shippingDestination.address.city", "to": "shippingCity" },
+            { "op": "rename", "from": "shippingInfo.logistics.shippingDestination.address.subdivision", "to": "shippingSubdivision" },
+            { "op": "rename", "from": "shippingInfo.logistics.shippingDestination.address.postalCode", "to": "shippingPostalCode" },
+            { "op": "rename", "from": "shippingInfo.logistics.shippingDestination.address.country", "to": "shippingCountry" },
+            { "op": "rename", "from": "priceSummary.total.amount", "to": "totalAmount" },
+            { "op": "omit", "fields": ["activities", "additionalFees", "appliedDiscounts", "balanceSummary", "billingInfo", "buyerInfo", "channelInfo", "createdBy", "customFields", "extendedFields", "lineItems", "orderVersion", "priceSummary", "recipientInfo", "shippingInfo", "siteLanguage", "tags", "taxInfo", "taxSummary"] },
+            { "op": "set", "field": "_url", "value": "https://manage.wix.com/dashboard/YOUR_SITE_ID_HERE/store/orders/{id}" }
+          ],
+          "push": [
+            { "op": "rename", "from": "buyerEmail", "to": "buyerInfo.email" },
+            { "op": "rename", "from": "billingFirstName", "to": "billingInfo.contactDetails.firstName" },
+            { "op": "rename", "from": "billingLastName", "to": "billingInfo.contactDetails.lastName" },
+            { "op": "rename", "from": "billingPhone", "to": "billingInfo.contactDetails.phone" },
+            { "op": "rename", "from": "billingAddressLine1", "to": "billingInfo.address.addressLine1" },
+            { "op": "rename", "from": "billingAddressLine2", "to": "billingInfo.address.addressLine2" },
+            { "op": "rename", "from": "billingCity", "to": "billingInfo.address.city" },
+            { "op": "rename", "from": "billingSubdivision", "to": "billingInfo.address.subdivision" },
+            { "op": "rename", "from": "billingPostalCode", "to": "billingInfo.address.postalCode" },
+            { "op": "rename", "from": "billingCountry", "to": "billingInfo.address.country" },
+            { "op": "rename", "from": "recipientFirstName", "to": "recipientInfo.contactDetails.firstName" },
+            { "op": "rename", "from": "recipientLastName", "to": "recipientInfo.contactDetails.lastName" },
+            { "op": "rename", "from": "recipientPhone", "to": "recipientInfo.contactDetails.phone" },
+            { "op": "rename", "from": "recipientAddressLine1", "to": "recipientInfo.address.addressLine1" },
+            { "op": "rename", "from": "recipientAddressLine2", "to": "recipientInfo.address.addressLine2" },
+            { "op": "rename", "from": "recipientCity", "to": "recipientInfo.address.city" },
+            { "op": "rename", "from": "recipientSubdivision", "to": "recipientInfo.address.subdivision" },
+            { "op": "rename", "from": "recipientPostalCode", "to": "recipientInfo.address.postalCode" },
+            { "op": "rename", "from": "recipientCountry", "to": "recipientInfo.address.country" },
+            { "op": "rename", "from": "shippingFirstName", "to": "shippingInfo.logistics.shippingDestination.contactDetails.firstName" },
+            { "op": "rename", "from": "shippingLastName", "to": "shippingInfo.logistics.shippingDestination.contactDetails.lastName" },
+            { "op": "rename", "from": "shippingPhone", "to": "shippingInfo.logistics.shippingDestination.contactDetails.phone" },
+            { "op": "rename", "from": "shippingAddressLine1", "to": "shippingInfo.logistics.shippingDestination.address.addressLine1" },
+            { "op": "rename", "from": "shippingAddressLine2", "to": "shippingInfo.logistics.shippingDestination.address.addressLine2" },
+            { "op": "rename", "from": "shippingCity", "to": "shippingInfo.logistics.shippingDestination.address.city" },
+            { "op": "rename", "from": "shippingSubdivision", "to": "shippingInfo.logistics.shippingDestination.address.subdivision" },
+            { "op": "rename", "from": "shippingPostalCode", "to": "shippingInfo.logistics.shippingDestination.address.postalCode" },
+            { "op": "rename", "from": "shippingCountry", "to": "shippingInfo.logistics.shippingDestination.address.country" },
+            { "op": "omit", "fields": ["_url", "orderNumber", "status", "paymentStatus", "fulfillmentStatus", "totalAmount", "currency", "createdDate", "updatedDate"] }
+          ]
+        }
+      },
+
+      "sync": {
+        "interval": 120,
+        "debounceMs": 1000
+      }
+    },
+    {
+      "name": "forms",
+      "description": "Wix form schemas as a CSV spreadsheet",
+      "dashboardUrl": "https://manage.wix.com/dashboard/YOUR_SITE_ID_HERE/forms",
+
+      "pull": {
+        "method": "POST",
+        "url": "https://www.wixapis.com/form-schema-service/v4/forms/query",
+        "body": {
+          "query": {
+            "filter": {
+              "namespace": {
+                "$eq": "wix.form_platform.form"
+              }
+            },
+            "paging": {
+              "limit": 100
+            }
+          }
+        },
+        "dataPath": "$.forms"
+      },
+
+      "pagination": {
+        "type": "body",
+        "pageSize": 100,
+        "limitField": "query.paging.limit",
+        "cursorField": "query.paging.cursor",
+        "nextCursorPath": "$.pagingMetadata.cursors.next"
+      },
+
+      "push": {
+        "create": {
+          "method": "POST",
+          "url": "https://www.wixapis.com/form-schema-service/v4/forms",
+          "bodyWrapper": "form"
+        },
+        "update": {
+          "method": "PATCH",
+          "url": "https://www.wixapis.com/form-schema-service/v4/forms/{id}",
+          "bodyWrapper": "form"
+        },
+        "delete": {
+          "method": "DELETE",
+          "url": "https://www.wixapis.com/form-schema-service/v4/forms/{id}"
+        }
+      },
+
+      "fileMapping": {
+        "strategy": "collection",
+        "directory": ".",
+        "filename": "forms.csv",
+        "format": "csv",
+        "idField": "id",
+        "pushMode": "custom",
+        "transforms": {
+          "pull": [
+            { "op": "omit", "fields": ["mediaFolderId", "tags"] },
+            { "op": "set", "field": "_url", "value": "https://manage.wix.com/dashboard/YOUR_SITE_ID_HERE/forms/{id}" }
+          ],
+          "push": [
+            { "op": "set", "field": "namespace", "value": "wix.form_platform.form" },
+            { "op": "omit", "fields": ["_url", "mediaFolderId", "updatedDate"] }
+          ]
+        }
+      },
+
+      "children": [
+        {
+          "name": "submissions",
+          "description": "Submissions for this form",
+
+          "pull": {
+            "method": "POST",
+            "url": "https://www.wixapis.com/form-submission-service/v4/submissions/namespace/query",
+            "body": {
+              "query": {
+                "filter": {
+                  "namespace": {
+                    "$eq": "wix.form_platform.form"
+                  },
+                  "formId": {
+                    "$eq": "{id}"
+                  }
+                },
+                "paging": {
+                  "limit": 100
+                }
+              }
+            },
+            "dataPath": "$.submissions"
+          },
+
+          "pagination": {
+            "type": "body",
+            "pageSize": 100,
+            "limitField": "query.paging.limit",
+            "cursorField": "query.paging.cursor",
+            "nextCursorPath": "$.pagingMetadata.cursors.next"
+          },
+
+          "push": {
+            "create": {
+              "method": "POST",
+              "url": "https://www.wixapis.com/form-submission-service/v4/submissions",
+              "bodyWrapper": "submission"
+            },
+            "update": {
+              "method": "PATCH",
+              "url": "https://www.wixapis.com/form-submission-service/v4/submissions/{id}",
+              "bodyWrapper": "submission"
+            }
+          },
+
+          "fileMapping": {
+            "strategy": "collection",
+            "directory": "forms",
+            "filename": "{name|slugify}-submissions.csv",
+            "format": "csv",
+            "idField": "id",
+            "pushMode": "custom",
+            "transforms": {
+              "pull": [
+                { "op": "rename", "from": "submitter.memberId", "to": "submitterMemberId" },
+                { "op": "rename", "from": "submitter.visitorId", "to": "submitterVisitorId" },
+                { "op": "rename", "from": "submitter.applicationId", "to": "submitterApplicationId" },
+                { "op": "rename", "from": "submitter.userId", "to": "submitterUserId" },
+                { "op": "rename", "from": "orderDetails.checkoutId", "to": "checkoutId" },
+                { "op": "omit", "fields": ["submitter", "orderDetails", "extendedFields", "tags", "accessRestriction"] },
+                { "op": "set", "field": "_url", "value": "https://manage.wix.com/dashboard/YOUR_SITE_ID_HERE/forms/{formId}/submissions/{id}" }
+              ],
+              "push": [
+                { "op": "rename", "from": "submitterMemberId", "to": "submitter.memberId" },
+                { "op": "rename", "from": "submitterVisitorId", "to": "submitter.visitorId" },
+                { "op": "rename", "from": "submitterApplicationId", "to": "submitter.applicationId" },
+                { "op": "rename", "from": "submitterUserId", "to": "submitter.userId" },
+                { "op": "rename", "from": "checkoutId", "to": "orderDetails.checkoutId" },
+                { "op": "omit", "fields": ["_url", "updatedDate"] }
+              ]
+            }
+          }
+        }
+      ],
+
+      "sync": {
+        "interval": 300,
+        "debounceMs": 1000
+      }
+    },
+    {
+      "name": "members",
+      "description": "Wix site members as a CSV spreadsheet",
+      "dashboardUrl": "https://manage.wix.com/dashboard/YOUR_SITE_ID_HERE/contacts",
+
+      "pull": {
+        "method": "POST",
+        "url": "https://www.wixapis.com/members/v1/members/query",
+        "body": {
+          "query": {
+            "paging": {
+              "limit": 100
+            }
+          }
+        },
+        "dataPath": "$.members"
+      },
+
+      "push": {
+        "create": {
+          "method": "POST",
+          "url": "https://www.wixapis.com/members/v1/members",
+          "bodyWrapper": "member"
+        },
+        "update": {
+          "method": "PATCH",
+          "url": "https://www.wixapis.com/members/v1/members/{id}",
+          "bodyWrapper": "member"
+        },
+        "delete": {
+          "method": "DELETE",
+          "url": "https://www.wixapis.com/members/v1/members/{id}"
+        }
+      },
+
+      "fileMapping": {
+        "strategy": "collection",
+        "directory": ".",
+        "filename": "members.csv",
+        "format": "csv",
+        "idField": "id",
+        "pushMode": "custom",
+        "transforms": {
+          "pull": [
+            { "op": "rename", "from": "contact.firstName", "to": "firstName" },
+            { "op": "rename", "from": "contact.lastName", "to": "lastName" },
+            { "op": "rename", "from": "profile.nickname", "to": "nickname" },
+            { "op": "rename", "from": "profile.slug", "to": "slug" },
+            { "op": "omit", "fields": ["contact", "profile"] },
+            { "op": "set", "field": "_url", "value": "https://manage.wix.com/dashboard/YOUR_SITE_ID_HERE/contacts/{contactId}" }
+          ],
+          "push": [
+            { "op": "rename", "from": "firstName", "to": "contact.firstName" },
+            { "op": "rename", "from": "lastName", "to": "contact.lastName" },
+            { "op": "rename", "from": "nickname", "to": "profile.nickname" },
+            { "op": "rename", "from": "slug", "to": "profile.slug" },
+            { "op": "omit", "fields": ["_url", "contactId", "activityStatus", "status", "createdDate", "updatedDate", "lastLoginDate", "loginEmailVerified"] }
+          ]
+        }
+      },
+
+      "sync": {
+        "interval": 300,
+        "debounceMs": 1000
+      }
+    },
+    {
+      "name": "site-properties",
+      "description": "Wix site settings and business properties",
+      "dashboardUrl": "https://manage.wix.com/dashboard/YOUR_SITE_ID_HERE/settings/business-info",
+
+      "pull": {
+        "method": "GET",
+        "url": "https://www.wixapis.com/site-properties/v4/properties",
+        "dataPath": "$.properties"
+      },
+
+      "fileMapping": {
+        "strategy": "collection",
+        "directory": ".",
+        "filename": "site-properties.json",
+        "format": "json",
+        "readOnly": true
+      },
+
+      "sync": {
+        "interval": 600
       }
     },
     {
@@ -706,6 +1057,7 @@
         "filename": "comments.csv",
         "format": "csv",
         "idField": "id",
+        "readOnly": true,
         "pushMode": "custom",
         "transforms": {
           "pull": [
@@ -812,6 +1164,9 @@
         "transforms": {
           "pull": [
             { "op": "match", "field": "displayNamespace", "value": "" },
+            { "op": "match", "field": "collectionType", "value": "NATIVE" },
+            { "op": "excludeRegex", "field": "id", "value": "(?i)(^|[\\\\/_-])(android|ios|web|html)([\\\\/_-]|$)|react[-_ ]native|e2e|skel[-_ ]integ|cms[-_ ]json[-_ ]integ" },
+            { "op": "excludeRegex", "field": "displayName", "value": "(?i)\\\\((android|ios|web|html)\\\\)|react[-_ ]native|e2e|skel[-_ ]integ|cms[-_ ]json[-_ ]integ" },
             { "op": "set", "field": "_url", "value": "https://manage.wix.com/dashboard/YOUR_SITE_ID_HERE/wix-cms/data/{id}" }
           ],
           "push": [
@@ -851,31 +1206,36 @@
             "create": {
               "method": "POST",
               "url": "https://www.wixapis.com/wix-data/v2/items",
-              "bodyWrapper": "dataItem"
+              "bodyWrapper": "dataItem",
+              "bodyRootFields": ["dataCollectionId"]
             },
             "update": {
               "method": "PUT",
               "url": "https://www.wixapis.com/wix-data/v2/items/{id}",
-              "bodyWrapper": "dataItem"
+              "bodyWrapper": "dataItem",
+              "bodyRootFields": ["dataCollectionId"]
             },
             "delete": {
               "method": "DELETE",
-              "url": "https://www.wixapis.com/wix-data/v2/items/{id}"
+              "url": "https://www.wixapis.com/wix-data/v2/items/{id}?dataCollectionId={dataCollectionId}"
             }
           },
 
           "fileMapping": {
             "strategy": "collection",
-            "directory": "cms/{displayName|slugify}",
-            "filename": "items.csv",
+            "directory": "cms",
+            "filename": "{displayName|slugify}.csv",
             "format": "csv",
             "idField": "id",
+            "pushMode": "custom",
             "transforms": {
               "pull": [
-                { "op": "set", "field": "_url", "value": "https://manage.wix.com/dashboard/YOUR_SITE_ID_HERE/wix-cms/data/{collectionId}/{id}" }
+                { "op": "spread", "path": "data" },
+                { "op": "omit", "fields": ["data", "dataCollectionId", "_url", "_id", "_updatedDate", "_createdDate", "_owner"] }
               ],
               "push": [
-                { "op": "omit", "fields": ["_url"] }
+                { "op": "omit", "fields": ["_url", "_id", "_updatedDate", "_createdDate", "_owner"] },
+                { "op": "nestRemaining", "to": "data", "fields": ["id", "dataCollectionId"] }
               ]
             }
           }
