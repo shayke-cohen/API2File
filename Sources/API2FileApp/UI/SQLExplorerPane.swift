@@ -16,15 +16,14 @@ struct SQLExplorerPane: View {
     @State private var isRunningQuery = false
     @State private var selectedRowID: UUID?
 
-    private var enabledServices: [ServiceInfo] {
+    private var displayedServices: [ServiceInfo] {
         appState.services
-            .filter { $0.config.enabled != false }
             .sorted { $0.displayName.localizedStandardCompare($1.displayName) == .orderedAscending }
     }
 
     private var selectedService: ServiceInfo? {
-        guard let selectedServiceId else { return enabledServices.first }
-        return enabledServices.first(where: { $0.serviceId == selectedServiceId }) ?? enabledServices.first
+        guard let selectedServiceId else { return displayedServices.first }
+        return displayedServices.first(where: { $0.serviceId == selectedServiceId }) ?? displayedServices.first
     }
 
     private var selectedTable: SQLMirrorTableSummary? {
@@ -48,14 +47,14 @@ struct SQLExplorerPane: View {
         }
         .task {
             if selectedServiceId == nil {
-                selectedServiceId = initialServiceId ?? enabledServices.first?.serviceId
+                selectedServiceId = initialServiceId ?? displayedServices.first?.serviceId
             }
             await refreshTables()
         }
-        .onChange(of: enabledServices.map(\.serviceId)) { _ in
+        .onChange(of: displayedServices.map(\.serviceId)) { _ in
             Task {
-                if selectedServiceId == nil || !enabledServices.contains(where: { $0.serviceId == selectedServiceId }) {
-                    selectedServiceId = initialServiceId ?? enabledServices.first?.serviceId
+                if selectedServiceId == nil || !displayedServices.contains(where: { $0.serviceId == selectedServiceId }) {
+                    selectedServiceId = initialServiceId ?? displayedServices.first?.serviceId
                 }
                 await refreshTables()
             }
@@ -82,7 +81,7 @@ struct SQLExplorerPane: View {
     private var servicePickerRow: some View {
         HStack(spacing: 10) {
             Picker("Service", selection: $selectedServiceId) {
-                ForEach(enabledServices, id: \.serviceId) { service in
+                ForEach(displayedServices, id: \.serviceId) { service in
                     Text(service.displayName).tag(Optional(service.serviceId))
                 }
             }
@@ -111,7 +110,7 @@ struct SQLExplorerPane: View {
 
     private var contentCard: some View {
         GroupBox {
-            if enabledServices.isEmpty {
+            if displayedServices.isEmpty {
                 emptyState("Connect a service first to build a SQLite mirror.")
             } else if isLoadingTables {
                 HStack(spacing: 8) {
