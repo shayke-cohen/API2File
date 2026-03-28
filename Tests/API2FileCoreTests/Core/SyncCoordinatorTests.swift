@@ -1,6 +1,40 @@
 import XCTest
 @testable import API2FileCore
 
+private actor AsyncGate {
+    private var isOpen = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    func wait() async {
+        if isOpen { return }
+        await withCheckedContinuation { continuation in
+            waiters.append(continuation)
+        }
+    }
+
+    func open() {
+        isOpen = true
+        let continuations = waiters
+        waiters.removeAll()
+        for continuation in continuations {
+            continuation.resume()
+        }
+    }
+}
+
+private actor CounterBox {
+    private var value = 0
+
+    func increment() -> Int {
+        value += 1
+        return value
+    }
+
+    func current() -> Int {
+        value
+    }
+}
+
 final class SyncCoordinatorTests: XCTestCase {
 
     // MARK: - Registration
@@ -201,6 +235,79 @@ final class SyncCoordinatorTests: XCTestCase {
         await fulfillment(of: [completeExpectation], timeout: 5.0)
     }
 
+    func testSyncNowCoalescesOverlappingRequestsPerService() async {
+        let firstPullStarted = expectation(description: "first pull started")
+        let secondPullStarted = expectation(description: "second pull started after first completes")
+        let gate = AsyncGate()
+        let pullCount = CounterBox()
+
+        let coordinator = SyncCoordinator()
+        let context = ServiceSyncContext(
+            syncInterval: 600,
+            pullHandler: {
+                let count = await pullCount.increment()
+                if count == 1 {
+                    firstPullStarted.fulfill()
+                    await gate.wait()
+                } else if count == 2 {
+                    secondPullStarted.fulfill()
+                }
+            }
+        )
+
+        await coordinator.register(serviceId: "svc", context: context)
+
+        Task { await coordinator.syncNow(serviceId: "svc") }
+        await fulfillment(of: [firstPullStarted], timeout: 2.0)
+
+        Task { await coordinator.syncNow(serviceId: "svc") }
+        Task { await coordinator.syncNow(serviceId: "svc") }
+
+        try? await Task.sleep(nanoseconds: 200_000_000)
+        let blockedCount = await pullCount.current()
+        XCTAssertEqual(blockedCount, 1, "overlapping sync requests should not start a second pull immediately")
+
+        await gate.open()
+        await fulfillment(of: [secondPullStarted], timeout: 2.0)
+        let finalCount = await pullCount.current()
+        XCTAssertEqual(finalCount, 2, "queued overlapping sync requests should collapse into a single follow-up pull")
+    }
+
+    func testNonQueuedOverlapDoesNotScheduleFollowUpSync() async {
+        let firstPullStarted = expectation(description: "first non-queued pull started")
+        let gate = AsyncGate()
+        let pullCount = CounterBox()
+
+        let coordinator = SyncCoordinator()
+        let context = ServiceSyncContext(
+            syncInterval: 600,
+            pullHandler: {
+                let count = await pullCount.increment()
+                if count == 1 {
+                    firstPullStarted.fulfill()
+                    await gate.wait()
+                }
+            }
+        )
+
+        await coordinator.register(serviceId: "svc", context: context)
+
+        Task { await coordinator.syncNow(serviceId: "svc", queueIfBusy: false) }
+        await fulfillment(of: [firstPullStarted], timeout: 2.0)
+
+        Task { await coordinator.syncNow(serviceId: "svc", queueIfBusy: false) }
+        Task { await coordinator.syncNow(serviceId: "svc", queueIfBusy: false) }
+
+        try? await Task.sleep(nanoseconds: 200_000_000)
+        let blockedCount = await pullCount.current()
+        XCTAssertEqual(blockedCount, 1, "non-queued overlaps should not start an extra pull while one is running")
+
+        await gate.open()
+        try? await Task.sleep(nanoseconds: 200_000_000)
+        let finalCount = await pullCount.current()
+        XCTAssertEqual(finalCount, 1, "non-queued overlaps should be dropped instead of scheduling a follow-up sync")
+    }
+
     // MARK: - Pausing
 
     func testSetPausedStopsAndStartsPolling() async {
@@ -249,6 +356,27 @@ final class SyncCoordinatorTests: XCTestCase {
         await coordinator.flushPendingPushes(serviceId: "svc")
         let pending = await coordinator.getPendingPushes(serviceId: "svc")
         XCTAssertTrue(pending.isEmpty, "pending queue should be drained after flush")
+    }
+
+    func testFlushPendingPushesKeepsDeferredAuthPushQueued() async {
+        let pullExp = expectation(description: "pull still runs")
+        let coordinator = SyncCoordinator()
+        let context = ServiceSyncContext(
+            syncInterval: 600,
+            pullHandler: { pullExp.fulfill() },
+            pushHandler: { _ in
+                throw DeferredSyncError.authLoading
+            }
+        )
+
+        await coordinator.register(serviceId: "svc", context: context)
+        await coordinator.queuePush(serviceId: "svc", filePath: "contacts.csv")
+        await coordinator.flushPendingPushes(serviceId: "svc")
+
+        await fulfillment(of: [pullExp], timeout: 3.0)
+
+        let pending = await coordinator.getPendingPushes(serviceId: "svc")
+        XCTAssertEqual(pending.map(\.filePath), ["contacts.csv"], "deferred auth pushes should stay queued for retry")
     }
 
     func testFlushPendingPushesIsNoOpForUnregisteredService() async {

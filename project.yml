@@ -3,6 +3,7 @@ options:
   bundleIdPrefix: com.api2file
   deploymentTarget:
     macOS: "13.0"
+    iOS: "17.0"
   xcodeVersion: "15.0"
   createIntermediateGroups: true
 
@@ -31,6 +32,72 @@ targets:
         DEFINES_MODULE: YES
         GENERATE_INFOPLIST_FILE: YES
 
+  API2FileCoreiOS:
+    type: framework
+    platform: iOS
+    sources:
+      - path: Sources/API2FileCore
+    resources:
+      - path: Sources/API2FileCore/Resources
+        type: folder
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.api2file.core.ios
+        PRODUCT_NAME: API2FileCore
+        PRODUCT_MODULE_NAME: API2FileCore
+        DEFINES_MODULE: YES
+        GENERATE_INFOPLIST_FILE: YES
+        TARGETED_DEVICE_FAMILY: "1,2"
+
+  API2FileiOS:
+    type: application
+    platform: iOS
+    sources:
+      - path: Sources/API2FileiOSApp
+    dependencies:
+      - target: API2FileCoreiOS
+        embed: true
+    info:
+      path: Sources/API2FileiOSApp/Info.plist
+      properties:
+        UILaunchStoryboardName: LaunchScreen
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true
+        BGTaskSchedulerPermittedIdentifiers:
+          - com.api2file.ios.refresh
+          - com.api2file.ios.processing
+        NSCameraUsageDescription: Capture photos to upload them into synced API2File service folders.
+        NSPhotoLibraryUsageDescription: Choose photos to import into synced API2File service folders.
+        NSPhotoLibraryAddUsageDescription: Save imported images while preparing them for sync.
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.api2file.ios
+        PRODUCT_NAME: API2File
+        PRODUCT_MODULE_NAME: API2FileiOSApp
+        GENERATE_INFOPLIST_FILE: NO
+        INFOPLIST_FILE: Sources/API2FileiOSApp/Info.plist
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SUPPORTS_MACCATALYST: NO
+        SWIFT_EMIT_LOC_STRINGS: NO
+    scheme:
+      testTargets:
+        - API2FileiOSTests
+
+  API2FileiOSTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: Tests/API2FileiOSTests
+    dependencies:
+      - target: API2FileiOS
+      - target: API2FileCoreiOS
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.api2file.ios.tests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/API2File.app/API2File"
+        BUNDLE_LOADER: "$(TEST_HOST)"
+
   API2File:
     type: application
     platform: macOS
@@ -39,17 +106,25 @@ targets:
     dependencies:
       - target: API2FileCore
         embed: true
+      - target: API2FileFinderExtension
+        embed: true
       - package: AppXray
     info:
       path: Sources/API2FileApp/Info.plist
     entitlements:
       path: Sources/API2FileApp/API2File.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.com.shayco.api2file.dev
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.api2file.app
+        PRODUCT_BUNDLE_IDENTIFIER: com.shayco.api2file.dev
         PRODUCT_NAME: API2File
+        API2FILE_APP_GROUP_IDENTIFIER: group.com.shayco.api2file.dev
         INFOPLIST_FILE: Sources/API2FileApp/Info.plist
         CODE_SIGN_ENTITLEMENTS: Sources/API2FileApp/API2File.entitlements
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: S3GLW74Y8N
         ENABLE_HARDENED_RUNTIME: YES
         LD_RUNPATH_SEARCH_PATHS: "@executable_path/../Frameworks"
         COMBINE_HIDPI_IMAGES: YES
@@ -81,15 +156,20 @@ targets:
       path: Sources/FinderExtension/FinderExtension.entitlements
       properties:
         com.apple.security.application-groups:
-          - group.com.api2file
+          - group.com.shayco.api2file.dev
     dependencies:
       - target: API2FileCore
         embed: false
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.api2file.app.finder-extension
+        PRODUCT_BUNDLE_IDENTIFIER: com.shayco.api2file.dev.finder-extension
         PRODUCT_NAME: API2FileFinderExtension
+        API2FILE_APP_GROUP_IDENTIFIER: group.com.shayco.api2file.dev
         GENERATE_INFOPLIST_FILE: NO
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: S3GLW74Y8N
+        ENABLE_APP_SANDBOX: YES
+        ENABLE_USER_SELECTED_FILES: readonly
 
   API2FileTests:
     type: bundle.unit-test

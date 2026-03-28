@@ -294,8 +294,8 @@
           },
           "fileMapping": {
             "strategy": "collection",
-            "directory": "cms/{displayName|slugify}",
-            "filename": "items.csv",
+            "directory": "cms",
+            "filename": "{displayName|slugify}.csv",
             "format": "csv",
             "idField": "id"
           }

@@ -1,25 +1,30 @@
 # API2File
 
-Native macOS app that bidirectionally syncs cloud API data to local files. Like Dropbox but for APIs -- edit a CSV in Numbers and it pushes to Monday.com; change data on Wix and it appears as local files. Config-driven adapters mean no code is needed to add new cloud services.
+Native Apple-platform app that bidirectionally syncs cloud API data to local files. Like Dropbox but for APIs -- edit a CSV in Numbers and it pushes to Monday.com; change data on Wix and it appears as local files. Config-driven adapters mean no code is needed to add new cloud services.
 
-Zero external dependencies. Pure Swift, macOS native frameworks only.
+Pure Swift core with native macOS and iOS apps.
 
 ## Key Features
 
 - **15 file format converters** -- CSV, JSON, HTML, Markdown, YAML, ICS, VCF, EML, SVG, WEBLOC, XLSX, DOCX, PPTX, Text, Raw
 - **Config-driven adapter system** -- connect any REST/GraphQL API via `.adapter.json`, no code required
 - **Canonical object files + projections** -- hidden structured JSON files stay high-fidelity while CSV/Markdown/ICS/etc. stay human-friendly
+- **Read-only SQLite mirror per service** -- query synced data locally at `.api2file/cache/service.sqlite`
 - **Media sync** -- generic binary file download/upload for any cloud storage API (images, videos, documents)
 - **Bidirectional sync** with smart collection diffing -- pull from API, push local edits back
 - **macOS menu bar app** (MenuBarExtra) -- always-on sync with per-service controls
+- **Universal iOS app** -- browse, preview, edit, import, and share synced files from iPhone and iPad
 - **Web dashboard** at `localhost:8089` -- visual overview served by the demo server
+- **Browser-native Lite prototype** in [`website/`](/Users/shayco/API2File/website) -- experimental no-install sync runtime using File System Access API + IndexedDB
 - **CLI tool** (`api2file`) -- init, add, sync, pull, status, list
+- **MCP query tools** -- list tables, describe schema, run read-only SQL, search records, jump from record IDs to canonical/projection files, and query-open the first match
+- **Global Data Explorer** -- browse a service's SQLite tables in one screen inside the macOS app
 - **Auto-generated CLAUDE.md** -- agent guide placed in the sync folder for AI tools
 - **Git auto-commit** -- every sync cycle committed with descriptive messages
 - **macOS Keychain** for secure credential storage
 - **Demo server** with 14 resource types (tasks, contacts, events, notes, pages, config, services, incidents, logos, photos, documents, spreadsheets, reports, presentations)
 - **12 bundled adapters** -- 5 cloud (Demo, Monday.com, Wix, GitHub, Airtable) + 7 demo-themed (TeamBoard, PeopleHub, CalSync, PageCraft, DevOps, MediaManager, Wix-Demo)
-- **537 tests** -- unit, integration, and end-to-end coverage
+- **500+ tests** -- unit, integration, end-to-end, and iOS state coverage
 
 ## Quick Start
 
@@ -66,10 +71,41 @@ swift run API2FileApp
 
 The app appears as a cloud icon in the menu bar. Click it to see connected services, trigger syncs, and open preferences.
 
-### 6. Run tests
+### 6. Build the iOS app
 
 ```bash
-swift test    # 537 tests
+xcodebuild -project API2File.xcodeproj -scheme API2FileiOS -destination 'platform=iOS Simulator,name=iPhone 16' build
+```
+
+### 7. Run tests
+
+```bash
+swift test
+```
+
+## Browser-Native Lite
+
+Experimental browser-native work lives in [`website/`](/Users/shayco/API2File/website). This is a separate TypeScript/Vite product line, not a port of the Swift macOS app. The Lite runtime:
+
+- runs in the browser against a user-picked folder
+- stores service credentials and sync state in IndexedDB
+- performs aggressive in-tab sync plus folder rescans
+- keeps the existing adapter JSON format as its configuration source
+- includes a compatibility audit and a verified demo collection round-trip
+
+Typical commands:
+
+```bash
+cd website
+npm install
+npm run dev
+npm run test
+```
+
+If package installation is unavailable, you can still type-check the web app from the repo root with:
+
+```bash
+tsc -p website/tsconfig.json
 ```
 
 ## Architecture
@@ -91,8 +127,13 @@ Sources/
   API2FileApp/            macOS menu bar app (SwiftUI)
     App/                  API2FileApp.swift (entry point)
     UI/                   MenuBarView, PreferencesView, ServiceDetailView, AddServiceView
+  API2FileiOSApp/         iPhone + iPad app (SwiftUI)
+    App/                  API2FileiOSApp.swift, IOSAppState.swift
+    UI/                   Services, browser, activity, settings, file detail
   API2FileCLI/            CLI tool (api2file)
   API2FileDemo/           Demo server entry point (api2file-demo)
+website/                  Browser-native Lite prototype (Vite + TypeScript)
+  src/                    Browser runtime, audit harness, sync engine, UI shell
 
 Tests/
   API2FileCoreTests/
@@ -102,6 +143,7 @@ Tests/
     Models/               AdapterConfig, SyncState parsing tests
     Integration/          AdapterEngine, FullSyncCycle, DemoServer E2E,
                           BidirectionalSync E2E, CollectionDiff E2E, RealSync E2E
+  API2FileiOSTests/       iOS app state and persistence tests
 ```
 
 ## File Format Mapping
@@ -133,7 +175,7 @@ Tests/
 | --- | --- | --- | --- | --- |
 | **Demo** | `demo.adapter.json` | None | tasks, contacts, events, notes, pages, config, services, incidents, logos, photos, documents, spreadsheets, reports, presentations, emails, bookmarks, settings, snippets | CSV, VCF, ICS, MD, HTML, JSON, SVG, XLSX, DOCX, PPTX, EML, WEBLOC, YAML, TXT, Raw |
 | **Monday.com** | `monday.adapter.json` | Bearer token | boards (with items via GraphQL) | CSV |
-| **Wix** | `wix.adapter.json` | API key + Site ID header | contacts, blog-posts, products, media, pro-gallery, pdf-viewer, wix-video, wix-music-podcasts, bookings-services, bookings-appointments, groups, comments, bookings, collections (+ items child) | CSV, MD, JSON, Raw |
+| **Wix** | `wix.adapter.json` | API key + Site ID header | contacts, blog-posts, products, orders, forms (+ submissions child), members, site-properties, media, pro-gallery, pdf-viewer, wix-video, wix-music-podcasts, bookings-services, bookings-appointments, groups, comments, bookings, collections (+ items child) | CSV, MD, JSON, Raw |
 | **GitHub** | `github.adapter.json` | Bearer (PAT) | repos, issues, gists, notifications, starred | CSV, JSON |
 | **Airtable** | `airtable.adapter.json` | Bearer (PAT) + Base/Table ID | records, bases | JSON |
 
@@ -191,16 +233,22 @@ Default sync folder: `~/API2File-Data/` (configurable in `GlobalConfig`).
       monthly-summary.docx    Word document (Pages/Word)
   wix/
     .api2file/
-      adapter.json            Service config (14 top-level resources)
+      adapter.json            Service config (18 top-level resources)
       file-links.json         Canonical/projection path links
       state.json              Sync state
     .git/                     Auto-committed history
     CLAUDE.md                 Service-specific agent guide
     contacts.csv              CRM contacts (Numbers)
     products.csv              Store products (Numbers)
+    orders.csv                Store orders (Numbers)
+    forms.csv                 Form schemas (Numbers)
+    members.csv               Site members (Numbers)
+    site-properties.json      Site properties snapshot (editor)
     groups.csv                Groups directory (Numbers)
     comments.csv              Comments feed (Numbers)
     collections.json          CMS collection catalog (editor)
+    forms/
+      contact-form-submissions.csv
     blog/
       my-post.md              Blog post (Markdown projection of Wix Ricos content)
       .objects/

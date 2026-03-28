@@ -2,19 +2,23 @@
 
 ## Overview
 
-API2File is a native macOS sync engine built in pure Swift with zero external dependencies. It uses a layered architecture: a top-level **SyncEngine** orchestrates multiple **AdapterEngine** instances (one per connected service), each interpreting a JSON config to handle API communication, data transformation, and file I/O.
+API2File is a native Apple-platform sync engine built in pure Swift. It uses a layered architecture: a top-level **SyncEngine** orchestrates multiple **AdapterEngine** instances (one per connected service), each interpreting a JSON config to handle API communication, data transformation, and file I/O.
 
 The design direction is a **canonical object-file model**: every resource has a structured JSON representation stored in hidden object files, and one or more human-facing files generated from that canonical data for native desktop apps and agent workflows.
+
+Each service now also maintains a derived SQLite mirror at `.api2file/cache/service.sqlite`. The database is regenerated from canonical object files after successful pull/push work and is exposed as a read-only query surface for local tools and MCP agents, including record-resolution helpers that map SQL hits back to canonical and projection files.
+
+The repo now also contains an experimental browser-native product line in [`website/`](/Users/shayco/API2File/website). Lite is intentionally separate from the Swift runtime: it preserves adapter JSON and canonical/projection concepts, but re-implements the runtime in TypeScript around browser capabilities like File System Access, IndexedDB, and `fetch`.
 
 ## System Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│                    API2File.app                           │
+│                 API2File macOS / iOS apps                 │
 │                                                          │
 │  ┌──────────────┐  ┌──────────────────────────────────┐ │
-│  │ Menu Bar UI  │  │         SyncEngine               │ │
-│  │ (SwiftUI)    │──│  - Service discovery              │ │
+│  │ SwiftUI UI   │  │         SyncEngine               │ │
+│  │ (macOS/iOS)  │──│  - Service discovery              │ │
 │  └──────────────┘  │  - Lifecycle management           │ │
 │                    │  - Pull/push orchestration         │ │
 │                    └────────────┬─────────────────────┘ │
@@ -29,14 +33,42 @@ The design direction is a **canonical object-file model**: every resource has a 
 │  ┌───────▼──────────────────▼──────────────────▼──────┐ │
 │  │              Shared Infrastructure                  │ │
 │  │  HTTPClient · TransformPipeline · FormatConverters  │ │
-│  │  FileMapper · ObjectFileManager · GitManager        │ │
+│  │  FileMapper · ObjectFileManager · SQLiteMirror      │ │
+│  │  GitManager                                         │ │
 │  │  KeychainManager · SyncCoordinator · FileWatcher    │ │
-│  │  NetworkMonitor                                     │ │
+│  │  PlatformServices · StorageLocations ·             │ │
+│  │  VersionControlBackend · NetworkMonitor            │ │
 │  └────────────────────────────────────────────────────┘ │
 └─────────────────────────────────────────────────────────┘
 ```
 
 ## Core Components
+
+## Browser-Native Lite
+
+Lite is a research-first browser runtime, not a parity promise. Its current implementation centers on:
+
+- a Vite + TypeScript app shell in [`website/src/app.ts`](/Users/shayco/API2File/website/src/app.ts)
+- browser runtime contracts in [`website/src/runtime/interfaces.ts`](/Users/shayco/API2File/website/src/runtime/interfaces.ts)
+- IndexedDB-backed credential and sync state stores
+- File System Access based folder access plus snapshot fallback
+- a config-driven Lite sync engine with verified demo collection pull/push round-trip
+- a static adapter audit that flags likely browser blockers such as unsupported formats, media flows, OAuth2, and cross-origin risk
+
+The Lite runtime currently prioritizes:
+
+- collection resources and browser-friendly text formats (`csv`, `json`, `md`, `html`, `yaml`, `txt`)
+- aggressive in-tab sync while the page is open
+- folder rescans via file hashing instead of native file watchers
+- browser storage for credentials and service manifests
+
+It intentionally does not yet promise:
+
+- native-style background sync when the tab is closed
+- full parity for media-heavy adapters or Office/binary formats
+- automatic support for credentialed third-party APIs until live CORS behavior is proven
+
+The Lite sync path is implemented in [`website/src/runtime/syncEngine.ts`](/Users/shayco/API2File/website/src/runtime/syncEngine.ts) and the adapter compatibility audit in [`website/src/runtime/adapterAudit.ts`](/Users/shayco/API2File/website/src/runtime/adapterAudit.ts).
 
 ### SyncEngine
 
@@ -45,10 +77,11 @@ The design direction is a **canonical object-file model**: every resource has a 
 Top-level orchestrator that manages the full sync lifecycle.
 
 **Responsibilities:**
-- Scan `~/API2File/` for services (directories containing `.api2file/adapter.json`)
+- Scan the configured sync root for services (directories containing `.api2file/adapter.json`)
 - Register each service: load config, load auth from keychain, init git, register with coordinator
 - Route pull and push operations to the correct AdapterEngine
 - Generate CLAUDE.md agent guides for AI integration
+- Consume injected platform services instead of directly assuming macOS-only paths, watchers, and git behavior
 
 **Key flow:**
 ```
@@ -174,6 +207,18 @@ Maintains the hidden structured JSON files that sit next to user-facing files.
 - Maps between canonical object-file paths and user-facing projection paths
 - Object-file edits are watched and pushed through the same sync engine as human-facing files
 
+### SQLiteMirror
+
+**File:** `Sources/API2FileCore/Core/SQLiteMirror.swift`
+
+Maintains a per-service SQLite database under `.api2file/cache/service.sqlite`.
+
+- Regenerates from canonical object files plus `.api2file/file-links.json`
+- Creates one query table per resource with scalar columns plus `_json_payload`
+- Adds metadata columns such as `_remote_id`, `_projection_path`, `_object_path`, `_last_synced_at`, and `_status`
+- Rejects mutating SQL; the mirror is analysis-only in v1
+- Powers the local control API and MCP SQL/search tools
+
 ### FileLinkManager
 
 **File:** `Sources/API2FileCore/Core/FileLinkManager.swift`
@@ -186,18 +231,28 @@ Persists `.api2file/file-links.json`, which records the relationship between:
 
 This explicit link index lets the engine route edits on either surface back to the same canonical record safely.
 
+### PlatformServices and StorageLocations
+
+**Files:** `Sources/API2FileCore/Core/PlatformServices.swift`, `Sources/API2FileCore/Core/StorageLocations.swift`
+
+Platform-specific dependencies are injected into `SyncEngine` through `PlatformServices`.
+
+- `StorageLocations` centralizes the sync root, adapters directory, and app support paths
+- `PlatformServices` bundles the adapter store, keychain, notifications, watchers, and version-control backend factory
+- macOS uses shell git and filesystem watchers, while iOS swaps in sandbox-aware storage and an embedded history backend
+
 ### GitManager
 
 **File:** `Sources/API2FileCore/Core/GitManager.swift`
 
-Wraps shell `git` commands for version history.
+Wraps the configured version-control backend for per-service history.
 
-- `initRepo()` — initialize git in service directory
+- `initRepo()` — initialize history in service directory
 - `createGitignore()` — exclude `.api2file/` from tracking
 - `commitAll(message:)` — stage all + commit
 - `hasChanges()` / `fileHashAtHead()` — change detection
 
-Each service directory is an independent git repository.
+Each service directory is an independent history repository via the active backend.
 
 ### KeychainManager
 

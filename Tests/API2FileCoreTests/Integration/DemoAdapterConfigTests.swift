@@ -262,8 +262,8 @@ final class DemoAdapterConfigTests: XCTestCase {
         let items = try XCTUnwrap(collections.children?.first)
         XCTAssertEqual(items.name, "items")
         XCTAssertEqual(items.pull?.dataPath, "$.dataItems")
-        XCTAssertEqual(items.fileMapping.directory, "cms/{displayName|slugify}")
-        XCTAssertEqual(items.fileMapping.filename, "items.csv")
+        XCTAssertEqual(items.fileMapping.directory, "cms")
+        XCTAssertEqual(items.fileMapping.filename, "{displayName|slugify}.csv")
         XCTAssertEqual(items.fileMapping.format, .csv)
     }
 

@@ -276,6 +276,24 @@ final class TransformPipelineTests: XCTestCase {
         XCTAssertEqual(result.compactMap { $0["id"] as? Int }, [1, 2])
     }
 
+    func testExcludeRegexRemovesMatchingRecords() {
+        let data: [[String: Any]] = [
+            ["id": "Blog/Posts"],
+            ["id": "android_Banners"],
+            ["id": "books_web"],
+            ["id": "categories-e2e-123"],
+            ["id": "Todos"]
+        ]
+        let op = TransformOp(
+            op: "excludeRegex",
+            value: #"(?i)(^|[\/_-])(android|ios|web|html)([\/_-]|$)|react[-_ ]native|e2e|skel[-_ ]integ|cms[-_ ]json[-_ ]integ"#,
+            field: "id"
+        )
+        let result = TransformPipeline.apply([op], to: data)
+
+        XCTAssertEqual(result.compactMap { $0["id"] as? String }, ["Blog/Posts", "Todos"])
+    }
+
     func testSetSupportsDotPathWritesNestedValues() {
         let data: [[String: Any]] = [
             ["id": 1, "ownerId": "abc-123"]
@@ -289,6 +307,40 @@ final class TransformPipelineTests: XCTestCase {
         let createdBy: [String: Any]? = result[0]["createdBy"] as? [String: Any]
         XCTAssertEqual(createdBy?["id"] as? String, "abc-123")
         XCTAssertEqual(createdBy?["identityType"] as? String, "MEMBER")
+    }
+
+    func testSpreadPromotesNestedObjectFields() {
+        let data: [[String: Any]] = [[
+            "id": "todo-1",
+            "dataCollectionId": "Todos",
+            "data": ["title": "Buy milk", "status": "To Do", "priority": "High"]
+        ]]
+        let result = TransformPipeline.apply([TransformOp(op: "spread", path: "data")], to: data)
+
+        XCTAssertEqual(result[0]["title"] as? String, "Buy milk")
+        XCTAssertEqual(result[0]["status"] as? String, "To Do")
+        XCTAssertEqual(result[0]["priority"] as? String, "High")
+        XCTAssertNil(result[0]["data"])
+    }
+
+    func testNestRemainingWrapsEditedFieldsIntoNestedObject() {
+        let data: [[String: Any]] = [[
+            "id": "todo-1",
+            "dataCollectionId": "Todos",
+            "title": "Buy milk",
+            "status": "Done",
+            "priority": "High"
+        ]]
+        let result = TransformPipeline.apply([
+            TransformOp(op: "nestRemaining", fields: ["id", "dataCollectionId"], to: "data")
+        ], to: data)
+
+        XCTAssertEqual(result[0]["id"] as? String, "todo-1")
+        XCTAssertEqual(result[0]["dataCollectionId"] as? String, "Todos")
+        let nested = result[0]["data"] as? [String: Any]
+        XCTAssertEqual((nested?["title"] as? String) ?? nil, "Buy milk")
+        XCTAssertEqual((nested?["status"] as? String) ?? nil, "Done")
+        XCTAssertEqual((nested?["priority"] as? String) ?? nil, "High")
     }
 
     func testMultipleRecords() {

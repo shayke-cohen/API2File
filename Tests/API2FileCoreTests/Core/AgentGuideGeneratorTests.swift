@@ -83,11 +83,17 @@ final class AgentGuideGeneratorTests: XCTestCase {
         XCTAssertTrue(guide.contains("Files sync bidirectionally"))
         XCTAssertTrue(guide.contains("structured canonical records"))
         XCTAssertTrue(guide.contains(".api2file/file-links.json"))
+        XCTAssertTrue(guide.contains(".api2file/cache/service.sqlite"))
 
         // Control API with correct port
         XCTAssertTrue(guide.contains("## Control API (localhost:24842)"))
         XCTAssertTrue(guide.contains("GET /api/services"))
         XCTAssertTrue(guide.contains("POST /api/services/:id/sync"))
+        XCTAssertTrue(guide.contains("GET /api/services/:id/sql/tables"))
+        XCTAssertTrue(guide.contains("POST /api/services/:id/sql/query"))
+        XCTAssertTrue(guide.contains("GET /api/services/:id/sql/record?resource=...&recordId=..."))
+        XCTAssertTrue(guide.contains("GET /api/services/:id/sql/open?resource=...&recordId=...&surface=canonical|projection"))
+        XCTAssertTrue(guide.contains("query_and_open_first"))
     }
 
     // MARK: - Service Guide Tests
@@ -142,11 +148,17 @@ final class AgentGuideGeneratorTests: XCTestCase {
         // Control API
         XCTAssertTrue(guide.contains("curl localhost:24842/api/services/monday/sync"))
         XCTAssertTrue(guide.contains("curl localhost:24842/api/services/monday/status"))
+        XCTAssertTrue(guide.contains("curl localhost:24842/api/services/monday/sql/record?resource=table_name\\&recordId=123"))
+        XCTAssertTrue(guide.contains("curl localhost:24842/api/services/monday/sql/open?resource=table_name\\&recordId=123\\&surface=canonical"))
+        XCTAssertTrue(guide.contains("Use MCP `query_and_open_first`"))
 
         // Canonical/projection guidance
         XCTAssertTrue(guide.contains("Hidden `.*.objects.json` files hold the structured canonical records"))
         XCTAssertTrue(guide.contains("`.api2file/file-links.json` links each projection to its canonical object file."))
+        XCTAssertTrue(guide.contains("`.api2file/cache/service.sqlite` is a derived, read-only SQLite mirror"))
         XCTAssertTrue(guide.contains("Human-facing files are decoded back into canonical records before push"))
+        XCTAssertTrue(guide.contains("The SQLite mirror updates after pull/push cycles and is read-only in v1"))
+        XCTAssertTrue(guide.contains("Treat `.api2file/cache/service.sqlite` as read-only"))
     }
 
     func testWixServiceGuideMentionsRicosMarkdownFlow() {

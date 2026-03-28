@@ -1,0 +1,1005 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>API2File Project Presentation</title>
+  <style>
+    :root {
+      --bg: #f5efe4;
+      --bg-alt: #fdf9f1;
+      --panel: rgba(255, 251, 244, 0.9);
+      --ink: #16212f;
+      --muted: #5d6573;
+      --accent: #0d7c66;
+      --accent-2: #e76f51;
+      --accent-3: #f4a261;
+      --border: rgba(22, 33, 47, 0.12);
+      --shadow: 0 28px 80px rgba(22, 33, 47, 0.12);
+      --radius: 28px;
+      --mono: "SF Mono", "Menlo", "Monaco", monospace;
+      --sans: "Avenir Next", "Trebuchet MS", "Gill Sans", sans-serif;
+      --serif: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      margin: 0;
+      font-family: var(--sans);
+      color: var(--ink);
+      background:
+        radial-gradient(circle at top left, rgba(244, 162, 97, 0.38), transparent 30%),
+        radial-gradient(circle at top right, rgba(13, 124, 102, 0.18), transparent 32%),
+        linear-gradient(160deg, var(--bg) 0%, #f3ece0 40%, #f9f5ec 100%);
+      min-height: 100vh;
+      overflow: hidden;
+    }
+
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      background-image:
+        linear-gradient(rgba(22, 33, 47, 0.03) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(22, 33, 47, 0.03) 1px, transparent 1px);
+      background-size: 36px 36px;
+      pointer-events: none;
+      mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.5), transparent 80%);
+    }
+
+    .deck {
+      display: flex;
+      width: 100vw;
+      height: 100vh;
+      overflow-x: auto;
+      overflow-y: hidden;
+      scroll-snap-type: x mandatory;
+      scrollbar-width: none;
+    }
+
+    .deck::-webkit-scrollbar {
+      display: none;
+    }
+
+    .slide {
+      position: relative;
+      flex: 0 0 100vw;
+      height: 100vh;
+      scroll-snap-align: start;
+      padding: 5.5rem 5rem 7rem;
+      display: grid;
+      grid-template-columns: minmax(0, 1.15fr) minmax(300px, 0.85fr);
+      gap: 2rem;
+      align-items: center;
+    }
+
+    .slide.single {
+      grid-template-columns: 1fr;
+    }
+
+    .content {
+      max-width: 860px;
+      z-index: 2;
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      gap: 0.65rem;
+      align-items: center;
+      padding: 0.45rem 0.85rem;
+      border: 1px solid rgba(13, 124, 102, 0.18);
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.52);
+      font-size: 0.82rem;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin-bottom: 1.15rem;
+    }
+
+    h1, h2 {
+      margin: 0;
+      line-height: 0.97;
+      letter-spacing: -0.045em;
+    }
+
+    h1 {
+      font-family: var(--serif);
+      font-size: clamp(3.8rem, 8vw, 7rem);
+    }
+
+    h2 {
+      font-family: var(--serif);
+      font-size: clamp(2.8rem, 5vw, 4.9rem);
+      margin-bottom: 1.2rem;
+    }
+
+    p.lead {
+      font-size: clamp(1.08rem, 1.8vw, 1.45rem);
+      line-height: 1.6;
+      color: var(--muted);
+      max-width: 52rem;
+      margin: 1.2rem 0 0;
+    }
+
+    .hero-badges,
+    .metric-row,
+    .card-grid,
+    .steps,
+    .tool-grid {
+      display: grid;
+      gap: 1rem;
+    }
+
+    .hero-badges {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      margin-top: 2rem;
+    }
+
+    .badge,
+    .card,
+    .metric,
+    .terminal,
+    .file-tree,
+    .flow-card,
+    .note {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(16px);
+    }
+
+    .badge,
+    .metric,
+    .flow-card,
+    .note {
+      padding: 1.15rem 1.2rem;
+    }
+
+    .badge strong,
+    .metric strong {
+      display: block;
+      font-size: 1.25rem;
+      margin-bottom: 0.28rem;
+    }
+
+    .support {
+      align-self: stretch;
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+      justify-content: center;
+    }
+
+    .orb {
+      min-height: 250px;
+      border-radius: 36px;
+      background:
+        radial-gradient(circle at 30% 35%, rgba(255, 255, 255, 0.9), transparent 24%),
+        radial-gradient(circle at 70% 28%, rgba(244, 162, 97, 0.72), transparent 20%),
+        radial-gradient(circle at 50% 68%, rgba(13, 124, 102, 0.58), transparent 24%),
+        linear-gradient(145deg, rgba(22, 33, 47, 0.98), rgba(22, 33, 47, 0.84));
+      position: relative;
+      overflow: hidden;
+    }
+
+    .orb::after {
+      content: "API -> files -> apps -> agents";
+      position: absolute;
+      inset: auto 1.5rem 1.3rem;
+      color: rgba(255, 255, 255, 0.82);
+      font-family: var(--mono);
+      font-size: 0.9rem;
+      letter-spacing: 0.06em;
+    }
+
+    .metric-row {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .metric {
+      min-height: 118px;
+    }
+
+    .metric span {
+      color: var(--muted);
+      font-size: 0.96rem;
+      line-height: 1.5;
+    }
+
+    .card-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      margin-top: 1.7rem;
+    }
+
+    .card {
+      padding: 1.25rem 1.25rem 1.35rem;
+    }
+
+    .card h3,
+    .flow-card h3,
+    .terminal h3,
+    .file-tree h3,
+    .note h3 {
+      margin: 0 0 0.7rem;
+      font-size: 1.08rem;
+      letter-spacing: -0.02em;
+    }
+
+    .card p,
+    .flow-card p,
+    .note p,
+    .terminal p {
+      margin: 0;
+      line-height: 1.55;
+      color: var(--muted);
+    }
+
+    .steps {
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      margin-top: 1.6rem;
+    }
+
+    .flow-card {
+      position: relative;
+      min-height: 190px;
+      padding-top: 3rem;
+    }
+
+    .flow-card::before {
+      content: attr(data-step);
+      position: absolute;
+      top: 1rem;
+      left: 1rem;
+      width: 2rem;
+      height: 2rem;
+      border-radius: 999px;
+      display: grid;
+      place-items: center;
+      background: rgba(13, 124, 102, 0.12);
+      color: var(--accent);
+      font-weight: 700;
+    }
+
+    .arrow {
+      position: absolute;
+      top: 50%;
+      right: -0.7rem;
+      transform: translate(50%, -50%);
+      color: rgba(22, 33, 47, 0.3);
+      font-size: 1.9rem;
+      font-weight: 700;
+    }
+
+    .terminal,
+    .file-tree {
+      padding: 1.2rem 1.3rem;
+    }
+
+    pre {
+      margin: 0;
+      overflow: auto;
+      white-space: pre-wrap;
+      font-family: var(--mono);
+      font-size: 0.9rem;
+      line-height: 1.62;
+      color: #dceaf2;
+    }
+
+    .terminal pre {
+      padding: 1rem;
+      border-radius: 22px;
+      background: #12212f;
+    }
+
+    .file-tree pre {
+      padding: 1rem;
+      border-radius: 22px;
+      background: #fffdf9;
+      color: #24303f;
+      border: 1px solid rgba(22, 33, 47, 0.08);
+    }
+
+    .tool-grid {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      margin-top: 1.6rem;
+    }
+
+    .tool-pill {
+      padding: 0.95rem 1rem;
+      border-radius: 20px;
+      background: rgba(255, 255, 255, 0.72);
+      border: 1px solid rgba(22, 33, 47, 0.1);
+      color: var(--ink);
+      line-height: 1.45;
+    }
+
+    .kicker {
+      display: inline-block;
+      color: var(--accent-2);
+      font-size: 0.9rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      margin-bottom: 0.7rem;
+    }
+
+    .note {
+      margin-top: 1.4rem;
+    }
+
+    .note strong {
+      color: var(--ink);
+    }
+
+    .status {
+      position: fixed;
+      left: 2rem;
+      right: 2rem;
+      bottom: 1.4rem;
+      z-index: 20;
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+    }
+
+    .progress {
+      flex: 1;
+      height: 10px;
+      border-radius: 999px;
+      background: rgba(22, 33, 47, 0.08);
+      overflow: hidden;
+    }
+
+    .progress-bar {
+      height: 100%;
+      width: 10%;
+      background: linear-gradient(90deg, var(--accent), var(--accent-3));
+      border-radius: inherit;
+      transition: width 180ms ease;
+    }
+
+    .status-meta {
+      min-width: 170px;
+      text-align: right;
+      font-family: var(--mono);
+      font-size: 0.86rem;
+      color: var(--muted);
+    }
+
+    .nav {
+      position: fixed;
+      top: 1.5rem;
+      right: 1.5rem;
+      z-index: 20;
+      display: flex;
+      gap: 0.6rem;
+    }
+
+    .nav button {
+      border: 0;
+      border-radius: 999px;
+      padding: 0.8rem 1rem;
+      background: rgba(255, 255, 255, 0.82);
+      color: var(--ink);
+      font-family: var(--sans);
+      cursor: pointer;
+      box-shadow: 0 12px 30px rgba(22, 33, 47, 0.12);
+      transition: transform 150ms ease, background 150ms ease;
+    }
+
+    .nav button:hover {
+      transform: translateY(-1px);
+      background: white;
+    }
+
+    .footer-tag {
+      position: absolute;
+      left: 5rem;
+      bottom: 3rem;
+      font-family: var(--mono);
+      font-size: 0.82rem;
+      color: rgba(22, 33, 47, 0.45);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    @media (max-width: 1100px) {
+      body {
+        overflow: auto;
+      }
+
+      .deck {
+        flex-direction: column;
+        width: 100%;
+        height: auto;
+        overflow: visible;
+        scroll-snap-type: y proximity;
+      }
+
+      .slide,
+      .slide.single {
+        min-height: 100vh;
+        height: auto;
+        grid-template-columns: 1fr;
+        padding: 5rem 1.4rem 6rem;
+      }
+
+      .hero-badges,
+      .card-grid,
+      .metric-row,
+      .tool-grid,
+      .steps {
+        grid-template-columns: 1fr;
+      }
+
+      .arrow {
+        display: none;
+      }
+
+      .footer-tag {
+        left: 1.4rem;
+        bottom: 4.3rem;
+      }
+
+      .nav {
+        right: 1rem;
+        left: 1rem;
+        justify-content: flex-end;
+      }
+
+      .status {
+        left: 1rem;
+        right: 1rem;
+        bottom: 0.9rem;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="nav">
+    <button type="button" id="prevBtn">Previous</button>
+    <button type="button" id="nextBtn">Next</button>
+  </div>
+
+  <main class="deck" id="deck">
+    <section class="slide" data-title="API2File">
+      <div class="content">
+        <div class="eyebrow">Project overview</div>
+        <h1>API2File</h1>
+        <p class="lead">
+          A native macOS app and CLI that turns remote APIs into local working files, then keeps both sides in sync.
+          Think Dropbox for APIs: cloud data becomes CSV, Markdown, HTML, JSON, ICS, VCF, and more.
+        </p>
+
+        <div class="hero-badges">
+          <div class="badge">
+            <strong>Bidirectional</strong>
+            Pull from APIs, edit locally, push back automatically.
+          </div>
+          <div class="badge">
+            <strong>Config-driven</strong>
+            New services are described in adapter JSON, not custom Swift code.
+          </div>
+          <div class="badge">
+            <strong>Agent-ready</strong>
+            Every sync folder gets a generated <code>CLAUDE.md</code> guide.
+          </div>
+        </div>
+      </div>
+
+      <aside class="support">
+        <div class="orb"></div>
+        <div class="metric-row">
+          <div class="metric">
+            <strong>15 formats</strong>
+            <span>CSV, JSON, HTML, Markdown, YAML, ICS, VCF, EML, SVG, XLSX, DOCX, PPTX, text, raw, media.</span>
+          </div>
+          <div class="metric">
+            <strong>12 adapters</strong>
+            <span>Bundled demos plus cloud services like Monday.com, Wix, GitHub, and Airtable.</span>
+          </div>
+          <div class="metric">
+            <strong>Menu bar + CLI</strong>
+            <span>Always-on sync from a native app, or scriptable control from the terminal.</span>
+          </div>
+          <div class="metric">
+            <strong>Git-backed</strong>
+            <span>Every service folder is its own repo with automatic sync commits and rollback history.</span>
+          </div>
+        </div>
+      </aside>
+
+      <div class="footer-tag">Slide 1</div>
+    </section>
+
+    <section class="slide" data-title="What It Does">
+      <div class="content">
+        <div class="eyebrow">What it does</div>
+        <h2>It converts APIs into normal files people and tools already know how to use.</h2>
+        <p class="lead">
+          Instead of forcing users into a web dashboard for every system, API2File materializes remote resources as local
+          files inside a sync folder. A task board can look like a spreadsheet, contacts become <code>.vcf</code>,
+          calendar items become <code>.ics</code>, pages become <code>.html</code>, and service records can be JSON files.
+        </p>
+
+        <div class="card-grid">
+          <article class="card">
+            <h3>For humans</h3>
+            <p>Use Numbers, Excel, Calendar, Contacts, Preview, Keynote, VS Code, or any editor instead of learning yet another admin UI.</p>
+          </article>
+          <article class="card">
+            <h3>For operations</h3>
+            <p>Keep a clean local copy of service data, diff it with git, search it instantly, and automate around standard files.</p>
+          </article>
+          <article class="card">
+            <h3>For developers</h3>
+            <p>Connect new services through declarative adapter configs that define auth, endpoints, transforms, file mappings, and sync timing.</p>
+          </article>
+          <article class="card">
+            <h3>For AI workflows</h3>
+            <p>Agents can read the generated guides, inspect the file tree, edit content safely, and let API2File handle the API calls.</p>
+          </article>
+        </div>
+      </div>
+
+      <aside class="support">
+        <div class="terminal">
+          <h3>Simple setup path</h3>
+          <pre>$ swift run api2file init
+$ swift run api2file add demo
+$ swift run api2file sync demo
+
+~/API2File-Data/
+  CLAUDE.md
+  demo/
+    CLAUDE.md
+    tasks.csv
+    incidents.csv
+    pages/home.html
+    events/team-standup.ics</pre>
+        </div>
+        <div class="note">
+          <h3>Core promise</h3>
+          <p><strong>User files stay clean.</strong> Sync metadata is hidden in <code>.api2file/state.json</code>, while the visible files contain just the real content.</p>
+        </div>
+      </aside>
+
+      <div class="footer-tag">Slide 2</div>
+    </section>
+
+    <section class="slide" data-title="Benefits">
+      <div class="content">
+        <div class="eyebrow">Benefits for users</div>
+        <h2>Why this is useful in the real world.</h2>
+        <p class="lead">
+          API2File lowers the friction between cloud systems and the tools people actually want to work in.
+          It also creates a far better substrate for automation, auditing, and AI-assisted editing.
+        </p>
+
+        <div class="card-grid">
+          <article class="card">
+            <span class="kicker">No lock-in UI</span>
+            <h3>Work in familiar apps</h3>
+            <p>Open a spreadsheet in Numbers, a contact in Contacts, a calendar event in Calendar, or a page in a browser and edit there.</p>
+          </article>
+          <article class="card">
+            <span class="kicker">Fast feedback</span>
+            <h3>Always-on sync</h3>
+            <p>Periodic pulls keep files fresh, while local saves are debounced and pushed back automatically.</p>
+          </article>
+          <article class="card">
+            <span class="kicker">Trust and recovery</span>
+            <h3>Git history per service</h3>
+            <p>Each connected service is an independent repo, so teams get change tracking, diffs, and easy rollback.</p>
+          </article>
+          <article class="card">
+            <span class="kicker">Safe credentials</span>
+            <h3>Native macOS keychain</h3>
+            <p>Secrets live in Keychain rather than scattered config files, which keeps the sync folder sharable and cleaner.</p>
+          </article>
+        </div>
+      </div>
+
+      <aside class="support">
+        <div class="metric-row">
+          <div class="metric">
+            <strong>Zero external deps</strong>
+            <span>Pure Swift with native macOS frameworks only.</span>
+          </div>
+          <div class="metric">
+            <strong>537 tests</strong>
+            <span>Unit, integration, end-to-end, and live-demo coverage.</span>
+          </div>
+          <div class="metric">
+            <strong>Conflict handling</strong>
+            <span>Server is source of truth, with local backup behavior and git history for recovery.</span>
+          </div>
+          <div class="metric">
+            <strong>Adapter reuse</strong>
+            <span>One sync engine, many services, consistent user experience.</span>
+          </div>
+        </div>
+        <div class="note">
+          <h3>Big picture</h3>
+          <p>This is not just “export data to files.” It is a durable working model where files are the user interface and APIs are the transport layer.</p>
+        </div>
+      </aside>
+
+      <div class="footer-tag">Slide 3</div>
+    </section>
+
+    <section class="slide single" data-title="Pull Flow">
+      <div class="content">
+        <div class="eyebrow">Main flow 1</div>
+        <h2>Pull: API to local files</h2>
+        <p class="lead">
+          The pull path fetches remote data, transforms it, maps it to files, writes to disk, updates sync state, and commits the result to git.
+        </p>
+
+        <div class="steps">
+          <article class="flow-card" data-step="1">
+            <h3>Fetch</h3>
+            <p><code>HTTPClient</code> calls REST or GraphQL endpoints with the adapter’s auth, headers, pagination, and retry rules.</p>
+            <div class="arrow">→</div>
+          </article>
+          <article class="flow-card" data-step="2">
+            <h3>Extract</h3>
+            <p>JSONPath selects the records from the response, such as <code>$.data.items[*]</code>.</p>
+            <div class="arrow">→</div>
+          </article>
+          <article class="flow-card" data-step="3">
+            <h3>Transform</h3>
+            <p>Declarative pull transforms can pick, omit, rename, flatten, or reshape the data.</p>
+            <div class="arrow">→</div>
+          </article>
+          <article class="flow-card" data-step="4">
+            <h3>Write files</h3>
+            <p><code>FileMapper</code> decides paths and <code>FormatConverter</code> writes CSV, Markdown, HTML, JSON, ICS, and more.</p>
+            <div class="arrow">→</div>
+          </article>
+          <article class="flow-card" data-step="5">
+            <h3>Record state</h3>
+            <p>State is stored in <code>.api2file/state.json</code> and the folder gets an automatic pull commit.</p>
+          </article>
+        </div>
+
+        <div class="note">
+          <h3>User-facing result</h3>
+          <p>A fresh local workspace appears with normal files that can be opened by Finder, editors, desktop apps, scripts, and agents.</p>
+        </div>
+      </div>
+
+      <div class="footer-tag">Slide 4</div>
+    </section>
+
+    <section class="slide single" data-title="Push Flow">
+      <div class="content">
+        <div class="eyebrow">Main flow 2</div>
+        <h2>Push: local edits back to the API</h2>
+        <p class="lead">
+          When a user or agent saves a file, API2File watches the change, decodes the file back into records, computes the diff, and issues the right API mutations.
+        </p>
+
+        <div class="steps">
+          <article class="flow-card" data-step="1">
+            <h3>Detect file save</h3>
+            <p><code>FSEvents</code> sees the change and the coordinator debounces quick saves into one push.</p>
+            <div class="arrow">→</div>
+          </article>
+          <article class="flow-card" data-step="2">
+            <h3>Decode content</h3>
+            <p>The format converter turns local CSV, JSON, ICS, VCF, Markdown, and others back into record data.</p>
+            <div class="arrow">→</div>
+          </article>
+          <article class="flow-card" data-step="3">
+            <h3>Diff records</h3>
+            <p>Sync state tells the engine what is new, changed, or deleted so the API calls can be precise.</p>
+            <div class="arrow">→</div>
+          </article>
+          <article class="flow-card" data-step="4">
+            <h3>Call the API</h3>
+            <p>Configured create, update, and delete endpoints are invoked with transformed payloads.</p>
+            <div class="arrow">→</div>
+          </article>
+          <article class="flow-card" data-step="5">
+            <h3>Refresh and commit</h3>
+            <p>State updates, user files can be regenerated from canonical pull transforms, and git captures the push.</p>
+          </article>
+        </div>
+
+        <div class="note">
+          <h3>Important UX detail</h3>
+          <p>Users edit content, not transport details. IDs stay in stable columns or fields, while the engine handles API semantics under the hood.</p>
+        </div>
+      </div>
+
+      <div class="footer-tag">Slide 5</div>
+    </section>
+
+    <section class="slide" data-title="Local Files">
+      <div class="content">
+        <div class="eyebrow">Main flow 3</div>
+        <h2>Working locally feels like using a normal project folder.</h2>
+        <p class="lead">
+          After setup, the sync folder looks approachable: service directories, real user files, hidden API2File state, and a service-specific guide that explains how to edit safely.
+        </p>
+
+        <div class="tool-grid">
+          <div class="tool-pill"><strong>Spreadsheet flows</strong><br />Edit <code>tasks.csv</code> or <code>incidents.csv</code> in Numbers or Excel.</div>
+          <div class="tool-pill"><strong>Content flows</strong><br />Open <code>pages/home.html</code> or Markdown notes in your editor and save.</div>
+          <div class="tool-pill"><strong>Structured records</strong><br />Inspect <code>services/auth-service.json</code> or config files directly.</div>
+          <div class="tool-pill"><strong>Desktop apps</strong><br />Use Calendar for <code>.ics</code>, Contacts for <code>.vcf</code>, Preview for SVG, PNG, and PDF.</div>
+          <div class="tool-pill"><strong>Git-native</strong><br />Diff changes, branch experiments, or review sync history per service folder.</div>
+          <div class="tool-pill"><strong>Script-friendly</strong><br />Search, lint, batch edit, or automate with shell tools over the local tree.</div>
+        </div>
+      </div>
+
+      <aside class="support">
+        <div class="file-tree">
+          <h3>Example sync folder</h3>
+          <pre>~/API2File-Data/
+  CLAUDE.md
+  demo/
+    .api2file/
+      adapter.json
+      state.json
+    .git/
+    CLAUDE.md
+    tasks.csv
+    incidents.csv
+    config.json
+    pages/home.html
+    services/auth-service.json
+    events/team-standup.ics
+    contacts/alice-johnson.vcf
+    logos/app-icon.svg
+    documents/q1-report.pdf</pre>
+        </div>
+        <div class="note">
+          <h3>Design choice</h3>
+          <p>Metadata is hidden, content is visible, and each service stays isolated so teams can reason about one system at a time.</p>
+        </div>
+      </aside>
+
+      <div class="footer-tag">Slide 6</div>
+    </section>
+
+    <section class="slide" data-title="Claude Code">
+      <div class="content">
+        <div class="eyebrow">Main flow 4</div>
+        <h2>Using the files with Claude Code and other coding agents</h2>
+        <p class="lead">
+          API2File generates a <code>CLAUDE.md</code> guide inside the root sync folder and inside each service folder.
+          That gives agents the local operating manual: what resources exist, which file formats they map to, how to create or update records, sync timing, and constraints such as “do not modify <code>_id</code>.”
+        </p>
+
+        <div class="card-grid">
+          <article class="card">
+            <h3>Agent sees structure</h3>
+            <p>The guide explains folders like <code>contacts/</code>, <code>events/</code>, <code>notes/</code>, and which files are collections versus one-per-record resources.</p>
+          </article>
+          <article class="card">
+            <h3>Agent edits normal files</h3>
+            <p>Claude Code can update Markdown notes, append rows to CSV, change JSON fields, or create new record files without learning the remote API schema first.</p>
+          </article>
+          <article class="card">
+            <h3>API2File does the transport</h3>
+            <p>The file watcher turns those saves into create, update, and delete API calls, then refreshes sync state and git history.</p>
+          </article>
+          <article class="card">
+            <h3>Human and AI stay aligned</h3>
+            <p>Both work against the same visible local files, so reviews, diffs, and collaboration happen in one shared workspace.</p>
+          </article>
+        </div>
+      </div>
+
+      <aside class="support">
+        <div class="terminal">
+          <h3>What the generated guide tells an agent</h3>
+          <pre>Demo API - Synced via API2File
+
+To update: Edit the file and save.
+To create: Add a new row or create a new file.
+To delete: Delete the file.
+
+Sync behavior:
+- Poll interval: 10 seconds
+- Local changes push within 500ms
+- All changes are git-committed automatically
+
+Constraints:
+- Do not edit .api2file/
+- Do not modify _id fields</pre>
+        </div>
+        <div class="note">
+          <h3>Why this matters</h3>
+          <p>Instead of building custom tool integrations per service, you can let the agent operate on a file system contract that is already friendly to coding tools.</p>
+        </div>
+      </aside>
+
+      <div class="footer-tag">Slide 7</div>
+    </section>
+
+    <section class="slide" data-title="Main Surfaces">
+      <div class="content">
+        <div class="eyebrow">Product surfaces</div>
+        <h2>How users interact with the product</h2>
+        <p class="lead">
+          API2File is intentionally flexible: menu bar app for always-on desktop usage, CLI for setup and scripts, adapter configs for extending services, and a local control API for automation.
+        </p>
+
+        <div class="card-grid">
+          <article class="card">
+            <h3>Menu bar app</h3>
+            <p>Native SwiftUI menu bar experience with service discovery, status, sync-now actions, pause, and preferences.</p>
+          </article>
+          <article class="card">
+            <h3>CLI</h3>
+            <p><code>init</code>, <code>add</code>, <code>sync</code>, <code>pull</code>, <code>status</code>, and <code>list</code> support terminal-based workflows.</p>
+          </article>
+          <article class="card">
+            <h3>Adapter configs</h3>
+            <p>JSON config defines auth, endpoints, file mapping, transforms, and sync rules. New services usually mean new config, not engine code.</p>
+          </article>
+          <article class="card">
+            <h3>Control API</h3>
+            <p>Local endpoints such as <code>localhost:21567/api/services/demo/sync</code> can trigger syncs or expose status to other tools.</p>
+          </article>
+        </div>
+      </div>
+
+      <aside class="support">
+        <div class="terminal">
+          <h3>Typical commands</h3>
+          <pre>$ swift run api2file init
+$ swift run api2file add demo
+$ swift run api2file status
+$ swift run api2file pull demo
+$ swift run api2file sync demo
+$ swift run API2FileApp</pre>
+        </div>
+        <div class="note">
+          <h3>Architecture note</h3>
+          <p><strong>One engine, many services.</strong> The top-level sync engine orchestrates multiple adapter engines, one per connected service.</p>
+        </div>
+      </aside>
+
+      <div class="footer-tag">Slide 8</div>
+    </section>
+
+    <section class="slide" data-title="Why It Stands Out">
+      <div class="content">
+        <div class="eyebrow">Closing</div>
+        <h2>API2File makes APIs feel local, inspectable, and automatable.</h2>
+        <p class="lead">
+          The product’s value is the combination of local-first usability, bidirectional sync, declarative service integration, and agent-friendly guidance.
+          It bridges cloud systems, desktop software, developer tooling, and AI assistance without forcing users into one rigid interface.
+        </p>
+
+        <div class="card-grid">
+          <article class="card">
+            <h3>What it does</h3>
+            <p>Syncs remote API resources to local files and turns local edits into API updates.</p>
+          </article>
+          <article class="card">
+            <h3>Why users care</h3>
+            <p>They can work in familiar tools, keep audit history, and avoid brittle one-off integrations.</p>
+          </article>
+          <article class="card">
+            <h3>Main flows</h3>
+            <p>Pull from the server, edit local files, push changes back, and let agents work through generated guides.</p>
+          </article>
+          <article class="card">
+            <h3>Strategic upside</h3>
+            <p>Files become the universal interface across people, scripts, and AI agents, while APIs remain the source systems.</p>
+          </article>
+        </div>
+      </div>
+
+      <aside class="support">
+        <div class="note">
+          <h3>Presentation source</h3>
+          <p>Prepared from the repo’s <code>README.md</code>, <code>ARCHITECTURE.md</code>, demo folder, and generated <code>CLAUDE.md</code> content.</p>
+        </div>
+        <div class="note">
+          <h3>Navigation</h3>
+          <p>Use the on-screen buttons, arrow keys, Home, or End. The deck also scrolls naturally on smaller screens.</p>
+        </div>
+      </aside>
+
+      <div class="footer-tag">Slide 9</div>
+    </section>
+  </main>
+
+  <div class="status">
+    <div class="progress"><div class="progress-bar" id="progressBar"></div></div>
+    <div class="status-meta" id="statusMeta">1 / 9</div>
+  </div>
+
+  <script>
+    const deck = document.getElementById("deck");
+    const slides = Array.from(document.querySelectorAll(".slide"));
+    const progressBar = document.getElementById("progressBar");
+    const statusMeta = document.getElementById("statusMeta");
+    const prevBtn = document.getElementById("prevBtn");
+    const nextBtn = document.getElementById("nextBtn");
+
+    function currentIndex() {
+      if (window.innerWidth <= 1100) {
+        const scrollY = window.scrollY + window.innerHeight / 2;
+        return slides.findIndex((slide, idx) => {
+          const top = slide.offsetTop;
+          const bottom = top + slide.offsetHeight;
+          if (scrollY >= top && scrollY < bottom) return true;
+          return idx === slides.length - 1 && scrollY >= top;
+        });
+      }
+
+      return Math.round(deck.scrollLeft / window.innerWidth);
+    }
+
+    function clampIndex(index) {
+      return Math.max(0, Math.min(slides.length - 1, index));
+    }
+
+    function goTo(index) {
+      const safe = clampIndex(index);
+      const target = slides[safe];
+
+      if (window.innerWidth <= 1100) {
+        window.scrollTo({ top: target.offsetTop, behavior: "smooth" });
+      } else {
+        deck.scrollTo({ left: safe * window.innerWidth, behavior: "smooth" });
+      }
+    }
+
+    function updateStatus() {
+      const idx = clampIndex(currentIndex());
+      const pct = ((idx + 1) / slides.length) * 100;
+      progressBar.style.width = pct + "%";
+      statusMeta.textContent = (idx + 1) + " / " + slides.length + "  " + slides[idx].dataset.title;
+      document.title = "API2File Presentation - " + slides[idx].dataset.title;
+    }
+
+    prevBtn.addEventListener("click", () => goTo(currentIndex() - 1));
+    nextBtn.addEventListener("click", () => goTo(currentIndex() + 1));
+
+    window.addEventListener("keydown", (event) => {
+      if (["ArrowRight", "PageDown"].includes(event.key)) {
+        event.preventDefault();
+        goTo(currentIndex() + 1);
+      }
+
+      if (["ArrowLeft", "PageUp"].includes(event.key)) {
+        event.preventDefault();
+        goTo(currentIndex() - 1);
+      }
+
+      if (event.key === "Home") {
+        event.preventDefault();
+        goTo(0);
+      }
+
+      if (event.key === "End") {
+        event.preventDefault();
+        goTo(slides.length - 1);
+      }
+    });
+
+    window.addEventListener("resize", updateStatus);
+    deck.addEventListener("scroll", updateStatus, { passive: true });
+    window.addEventListener("scroll", updateStatus, { passive: true });
+
+    updateStatus();
+  </script>
+</body>
+</html>

@@ -7,7 +7,7 @@ final class MCPServer {
 
     /// All registered tool definitions from both browser and service tools.
     private var allToolDefinitions: [MCPToolDefinition] {
-        BrowserTools.allTools + ServiceTools.allTools
+        BrowserTools.allTools + ServiceTools.allTools + SQLTools.allTools
     }
 
     /// All browser tool names for dispatch routing.
@@ -15,6 +15,9 @@ final class MCPServer {
 
     /// All service tool names for dispatch routing.
     private let serviceToolNames: Set<String> = Set(ServiceTools.allTools.map { $0.name })
+
+    /// All SQL tool names for dispatch routing.
+    private let sqlToolNames: Set<String> = Set(SQLTools.allTools.map { $0.name })
 
     /// Start the MCP server. Blocks on stdin until EOF.
     func run() {
@@ -152,6 +155,8 @@ final class MCPServer {
             toolResult = BrowserTools.execute(name: toolName, args: args, client: appClient)
         } else if serviceToolNames.contains(toolName) {
             toolResult = ServiceTools.execute(name: toolName, args: args, client: appClient)
+        } else if sqlToolNames.contains(toolName) {
+            toolResult = SQLTools.execute(name: toolName, args: args, client: appClient)
         } else {
             toolResult = MCPToolResult(error: "Unknown tool: '\(toolName)'. Use tools/list to see available tools.")
         }

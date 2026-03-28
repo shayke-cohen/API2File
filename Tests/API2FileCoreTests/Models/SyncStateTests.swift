@@ -150,6 +150,19 @@ final class GlobalConfigTests: XCTestCase {
         let resolved = config.resolvedSyncFolder
         XCTAssertEqual(resolved.path, "/tmp/my-sync")
     }
+
+    func testResolvedSyncFolderUsesInjectedStorageLocations() {
+        let locations = StorageLocations(
+            homeDirectory: URL(fileURLWithPath: "/sandbox/home", isDirectory: true),
+            syncRootDirectory: URL(fileURLWithPath: "/sandbox/Documents/API2File-Data", isDirectory: true),
+            adaptersDirectory: URL(fileURLWithPath: "/sandbox/Library/API2File/Adapters", isDirectory: true),
+            applicationSupportDirectory: URL(fileURLWithPath: "/sandbox/Library/Application Support", isDirectory: true)
+        )
+        let config = GlobalConfig(syncFolder: "~/API2File-Data")
+        let resolved = config.resolvedSyncFolder(using: locations)
+
+        XCTAssertEqual(resolved.path, "/sandbox/home/API2File-Data")
+    }
 }
 
 // MARK: - SyncableFile Tests

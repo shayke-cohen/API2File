@@ -5,6 +5,7 @@ import API2FileCore
 
 private enum SidebarItem: Hashable {
     case general
+    case data
     case service(String)
     case browser
     case activity
@@ -24,6 +25,10 @@ struct PreferencesView: View {
                     .tag(SidebarItem.general)
                     .testId("sidebar-general")
 
+                Label("Data Explorer", systemImage: "cylinder.split.1x2")
+                    .tag(SidebarItem.data)
+                    .testId("sidebar-data-explorer")
+
                 // Services section
                 Section("Services") {
                     ForEach(appState.services, id: \.serviceId) { service in
@@ -37,7 +42,7 @@ struct PreferencesView: View {
                                 Button("Open Folder") {
                                     let url = appState.config.resolvedSyncFolder
                                         .appendingPathComponent(service.serviceId)
-                                    NSWorkspace.shared.open(url)
+                                    FinderSupport.openInFinder(url)
                                 }
                                 Divider()
                                 Button("Disconnect...", role: .destructive) {
@@ -105,6 +110,8 @@ struct PreferencesView: View {
         switch selection {
         case .general:
             GeneralPane(config: $appState.config)
+        case .data:
+            SQLExplorerPane(appState: appState, initialServiceId: nil)
         case .service(let id):
             if let service = appState.services.first(where: { $0.serviceId == id }) {
                 ServiceDetailView(service: service, appState: appState)

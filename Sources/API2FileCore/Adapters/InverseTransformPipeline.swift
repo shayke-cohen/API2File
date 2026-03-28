@@ -87,7 +87,15 @@ public struct InverseTransformPipeline {
             case .unflatten(let originalPath, let flatKey, let select):
                 applyInverseFlatten(originalPath: originalPath, flatKey: flatKey, select: select, edited: &editedCopy, result: &result, rawRecord: rawRecord)
             case .unkeyBy(let originalPath, let flatKey, let keyField, let valueField):
-                applyInverseKeyBy(originalPath: originalPath, flatKey: flatKey, keyField: keyField, valueField: valueField, edited: &editedCopy, result: &result)
+                applyInverseKeyBy(
+                    originalPath: originalPath,
+                    flatKey: flatKey,
+                    keyField: keyField,
+                    valueField: valueField,
+                    edited: &editedCopy,
+                    result: &result,
+                    rawRecord: rawRecord
+                )
             }
         }
 
@@ -228,13 +236,32 @@ public struct InverseTransformPipeline {
         originalPath: String, flatKey: String,
         keyField: String, valueField: String,
         edited: inout [String: Any],
-        result: inout [String: Any]
+        result: inout [String: Any],
+        rawRecord: [String: Any]
     ) {
         guard let dict = edited.removeValue(forKey: flatKey) as? [String: Any] else { return }
 
-        // Convert dict back to array of {key, value} objects
-        let array: [[String: Any]] = dict.map { (k, v) in
-            [keyField: k, valueField: v]
+        let array: [[String: Any]]
+        if let originalArray = resolveNestedValue(atPath: originalPath, in: rawRecord) as? [[String: Any]] {
+            var updatedArray = originalArray
+            var matchedKeys = Set<String>()
+
+            for index in updatedArray.indices {
+                let existingKey = (resolveNestedValue(atPath: keyField, in: updatedArray[index]) as? String)
+                    ?? (updatedArray[index][keyField] as? String)
+                guard let existingKey, let newValue = dict[existingKey] else { continue }
+                updatedArray[index][valueField] = newValue
+                matchedKeys.insert(existingKey)
+            }
+
+            for (key, value) in dict where !matchedKeys.contains(key) {
+                updatedArray.append([keyField: key, valueField: value])
+            }
+            array = updatedArray
+        } else {
+            array = dict.map { (k, v) in
+                [keyField: k, valueField: v]
+            }
         }
 
         let topKey = String(originalPath.split(separator: ".").first ?? Substring(originalPath))

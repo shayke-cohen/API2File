@@ -32,6 +32,16 @@ struct ServiceDetailView: View {
     @State private var gitStatuses: [String: String] = [:]
     @State private var gitDiff: String = ""
     @State private var refreshTick = false
+    @State private var sqlExplorerExpanded = true
+    @State private var sqlTables: [SQLMirrorTableSummary] = []
+    @State private var selectedSQLTableName: String?
+    @State private var selectedSQLDescription: SQLMirrorTableDescription?
+    @State private var sqlQuery: String = ""
+    @State private var sqlQueryResult: SQLMirrorQueryResult?
+    @State private var sqlQueryError: String?
+    @State private var isLoadingSQLTables = false
+    @State private var isRunningSQLQuery = false
+    @State private var selectedSQLRowID: UUID?
 
     // Timer for auto-refresh (fires every 3s)
     private let refreshTimer = Timer.publish(every: 3, on: .main, in: .common).autoconnect()
@@ -52,6 +62,7 @@ struct ServiceDetailView: View {
                     infoCards
                     claudeCodeButton
                     resourcesSection
+                    sqlExplorerSection
                     if !recentHistory.isEmpty {
                         activitySection
                     }
@@ -65,9 +76,13 @@ struct ServiceDetailView: View {
         .task {
             recentHistory = await appState.getServiceHistory(serviceId: service.serviceId, limit: 10)
             await refreshGitStatus()
+            await refreshSQLExplorer()
         }
         .onReceive(refreshTimer) { _ in
             Task { await refreshGitStatus() }
+        }
+        .onChange(of: selectedSQLTableName) { _ in
+            Task { await loadSelectedSQLTable() }
         }
         .alert("Disconnect \(service.displayName)?", isPresented: $showDisconnectAlert) {
             Button("Cancel", role: .cancel) {}
@@ -118,7 +133,7 @@ struct ServiceDetailView: View {
             Button {
                 let url = appState.config.resolvedSyncFolder
                     .appendingPathComponent(service.serviceId)
-                NSWorkspace.shared.open(url)
+                FinderSupport.openInFinder(url)
             } label: {
                 Label("Open", systemImage: "folder")
             }
@@ -170,16 +185,23 @@ struct ServiceDetailView: View {
                 }
             }
 
-            StatCard(label: "Files", icon: "doc.on.doc") {
-                Text("\(service.fileCount)")
-                    .testId("detail-file-count")
+            StatCard(label: "Tracked Files", icon: "doc.on.doc") {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("\(service.fileCount)")
+                        .testId("detail-file-count")
+                    if let cmsItemFileCount {
+                        Text("\(cmsItemFileCount) CMS item files")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
             }
 
             StatCard(label: "Folder", icon: "folder") {
                 Button("~/API2File/\(service.serviceId)/") {
                     let url = appState.config.resolvedSyncFolder
                         .appendingPathComponent(service.serviceId)
-                    NSWorkspace.shared.open(url)
+                    FinderSupport.openInFinder(url)
                 }
                 .buttonStyle(.link)
                 .testId("detail-folder-link")
@@ -228,16 +250,16 @@ struct ServiceDetailView: View {
         return result.hasSuffix("/") ? String(result.dropLast()) : result
     }
 
-    // MARK: - Claude Code Button
+    // MARK: - Coding Agent Button
 
     private var claudeCodeButton: some View {
         Button {
-            appState.launchClaudeCode(serviceId: service.serviceId)
+            appState.launchCodingAgent(serviceId: service.serviceId)
         } label: {
             HStack(spacing: 8) {
                 Image(systemName: "terminal")
                     .font(.system(size: 14))
-                Text("Open Claude Code")
+                Text("Open \(appState.codingAgentDisplayName)")
                     .fontWeight(.medium)
                 Text("— work with \(service.displayName) data using AI")
                     .foregroundStyle(.secondary)
@@ -286,7 +308,7 @@ struct ServiceDetailView: View {
                 .toggleStyle(.button)
                 .controlSize(.mini)
                 .help(showHiddenFiles ? "Hide system files" : "Show system files")
-                Text("\(sortedResources.count) items")
+                Text(resourceSummaryText)
                     .font(.caption)
                     .foregroundStyle(.tertiary)
                 Button {
@@ -306,10 +328,449 @@ struct ServiceDetailView: View {
     /// Resources sorted: folders first, then files, alphabetical within each group.
     private var sortedResources: [ResourceConfig] {
         service.config.resources.sorted { a, b in
-            let aIsFolder = a.fileMapping.strategy != .collection
-            let bIsFolder = b.fileMapping.strategy != .collection
+            let aIsFolder = displaysAsFolder(a)
+            let bIsFolder = displaysAsFolder(b)
             if aIsFolder != bIsFolder { return aIsFolder }
             return a.name.localizedStandardCompare(b.name) == .orderedAscending
+        }
+    }
+
+    private func displaysAsFolder(_ resource: ResourceConfig) -> Bool {
+        resource.fileMapping.strategy != .collection || hasCMSChildren(resource)
+    }
+
+    private func hasCMSChildren(_ resource: ResourceConfig) -> Bool {
+        resource.children?.contains(where: { $0.fileMapping.directory.hasPrefix("cms") }) == true
+    }
+
+    private var collectionsCount: Int? {
+        let serviceDir = appState.config.resolvedSyncFolder
+            .appendingPathComponent(service.serviceId)
+        guard let collections = service.config.resources.first(where: { $0.name == "collections" }) else {
+            return nil
+        }
+        return resourceCount(for: collections, serviceDir: serviceDir)
+    }
+
+    private var cmsItemFileCount: Int? {
+        let cmsDir = appState.config.resolvedSyncFolder
+            .appendingPathComponent(service.serviceId)
+            .appendingPathComponent("cms")
+        guard let enumerator = FileManager.default.enumerator(at: cmsDir, includingPropertiesForKeys: [.isRegularFileKey]) else {
+            return nil
+        }
+
+        var count = 0
+        for case let url as URL in enumerator {
+            guard (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true else { continue }
+            if url.pathExtension.lowercased() == "csv" {
+                count += 1
+            }
+        }
+        return count > 0 ? count : nil
+    }
+
+    private var resourceSummaryText: String {
+        if let collectionsCount {
+            return "\(sortedResources.count) resources · \(collectionsCount) collections"
+        }
+        return "\(sortedResources.count) resources"
+    }
+
+    private struct ResourceSection: Identifiable {
+        let id: String
+        let title: String
+        let resources: [ResourceConfig]
+    }
+
+    private var resourceSections: [ResourceSection] {
+        var order: [String] = []
+        var grouped: [String: [ResourceConfig]] = [:]
+
+        for resource in sortedResources {
+            let key = resourceSectionKey(for: resource)
+            if grouped[key] == nil {
+                order.append(key)
+            }
+            grouped[key, default: []].append(resource)
+        }
+
+        return order.map { key in
+            ResourceSection(
+                id: key,
+                title: resourceSectionTitle(for: key),
+                resources: grouped[key] ?? []
+            )
+        }
+    }
+
+    private func resourceSectionKey(for resource: ResourceConfig) -> String {
+        if resource.name == "collections" || resource.children?.contains(where: {
+            $0.fileMapping.directory.hasPrefix("cms")
+        }) == true {
+            return "cms"
+        }
+
+        if resource.fileMapping.format == .raw || resource.fileMapping.strategy == .mirror {
+            return "media"
+        }
+
+        let directory = resource.fileMapping.directory
+        if directory != ".", !directory.isEmpty {
+            let firstComponent = directory.split(separator: "/").first.map(String.init) ?? ""
+            if !firstComponent.isEmpty, !firstComponent.contains("{") {
+                return firstComponent
+            }
+        }
+
+        if resource.name == "products" {
+            return "store"
+        }
+
+        if let prefix = resource.name.split(separator: "-", maxSplits: 1).first, !prefix.isEmpty {
+            return String(prefix)
+        }
+
+        return resource.name
+    }
+
+    private func resourceSectionTitle(for key: String) -> String {
+        switch key {
+        case "cms":
+            return "CMS"
+        case "media":
+            return "Media"
+        default:
+            return key.replacingOccurrences(of: "-", with: " ").capitalized
+        }
+    }
+
+    // MARK: - SQL Explorer
+
+    private var selectedSQLTable: SQLMirrorTableSummary? {
+        guard let selectedSQLTableName else { return nil }
+        return sqlTables.first(where: { $0.tableName == selectedSQLTableName })
+    }
+
+    private var selectedSQLRow: SQLMirrorQueryRow? {
+        guard let selectedSQLRowID, let result = sqlQueryResult else { return nil }
+        return result.rows.first(where: { $0.id == selectedSQLRowID })
+    }
+
+    private var sqlExplorerSection: some View {
+        GroupBox {
+            if sqlExplorerExpanded {
+                VStack(alignment: .leading, spacing: 10) {
+                    if isLoadingSQLTables {
+                        HStack(spacing: 8) {
+                            ProgressView()
+                                .controlSize(.small)
+                            Text("Loading SQLite mirror…")
+                                .foregroundStyle(.secondary)
+                        }
+                    } else if sqlTables.isEmpty {
+                        Text("No SQLite tables yet. Sync the service to build the local mirror.")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        HStack(spacing: 8) {
+                            Picker("Table", selection: $selectedSQLTableName) {
+                                ForEach(sqlTables) { table in
+                                    Text(table.tableName).tag(Optional(table.tableName))
+                                }
+                            }
+                            .pickerStyle(.menu)
+                            .frame(width: 220)
+
+                            if let selectedSQLTable {
+                                Text("\(selectedSQLTable.rowCount) rows")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 4)
+                                    .background(Capsule().fill(.quaternary))
+                            }
+
+                            Spacer()
+
+                            Button("Sample Query") {
+                                resetSQLQueryToSample()
+                            }
+                            .controlSize(.small)
+
+                            Button {
+                                Task { await refreshSQLExplorer() }
+                            } label: {
+                                Label("Refresh", systemImage: "arrow.clockwise")
+                            }
+                            .controlSize(.small)
+                        }
+
+                        if let selectedSQLDescription {
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack(spacing: 6) {
+                                    ForEach(selectedSQLDescription.columns) { column in
+                                        sqlSchemaChip(column)
+                                    }
+                                }
+                            }
+                        }
+
+                        TextEditor(text: $sqlQuery)
+                            .font(.system(.callout, design: .monospaced))
+                            .frame(minHeight: 96)
+                            .padding(6)
+                            .background(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .fill(.quaternary.opacity(0.45))
+                            )
+
+                        HStack(spacing: 8) {
+                            if let selectedSQLRow, let recordId = selectedSQLRow.recordId, let selectedSQLTable {
+                                Button("Open Canonical") {
+                                    Task {
+                                        await openSelectedSQLRecord(
+                                            resource: selectedSQLTable.resourceName,
+                                            recordId: recordId,
+                                            surface: "canonical"
+                                        )
+                                    }
+                                }
+                                .controlSize(.small)
+
+                                Button("Open Projection") {
+                                    Task {
+                                        await openSelectedSQLRecord(
+                                            resource: selectedSQLTable.resourceName,
+                                            recordId: recordId,
+                                            surface: "projection"
+                                        )
+                                    }
+                                }
+                                .controlSize(.small)
+                            }
+
+                            Spacer()
+
+                            Button {
+                                Task { await runCurrentSQLQuery() }
+                            } label: {
+                                if isRunningSQLQuery {
+                                    ProgressView()
+                                        .controlSize(.small)
+                                } else {
+                                    Label("Run Query", systemImage: "play.fill")
+                                }
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .controlSize(.small)
+                            .disabled(isRunningSQLQuery || sqlQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        }
+
+                        if let sqlQueryError {
+                            Text(sqlQueryError)
+                                .font(.caption)
+                                .foregroundStyle(.red)
+                        }
+
+                        if let result = sqlQueryResult {
+                            VStack(alignment: .leading, spacing: 6) {
+                                HStack(spacing: 8) {
+                                    Text("\(result.rowCount) row\(result.rowCount == 1 ? "" : "s")")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                    if let databasePath = result.databasePath {
+                                        Text(URL(fileURLWithPath: databasePath).lastPathComponent)
+                                            .font(.caption)
+                                            .foregroundStyle(.tertiary)
+                                    }
+                                    Spacer()
+                                }
+
+                                ScrollView([.horizontal, .vertical]) {
+                                    LazyVStack(alignment: .leading, spacing: 0) {
+                                        if !result.columns.isEmpty {
+                                            HStack(spacing: 0) {
+                                                ForEach(result.columns, id: \.self) { column in
+                                                    Text(column)
+                                                        .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                                                        .foregroundStyle(.secondary)
+                                                        .frame(width: 180, alignment: .leading)
+                                                        .padding(.horizontal, 8)
+                                                        .padding(.vertical, 6)
+                                                }
+                                            }
+                                            .background(.bar)
+
+                                            Divider()
+
+                                            ForEach(result.rows) { row in
+                                                Button {
+                                                    selectedSQLRowID = row.id
+                                                } label: {
+                                                    HStack(spacing: 0) {
+                                                        ForEach(result.columns, id: \.self) { column in
+                                                            Text(row.values[column] ?? "")
+                                                                .font(.system(size: 11, design: .monospaced))
+                                                                .lineLimit(1)
+                                                                .truncationMode(.middle)
+                                                                .frame(width: 180, alignment: .leading)
+                                                                .padding(.horizontal, 8)
+                                                                .padding(.vertical, 6)
+                                                        }
+                                                    }
+                                                    .background(
+                                                        RoundedRectangle(cornerRadius: 4)
+                                                            .fill(selectedSQLRowID == row.id ? Color.accentColor.opacity(0.12) : Color.clear)
+                                                    )
+                                                    .contentShape(Rectangle())
+                                                }
+                                                .buttonStyle(.plain)
+                                            }
+                                        } else {
+                                            Text("Query completed with no visible columns.")
+                                                .font(.caption)
+                                                .foregroundStyle(.secondary)
+                                                .padding(.vertical, 10)
+                                        }
+                                    }
+                                }
+                                .frame(minHeight: 140, maxHeight: 260)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 8)
+                                        .strokeBorder(.quaternary, lineWidth: 1)
+                                )
+                            }
+                        } else {
+                            Text("Run a read-only SQL query to inspect the local mirror.")
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+        } label: {
+            HStack {
+                Label("Data Explorer", systemImage: "cylinder.split.1x2")
+                    .font(.headline)
+                Spacer()
+                if let selectedSQLTable {
+                    Text(selectedSQLTable.resourceName)
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                }
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        sqlExplorerExpanded.toggle()
+                    }
+                } label: {
+                    Image(systemName: sqlExplorerExpanded ? "chevron.up" : "chevron.down")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    private func sqlSchemaChip(_ column: SQLMirrorTableColumn) -> some View {
+        let typeLabel = column.type.isEmpty ? "TEXT" : column.type
+        return HStack(spacing: 4) {
+            Text(column.name)
+                .fontWeight(.medium)
+            Text(typeLabel)
+                .foregroundStyle(.secondary)
+            if column.primaryKey != 0 {
+                Text("pk")
+                    .foregroundStyle(.orange)
+            }
+        }
+        .font(.system(size: 10, design: .monospaced))
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(Capsule().fill(.quaternary.opacity(0.7)))
+    }
+
+    private func refreshSQLExplorer() async {
+        isLoadingSQLTables = true
+        let tables = await appState.listSQLTables(serviceId: service.serviceId)
+        sqlTables = tables
+        isLoadingSQLTables = false
+
+        if tables.isEmpty {
+            selectedSQLTableName = nil
+            selectedSQLDescription = nil
+            sqlQueryResult = nil
+            sqlQueryError = nil
+            selectedSQLRowID = nil
+            return
+        }
+
+        if selectedSQLTableName == nil || !tables.contains(where: { $0.tableName == selectedSQLTableName }) {
+            selectedSQLTableName = tables.first?.tableName
+        } else {
+            await loadSelectedSQLTable()
+        }
+    }
+
+    private func loadSelectedSQLTable() async {
+        guard let selectedSQLTable else {
+            selectedSQLDescription = nil
+            return
+        }
+
+        selectedSQLDescription = await appState.describeSQLTable(
+            serviceId: service.serviceId,
+            table: selectedSQLTable.tableName
+        )
+        if sqlQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            resetSQLQueryToSample()
+        }
+    }
+
+    private func resetSQLQueryToSample() {
+        guard let selectedSQLTable else { return }
+        let escaped = selectedSQLTable.tableName.replacingOccurrences(of: "\"", with: "\"\"")
+        sqlQuery = "SELECT * FROM \"\(escaped)\" LIMIT 25"
+    }
+
+    private func runCurrentSQLQuery() async {
+        let trimmedQuery = sqlQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedQuery.isEmpty else {
+            sqlQueryError = "Enter a read-only SQL query first."
+            return
+        }
+
+        isRunningSQLQuery = true
+        defer { isRunningSQLQuery = false }
+
+        do {
+            let result = try await appState.runSQLQuery(serviceId: service.serviceId, query: trimmedQuery)
+            sqlQueryResult = result
+            sqlQueryError = nil
+            selectedSQLRowID = result.rows.first?.id
+        } catch {
+            sqlQueryResult = nil
+            selectedSQLRowID = nil
+            sqlQueryError = error.localizedDescription
+        }
+    }
+
+    private func openSelectedSQLRecord(
+        resource: String,
+        recordId: String,
+        surface: String
+    ) async {
+        do {
+            try await appState.openSQLRecordInEditor(
+                serviceId: service.serviceId,
+                resource: resource,
+                recordId: recordId,
+                surface: surface
+            )
+            sqlQueryError = nil
+        } catch {
+            sqlQueryError = error.localizedDescription
         }
     }
 
@@ -318,12 +779,24 @@ struct ServiceDetailView: View {
     private func resourceList(serviceDir: URL) -> some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
-                ForEach(sortedResources, id: \.name) { resource in
-                    let isFolder = resource.fileMapping.strategy != .collection
-                    if isFolder {
-                        folderRow(resource: resource, serviceDir: serviceDir)
-                    } else {
-                        fileResourceRow(resource: resource, serviceDir: serviceDir)
+                ForEach(resourceSections) { section in
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text(section.title)
+                            .font(.caption)
+                            .fontWeight(.semibold)
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 12)
+                            .padding(.top, 8)
+                            .padding(.bottom, 4)
+
+                        ForEach(section.resources, id: \.name) { resource in
+                            let isFolder = displaysAsFolder(resource)
+                            if isFolder {
+                                folderRow(resource: resource, serviceDir: serviceDir)
+                            } else {
+                                fileResourceRow(resource: resource, serviceDir: serviceDir)
+                            }
+                        }
                     }
                 }
             }
@@ -333,10 +806,8 @@ struct ServiceDetailView: View {
     private func folderRow(resource: ResourceConfig, serviceDir: URL) -> some View {
         let isExpanded = expandedFolders.contains(resource.name)
         let mapping = resource.fileMapping
-        let dir = (mapping.directory == "." || mapping.directory.isEmpty)
-            ? serviceDir
-            : serviceDir.appendingPathComponent(mapping.directory)
-        let count = resourceCount(for: resource, serviceDir: serviceDir)
+        let dir = folderDirectory(for: resource, serviceDir: serviceDir)
+        let count = folderCount(for: resource, serviceDir: serviceDir)
 
         return VStack(alignment: .leading, spacing: 0) {
             // Folder header
@@ -384,8 +855,8 @@ struct ServiceDetailView: View {
 
             // Expanded files
             if isExpanded {
-                let files = loadFiles(in: dir)
-                ForEach(files, id: \.lastPathComponent) { fileURL in
+                let files = loadFiles(in: dir, recursively: hasCMSChildren(resource))
+                ForEach(files, id: \.path) { fileURL in
                     fileRow(fileURL: fileURL, indented: true)
                 }
             }
@@ -451,6 +922,7 @@ struct ServiceDetailView: View {
 
     private func fileRow(fileURL: URL, indented: Bool) -> some View {
         let isSelected = selectedFile == fileURL
+        let label = displayLabel(for: fileURL)
 
         return Button {
             selectedFile = fileURL
@@ -461,7 +933,7 @@ struct ServiceDetailView: View {
                     .font(.system(size: 10))
                     .foregroundStyle(.secondary)
                     .frame(width: 14)
-                Text(fileURL.lastPathComponent)
+                Text(label)
                     .font(.system(.caption))
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -487,24 +959,7 @@ struct ServiceDetailView: View {
 
     /// Find the resource config that owns the selected file.
     private func resourceForFile(_ fileURL: URL, serviceDir: URL) -> ResourceConfig? {
-        let filePath = fileURL.path
-        for resource in service.config.resources {
-            let mapping = resource.fileMapping
-            let dir = (mapping.directory == "." || mapping.directory.isEmpty)
-                ? serviceDir
-                : serviceDir.appendingPathComponent(mapping.directory)
-            if mapping.strategy == .collection {
-                if let filename = mapping.filename,
-                   dir.appendingPathComponent(filename).path == filePath {
-                    return resource
-                }
-            } else {
-                if filePath.hasPrefix(dir.path) {
-                    return resource
-                }
-            }
-        }
-        return nil
+        ResourceBrowserSupport.resource(for: fileURL, in: service.config.resources, serviceRoot: serviceDir)
     }
 
     @ViewBuilder
@@ -552,6 +1007,16 @@ struct ServiceDetailView: View {
         formatIcon(for: url.pathExtension.lowercased())
     }
 
+    private func displayLabel(for fileURL: URL) -> String {
+        let serviceDir = appState.config.resolvedSyncFolder
+            .appendingPathComponent(service.serviceId)
+        let relativePath = fileURL.path.replacingOccurrences(of: serviceDir.path + "/", with: "")
+        if relativePath.hasPrefix("cms/") {
+            return String(relativePath.dropFirst("cms/".count))
+        }
+        return fileURL.lastPathComponent
+    }
+
     /// Count records for a resource: CSV rows (minus header), folder files, JSON array items.
     private func resourceCount(for resource: ResourceConfig, serviceDir: URL) -> Int? {
         let mapping = resource.fileMapping
@@ -572,9 +1037,6 @@ struct ServiceDetailView: View {
         switch mapping.format {
         case .csv:
             // Count non-empty lines minus header
-            let lineCount = data.withUnsafeBytes { buf in
-                buf.reduce(0) { count, byte in count + (byte == UInt8(ascii: "\n") ? 1 : 0) }
-            }
             let str = String(data: data, encoding: .utf8) ?? ""
             let trimmed = str.trimmingCharacters(in: .whitespacesAndNewlines)
             if trimmed.isEmpty { return 0 }
@@ -589,6 +1051,23 @@ struct ServiceDetailView: View {
         default:
             return nil
         }
+    }
+
+    private func folderDirectory(for resource: ResourceConfig, serviceDir: URL) -> URL {
+        if hasCMSChildren(resource) {
+            return serviceDir.appendingPathComponent("cms")
+        }
+        let mapping = resource.fileMapping
+        return (mapping.directory == "." || mapping.directory.isEmpty)
+            ? serviceDir
+            : serviceDir.appendingPathComponent(mapping.directory)
+    }
+
+    private func folderCount(for resource: ResourceConfig, serviceDir: URL) -> Int? {
+        if hasCMSChildren(resource) {
+            return cmsItemFileCount
+        }
+        return resourceCount(for: resource, serviceDir: serviceDir)
     }
 
     private func refreshGitStatus() async {
@@ -617,7 +1096,24 @@ struct ServiceDetailView: View {
         return gitStatuses[relativePath]
     }
 
-    private func loadFiles(in directory: URL) -> [URL] {
+    private func loadFiles(in directory: URL, recursively: Bool = false) -> [URL] {
+        if recursively {
+            let opts: FileManager.DirectoryEnumerationOptions = showHiddenFiles ? [] : [.skipsHiddenFiles]
+            guard let enumerator = FileManager.default.enumerator(
+                at: directory,
+                includingPropertiesForKeys: [.isRegularFileKey],
+                options: opts
+            ) else { return [] }
+            var files: [URL] = []
+            for case let url as URL in enumerator {
+                guard (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true else { continue }
+                if url.pathExtension.lowercased() == "csv" {
+                    files.append(url)
+                }
+            }
+            return files.sorted { $0.path.localizedStandardCompare($1.path) == .orderedAscending }
+        }
+
         let opts: FileManager.DirectoryEnumerationOptions = showHiddenFiles ? [] : [.skipsHiddenFiles]
         guard let contents = try? FileManager.default.contentsOfDirectory(
             at: directory,

@@ -1,5 +1,4 @@
 import Foundation
-import CryptoKit
 
 // MARK: - GitError
 
@@ -29,197 +28,57 @@ public enum GitError: Error, LocalizedError, Sendable {
 /// All operations are serialized through the actor to ensure thread safety.
 public actor GitManager {
     public let repoPath: URL
+    private let backend: any VersionControlBackend
 
     // MARK: - Init
 
-    public init(repoPath: URL) {
+    public init(repoPath: URL, backendFactory: VersionControlBackendFactory = .current) {
         self.repoPath = repoPath
+        self.backend = backendFactory.makeBackend(repoPath: repoPath)
     }
 
     // MARK: - Public API
 
     /// Initialize a git repo if it doesn't already exist.
     public func initRepo() throws {
-        let gitDir = repoPath.appendingPathComponent(".git")
-        if FileManager.default.fileExists(atPath: gitDir.path) {
-            return // Already initialized
-        }
-        _ = try runGit(["init"])
+        try backend.initRepo()
     }
 
     /// Create `.gitignore` with API2File internal files if it doesn't already exist.
     public func createGitignore() throws {
-        let gitignorePath = repoPath.appendingPathComponent(".gitignore")
-
-        if FileManager.default.fileExists(atPath: gitignorePath.path) {
-            return // Already exists
-        }
-
-        try ".api2file/\n".write(to: gitignorePath, atomically: true, encoding: .utf8)
+        try backend.createGitignore()
     }
 
     /// Stage all changes and commit with the given message.
     public func commitAll(message: String) throws {
-        _ = try runGit(["add", "-A"])
-        _ = try runGit(["commit", "-m", message])
+        try backend.commitAll(message: message)
     }
 
     /// Check if there are uncommitted changes (staged or unstaged).
     public func hasChanges() throws -> Bool {
-        let output = try runGit(["status", "--porcelain"])
-        return !output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        try backend.hasChanges()
     }
 
     /// Get the SHA-256 hash of a file's content at HEAD.
     /// Returns `nil` if the file does not exist at HEAD (e.g., untracked or no commits).
     public func fileHashAtHead(_ relativePath: String) throws -> String? {
-        do {
-            let content = try runGit(["show", "HEAD:\(relativePath)"])
-            guard let data = content.data(using: .utf8) else { return nil }
-            let digest = SHA256.hash(data: data)
-            return digest.map { String(format: "%02x", $0) }.joined()
-        } catch let error as GitError {
-            switch error {
-            case .commandFailed(_, let stderr, _):
-                // File doesn't exist at HEAD or no commits yet
-                if stderr.contains("does not exist") ||
-                   stderr.contains("not a tree object") ||
-                   stderr.contains("unknown revision") ||
-                   stderr.contains("bad revision") ||
-                   stderr.contains("invalid object name") {
-                    return nil
-                }
-                throw error
-            default:
-                throw error
-            }
-        }
+        try backend.fileHashAtHead(relativePath)
     }
 
     /// Per-file git status from `git status --porcelain`.
     /// Returns a dictionary mapping relative file paths to their status code (e.g. "M", "A", "??", "D").
     public func statusForFiles() throws -> [String: String] {
-        let output = try runGit(["status", "--porcelain"])
-        var result: [String: String] = [:]
-        for line in output.components(separatedBy: "\n") where line.count >= 4 {
-            let status = String(line.prefix(2)).trimmingCharacters(in: .whitespaces)
-            let file = String(line.dropFirst(3))
-            result[file] = status
-        }
-        return result
+        try backend.statusForFiles()
     }
 
     /// Get the unified diff for a specific file (unstaged changes).
     /// Returns empty string if no diff or file is untracked.
     public func diffForFile(_ relativePath: String) throws -> String {
-        do {
-            return try runGit(["diff", "--", relativePath])
-        } catch {
-            // If diff fails (e.g. untracked file), try showing the whole file as new
-            do {
-                return try runGit(["diff", "--no-index", "/dev/null", relativePath])
-            } catch {
-                return ""
-            }
-        }
+        try backend.diffForFile(relativePath)
     }
 
     /// Get a short summary of changes: modified count, added count, deleted count.
     public func changeSummary() throws -> (modified: Int, added: Int, deleted: Int) {
-        let statuses = try statusForFiles()
-        var m = 0, a = 0, d = 0
-        for (_, status) in statuses {
-            switch status {
-            case "M", "MM": m += 1
-            case "A", "??": a += 1
-            case "D": d += 1
-            default: m += 1
-            }
-        }
-        return (m, a, d)
-    }
-
-    // MARK: - Internal Helpers
-
-    /// Runs a git command and returns its stdout output.
-    /// Throws `GitError.gitNotInstalled` if git cannot be found,
-    /// or `GitError.commandFailed` if the command exits with a non-zero status.
-    private func runGit(_ arguments: [String]) throws -> String {
-        let process = Process()
-        let stdoutPipe = Pipe()
-        let stderrPipe = Pipe()
-
-        // Find git executable
-        let gitPath = Self.findGitPath()
-        guard let executablePath = gitPath else {
-            throw GitError.gitNotInstalled
-        }
-
-        process.executableURL = URL(fileURLWithPath: executablePath)
-        process.arguments = arguments
-        process.currentDirectoryURL = repoPath
-        process.standardOutput = stdoutPipe
-        process.standardError = stderrPipe
-
-        try process.run()
-        process.waitUntilExit()
-
-        let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-        let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
-
-        let stdout = String(data: stdoutData, encoding: .utf8) ?? ""
-        let stderr = String(data: stderrData, encoding: .utf8) ?? ""
-
-        if process.terminationStatus != 0 {
-            let commandDescription = arguments.joined(separator: " ")
-            throw GitError.commandFailed(
-                command: commandDescription,
-                stderr: stderr.trimmingCharacters(in: .whitespacesAndNewlines),
-                exitCode: process.terminationStatus
-            )
-        }
-
-        return stdout
-    }
-
-    /// Locates the `git` executable.
-    private static func findGitPath() -> String? {
-        let commonPaths = [
-            "/usr/bin/git",
-            "/usr/local/bin/git",
-            "/opt/homebrew/bin/git",
-        ]
-
-        for path in commonPaths {
-            if FileManager.default.isExecutableFile(atPath: path) {
-                return path
-            }
-        }
-
-        // Fallback: try which git
-        let process = Process()
-        let pipe = Pipe()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = ["which", "git"]
-        process.standardOutput = pipe
-        process.standardError = Pipe()
-
-        do {
-            try process.run()
-            process.waitUntilExit()
-
-            if process.terminationStatus == 0 {
-                let data = pipe.fileHandleForReading.readDataToEndOfFile()
-                let path = String(data: data, encoding: .utf8)?
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                if let path, !path.isEmpty {
-                    return path
-                }
-            }
-        } catch {
-            // Ignore — fall through to nil
-        }
-
-        return nil
+        try backend.changeSummary()
     }
 }

@@ -2,14 +2,32 @@
 
 ## Test Suite Overview
 
-**Total tests: 537** across 28 test classes.
+**Total coverage:** 500+ Swift package tests plus iOS app-target tests.
 
 ```bash
-# Run all 537 tests
+# Run all Swift package tests
 swift test
 
 # Quick check — just build
 swift build
+```
+
+```bash
+# Build the universal iOS app
+xcodebuild -project API2File.xcodeproj -scheme API2FileiOS -destination 'platform=iOS Simulator,name=iPhone 16' build
+
+# Run the iOS unit tests
+xcodebuild -project API2File.xcodeproj -scheme API2FileiOS -destination 'platform=iOS Simulator,name=iPhone 16' test
+```
+
+```bash
+# Type-check the browser-native Lite prototype
+tsc -p website/tsconfig.json
+
+# Run Lite runtime tests without npm dependencies
+cd website
+tsc -p tsconfig.node-test.json
+node --experimental-specifier-resolution=node --test .tmp-tests/runtime/*.test.js
 ```
 
 ---
@@ -36,16 +54,26 @@ swift test --filter "FormatConverter|TransformPipeline|Template|JSONPath|Keychai
 | `AdapterConfigTests` | Full and minimal adapter config decoding, SyncState round-trip |
 | `SyncStateTests` | SyncState persistence, file status tracking |
 | `GlobalConfigTests` | Global config defaults, load/save, resolved sync folder |
+| `ResourceBrowserSupportTests` | Shared browser pathing, creation/import eligibility, unique filenames |
 | `SyncableFileTests` | File + metadata model |
 | `SyncStatusTests` | Status enum values |
 | `HTTPClientTests` | URLSession wrapper, auth headers, request building |
 | `KeychainManagerTests` | Keychain save/load/delete operations |
 | `GitManagerTests` | Git init, commit, gitignore creation |
 | `AgentGuideGeneratorTests` | CLAUDE.md generation from adapter configs |
+| `SQLiteMirrorTests` | SQLite projection rebuilds, metadata columns, read-only SQL enforcement, record/file lookup helpers |
 | `SyncCoordinatorTests` | Queue management, debounce, per-file locking |
 | `OAuth2HandlerTests` | OAuth2 authorization URL building, token exchange |
 | `NotificationManagerTests` | Notification posting and category setup |
 | `CollectionDifferTests` | Record diffing: created, updated, deleted detection |
+
+### iOS App Tests
+
+The iOS target includes app-specific unit tests via `API2FileiOSTests`.
+
+| Test Class | What It Covers |
+| --- | --- |
+| `IOSAppStateTests` | iOS config persistence and injected storage loading |
 
 ### Integration Tests
 
@@ -63,6 +91,26 @@ swift test --filter "AdapterEngineIntegration|FullSyncCycle|DemoAdapterConfig|De
 | `DemoAdapterConfigTests` | All 12 bundled adapter configs parse correctly |
 | `DemoAdapterPipelineTests` | Adapter pipeline with demo server data through transforms and format conversion |
 | `CollectionDiffE2ETests` | Collection diffing with real CSV/JSON files: edit rows, add rows, delete rows, verify correct API calls |
+| `SQLiteMirrorIntegrationTests` | Initial pull creates the SQLite mirror, file edits refresh the DB after push |
+| `MCPIntegrationTests` | End-to-end MCP tool coverage, including SQL query, record lookup, query-open convenience, and record file open flows |
+
+### Browser-Native Lite Tests
+
+The Lite prototype lives under [`website/`](/Users/shayco/API2File/website) and currently uses lightweight runtime tests around the browser rewrite rather than full browser automation.
+
+| Test File | What It Covers |
+| --- | --- |
+| `website/src/runtime/folderRescanChangeDetector.test.ts` | Hash-based added/changed/removed detection for folder rescans |
+| `website/src/runtime/adapterAudit.test.ts` | Static browser-viability audit for bundled adapter patterns |
+| `website/src/runtime/syncEngine.test.ts` | Demo collection pull/push round-trip through the Lite sync engine with in-memory browser-service mocks |
+
+Manual Lite checks:
+
+- Open the app with `cd website && npm run dev`
+- Choose a writable folder in Chromium
+- Connect the demo adapter and confirm `demo/tasks.csv` plus `demo/.tasks.objects.json` are written
+- Edit `demo/tasks.csv` in the app or externally, keep the tab open, and confirm the next sync pushes the change back
+- Run the audit panel and confirm browser-risk notes appear for unsupported or cross-origin adapters
 
 ### E2E Tests (Live Demo Server)
 
@@ -191,6 +239,32 @@ du -sh ~/API2File-Data/wix/media/*
 ### Adapter config reference
 
 The Wix adapter (`~/API2File-Data/wix/.api2file/adapter.json`) includes a `media` resource with `"type": "media"` and a `mediaConfig` block specifying `urlField`, `filenameField`, `idField`, `sizeField`, and `hashField`.
+
+### Manual verification (Wix human-facing files)
+
+After syncing a Wix service with the expanded adapter:
+
+```bash
+# Verify the new human-facing files exist
+ls ~/API2File-Data/wix/orders.csv
+ls ~/API2File-Data/wix/forms.csv
+ls ~/API2File-Data/wix/members.csv
+ls ~/API2File-Data/wix/site-properties.json
+
+# Verify per-form submission CSVs are created when the Wix Forms app is installed
+ls ~/API2File-Data/wix/forms/
+
+# Verify hidden canonical sidecars still exist for collection resources
+ls ~/API2File-Data/wix/.orders.objects.json
+ls ~/API2File-Data/wix/.forms.objects.json
+ls ~/API2File-Data/wix/.members.objects.json
+```
+
+Expected behavior:
+
+- `orders.csv`, `forms.csv`, and `members.csv` are human-facing CSV projections with flattened columns.
+- `site-properties.json` remains structured JSON.
+- Hidden `.*.objects.json` files preserve the full raw Wix payload for each human-facing collection file.
 
 ---
 
@@ -501,6 +575,28 @@ swift test --filter "BidirectionalSync|RealSync"
 swift test --filter WixLiveE2ETests/testBlogPosts_Pull_WritesMarkdownBodyFromContentText
 swift test --filter WixLiveE2ETests/testBlogPosts_Update_MarkdownBodyPush_ReflectedOnServer
 swift test --filter WixLiveE2ETests/testBlogPosts_Update_MarkdownStructurePush_PreservesRichContentNodes
+
+# Focused Wix adapter expansion tests
+swift test --filter RealAdapterConfigTests/testWixAdapterAddsHumanFriendlyOrdersFormsMembersAndSiteProperties
+swift test --filter WixLiveE2ETests/testOrders_Pull_ReturnsCSVWithExpectedFields
+swift test --filter WixLiveE2ETests/testOrders_Update_ModifyRecipientName_ReflectedOnServer
+swift test --filter WixLiveE2ETests/testOrders_ThreeWayUpdatePropagation_WhenEditableOrderExists
+swift test --filter WixLiveE2ETests/testForms_Pull_ReturnsCSVWhenInstalled
+swift test --filter WixLiveE2ETests/testForms_Create_NewForm_AppearsOnServer
+swift test --filter WixLiveE2ETests/testForms_Update_ModifyName_ReflectedOnServer
+swift test --filter WixLiveE2ETests/testForms_Delete_RemoveForm_DeletedFromServer
+swift test --filter WixLiveE2ETests/testForms_ThreeWayUpdatePropagation
+swift test --filter WixLiveE2ETests/testFormSubmissions_Pull_ReturnsPerFormCSVWhenInstalled
+swift test --filter WixLiveE2ETests/testFormSubmissions_CreateUpdateDelete_WhenNamespaceAllowsIt
+swift test --filter WixLiveE2ETests/testMembers_Pull_ReturnsCSVWithExpectedFields
+swift test --filter WixLiveE2ETests/testMembers_Create_NewMember_AppearsOnServer
+swift test --filter WixLiveE2ETests/testMembers_Update_ModifyNickname_ReflectedOnServer
+swift test --filter WixLiveE2ETests/testMembers_Delete_RemoveMember_DeletedFromServer
+swift test --filter WixLiveE2ETests/testMembers_ThreeWayUpdatePropagation
+swift test --filter WixLiveE2ETests/testSiteProperties_Pull_ReturnsJSONSnapshotWhenInstalled
+
+# Live monday file/API CRUD tests (requires api2file.monday.api-key in Keychain)
+swift test --filter MondayLiveE2ETests
 
 # Just collection diffing
 swift test --filter "CollectionDiffer|CollectionDiffE2E"

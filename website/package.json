@@ -1,0 +1,19 @@
+{
+  "name": "api2file-lite",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "tsc -p tsconfig.node-test.json && node --experimental-specifier-resolution=node --test .tmp-tests/runtime/*.test.js"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@types/node": "^24.6.0",
+    "typescript": "^5.9.2",
+    "vite": "^7.1.7",
+    "vitest": "^3.2.4"
+  }
+}

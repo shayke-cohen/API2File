@@ -4,6 +4,18 @@ import XCTest
 /// Tests that every real (production) adapter config file in the Resources bundle
 /// parses correctly and contains the expected structure for its service.
 final class RealAdapterConfigTests: XCTestCase {
+    private func jsonString(_ value: JSONValue?, path: [String]) -> String? {
+        guard let value else { return nil }
+        if path.isEmpty {
+            if case .string(let string) = value {
+                return string
+            }
+            return nil
+        }
+        guard case .object(let object) = value else { return nil }
+        return jsonString(object[path[0]], path: Array(path.dropFirst()))
+    }
+
 
     // MARK: - Helpers
 
@@ -147,6 +159,10 @@ final class RealAdapterConfigTests: XCTestCase {
             "contacts",
             "blog-posts",
             "products",
+            "orders",
+            "forms",
+            "members",
+            "site-properties",
             "media",
             "pro-gallery",
             "pdf-viewer",
@@ -174,11 +190,123 @@ final class RealAdapterConfigTests: XCTestCase {
             }) == true,
             "Wix collections should exclude app-owned namespaces before pulling child items"
         )
+        XCTAssertTrue(
+            collections.fileMapping.transforms?.pull?.contains(where: {
+                $0.op == "match" && $0.field == "collectionType" && $0.value == "NATIVE"
+            }) == true,
+            "Wix collections should only expose NATIVE collections in the generic writable CMS surface"
+        )
+        XCTAssertTrue(
+            collections.fileMapping.transforms?.pull?.contains(where: {
+                $0.op == "excludeRegex" && $0.field == "id" && ($0.value?.contains("e2e") == true)
+            }) == true,
+            "Wix collections should exclude test/demo collection ids before pulling child items"
+        )
+        XCTAssertTrue(
+            collections.fileMapping.transforms?.pull?.contains(where: {
+                $0.op == "excludeRegex" && $0.field == "displayName" && ($0.value?.contains("android") == true)
+            }) == true,
+            "Wix collections should exclude platform/demo display names before pulling child items"
+        )
 
         let items = try XCTUnwrap(collections.children?.first)
         XCTAssertEqual(items.name, "items")
         XCTAssertEqual(items.fileMapping.format, .csv)
-        XCTAssertEqual(items.fileMapping.directory, "cms/{displayName|slugify}")
+        XCTAssertEqual(items.fileMapping.directory, "cms")
+        XCTAssertEqual(items.fileMapping.filename, "{displayName|slugify}.csv")
+        XCTAssertEqual(items.fileMapping.effectivePushMode, .custom)
+        XCTAssertTrue(
+            items.fileMapping.transforms?.pull?.contains(where: {
+                $0.op == "spread" && $0.path == "data"
+            }) == true,
+            "Wix CMS item files should flatten nested data into friendly CSV columns"
+        )
+        XCTAssertTrue(
+            items.fileMapping.transforms?.pull?.contains(where: {
+                $0.op == "omit" &&
+                ($0.fields?.contains("dataCollectionId") == true) &&
+                ($0.fields?.contains("_url") == true)
+            }) == true,
+            "Wix CMS item files should omit sync metadata from the human CSV projection"
+        )
+        XCTAssertEqual(items.push?.delete?.url, "https://www.wixapis.com/wix-data/v2/items/{id}?dataCollectionId={dataCollectionId}")
+    }
+
+    func testWixAdapterAddsHumanFriendlyOrdersFormsMembersAndSiteProperties() throws {
+        let config = try loadBundledAdapter(named: "wix.adapter")
+
+        let orders = try XCTUnwrap(config.resources.first(where: { $0.name == "orders" }))
+        XCTAssertEqual(orders.fileMapping.filename, "orders.csv")
+        XCTAssertEqual(orders.fileMapping.format, .csv)
+        XCTAssertEqual(orders.fileMapping.effectivePushMode, .custom)
+        XCTAssertEqual(orders.pull?.url, "https://www.wixapis.com/ecom/v1/orders/search")
+        XCTAssertEqual(orders.push?.update?.url, "https://www.wixapis.com/ecom/v1/orders/{id}")
+        XCTAssertNil(orders.push?.create, "Orders should not expose create in the first pass")
+        XCTAssertTrue(
+            orders.fileMapping.transforms?.pull?.contains(where: {
+                $0.op == "rename" && $0.from == "number" && $0.to == "orderNumber"
+            }) == true,
+            "Orders should surface a readable orderNumber column in the human CSV"
+        )
+
+        let forms = try XCTUnwrap(config.resources.first(where: { $0.name == "forms" }))
+        XCTAssertEqual(forms.fileMapping.filename, "forms.csv")
+        XCTAssertEqual(forms.fileMapping.format, .csv)
+        XCTAssertEqual(forms.fileMapping.effectivePushMode, .custom)
+        XCTAssertEqual(forms.pull?.url, "https://www.wixapis.com/form-schema-service/v4/forms/query")
+        XCTAssertEqual(forms.push?.create?.url, "https://www.wixapis.com/form-schema-service/v4/forms")
+        XCTAssertEqual(forms.push?.update?.url, "https://www.wixapis.com/form-schema-service/v4/forms/{id}")
+        XCTAssertEqual(forms.push?.delete?.url, "https://www.wixapis.com/form-schema-service/v4/forms/{id}")
+        XCTAssertEqual(
+            jsonString(forms.pull?.body, path: ["query", "filter", "namespace", "$eq"]),
+            "wix.form_platform.form",
+            "Forms should target the live Wix form platform namespace"
+        )
+        XCTAssertEqual(forms.children?.count, 1)
+
+        let submissions = try XCTUnwrap(forms.children?.first)
+        XCTAssertEqual(submissions.name, "submissions")
+        XCTAssertEqual(submissions.fileMapping.directory, "forms")
+        XCTAssertEqual(submissions.fileMapping.filename, "{name|slugify}-submissions.csv")
+        XCTAssertEqual(submissions.fileMapping.format, .csv)
+        XCTAssertEqual(submissions.fileMapping.effectivePushMode, .custom)
+        XCTAssertEqual(submissions.pull?.url, "https://www.wixapis.com/form-submission-service/v4/submissions/namespace/query")
+        XCTAssertEqual(submissions.push?.create?.url, "https://www.wixapis.com/form-submission-service/v4/submissions")
+        XCTAssertEqual(submissions.push?.update?.url, "https://www.wixapis.com/form-submission-service/v4/submissions/{id}")
+        XCTAssertEqual(
+            jsonString(submissions.pull?.body, path: ["query", "filter", "namespace", "$eq"]),
+            "wix.form_platform.form",
+            "Form submissions should query the same live namespace as forms"
+        )
+        XCTAssertNil(submissions.push?.delete, "Form submissions should not map row deletion to API delete in the first pass")
+        XCTAssertTrue(
+            submissions.fileMapping.transforms?.pull?.contains(where: {
+                $0.op == "rename" && $0.from == "submitter.memberId" && $0.to == "submitterMemberId"
+            }) == true,
+            "Form submissions should flatten submitter IDs into readable CSV columns"
+        )
+
+        let members = try XCTUnwrap(config.resources.first(where: { $0.name == "members" }))
+        XCTAssertEqual(members.fileMapping.filename, "members.csv")
+        XCTAssertEqual(members.fileMapping.format, .csv)
+        XCTAssertEqual(members.fileMapping.effectivePushMode, .custom)
+        XCTAssertEqual(members.pull?.url, "https://www.wixapis.com/members/v1/members/query")
+        XCTAssertEqual(members.push?.create?.url, "https://www.wixapis.com/members/v1/members")
+        XCTAssertEqual(members.push?.update?.url, "https://www.wixapis.com/members/v1/members/{id}")
+        XCTAssertEqual(members.push?.delete?.url, "https://www.wixapis.com/members/v1/members/{id}")
+        XCTAssertTrue(
+            members.fileMapping.transforms?.pull?.contains(where: {
+                $0.op == "rename" && $0.from == "profile.nickname" && $0.to == "nickname"
+            }) == true,
+            "Members should flatten profile.nickname into a readable CSV column"
+        )
+
+        let siteProperties = try XCTUnwrap(config.resources.first(where: { $0.name == "site-properties" }))
+        XCTAssertEqual(siteProperties.fileMapping.filename, "site-properties.json")
+        XCTAssertEqual(siteProperties.fileMapping.format, .json)
+        XCTAssertEqual(siteProperties.fileMapping.readOnly, true)
+        XCTAssertEqual(siteProperties.pull?.url, "https://www.wixapis.com/site-properties/v4/properties")
+        XCTAssertNil(siteProperties.push, "Site properties should stay read-only in the first pass")
     }
 
     func testWixAdapterLocksDownMediaAndReadOnlyBehavior() throws {
@@ -196,6 +324,17 @@ final class RealAdapterConfigTests: XCTestCase {
         XCTAssertEqual(appointments.fileMapping.filename, "appointments.csv")
         XCTAssertEqual(appointments.fileMapping.format, .csv)
         XCTAssertEqual(appointments.fileMapping.readOnly, true)
+
+        let comments = try XCTUnwrap(config.resources.first(where: { $0.name == "comments" }))
+        XCTAssertEqual(comments.fileMapping.filename, "comments.csv")
+        XCTAssertEqual(comments.fileMapping.readOnly, true)
+
+        let siteProperties = try XCTUnwrap(config.resources.first(where: { $0.name == "site-properties" }))
+        XCTAssertEqual(siteProperties.fileMapping.readOnly, true)
+
+        let products = try XCTUnwrap(config.resources.first(where: { $0.name == "products" }))
+        XCTAssertEqual(products.push?.create?.bodyType, "wix-product-create")
+        XCTAssertEqual(products.push?.update?.bodyType, "wix-product-update")
     }
 
     func testWixBlogPostsDoNotUseUnsupportedIncrementalFilter() throws {
@@ -244,6 +383,71 @@ final class RealAdapterConfigTests: XCTestCase {
                 "Monday \(resource.name): graphql query must not be empty"
             )
         }
+    }
+
+    func testMondayAdapterUsesCustomGraphQLBodiesForItemMutations() throws {
+        let config = try loadBundledAdapter(named: "monday.adapter")
+        let boards = try XCTUnwrap(config.resources.first(where: { $0.name == "boards" }))
+        let items = try XCTUnwrap(boards.children?.first(where: { $0.name == "items" }))
+
+        XCTAssertEqual(items.push?.create?.type, .graphql)
+        XCTAssertEqual(items.push?.create?.bodyType, "monday-item-create")
+        XCTAssertNil(
+            items.push?.create?.mutation,
+            "Monday item create should build a GraphQL variables body instead of using an inline mutation template"
+        )
+
+        XCTAssertEqual(items.push?.update?.type, .graphql)
+        XCTAssertEqual(items.push?.update?.bodyType, "monday-item-update")
+        XCTAssertNil(
+            items.push?.update?.mutation,
+            "Monday item update should build a GraphQL variables body instead of using an inline mutation template"
+        )
+
+        XCTAssertEqual(
+            items.push?.delete?.mutation,
+            "mutation { delete_item(item_id: {id}) { id } }"
+        )
+    }
+
+    func testMondayBoardsSurfaceReadOnlySnapshotsAndWritableItemsFiles() throws {
+        let config = try loadBundledAdapter(named: "monday.adapter")
+        let boards = try XCTUnwrap(config.resources.first(where: { $0.name == "boards" }))
+        let items = try XCTUnwrap(boards.children?.first(where: { $0.name == "items" }))
+
+        XCTAssertEqual(boards.fileMapping.strategy, .onePerRecord)
+        XCTAssertEqual(boards.fileMapping.directory, "boards")
+        XCTAssertEqual(boards.fileMapping.filename, "{name|slugify}.csv")
+        XCTAssertEqual(boards.fileMapping.format, .csv)
+        XCTAssertEqual(boards.fileMapping.readOnly, true)
+
+        XCTAssertEqual(items.fileMapping.strategy, .collection)
+        XCTAssertEqual(items.fileMapping.directory, "boards/{name|slugify}")
+        XCTAssertEqual(items.fileMapping.filename, "items.csv")
+        XCTAssertEqual(items.fileMapping.format, .csv)
+        XCTAssertEqual(items.pull?.dataPath, "$.data.boards[0].items_page.items")
+        XCTAssertTrue(
+            items.fileMapping.transforms?.pull?.contains(where: {
+                $0.op == "rename" && $0.from == "board.id" && $0.to == "boardId"
+            }) == true
+        )
+    }
+
+    func testWixContactsUseCustomBodiesAndReadableNameProjection() throws {
+        let config = try loadBundledAdapter(named: "wix.adapter")
+        let contacts = try XCTUnwrap(config.resources.first(where: { $0.name == "contacts" }))
+
+        XCTAssertEqual(contacts.push?.create?.bodyType, "wix-contact-create")
+        XCTAssertEqual(contacts.push?.update?.bodyType, "wix-contact-update")
+        XCTAssertNil(contacts.push?.create?.bodyWrapper)
+        XCTAssertNil(contacts.push?.update?.bodyWrapper)
+
+        XCTAssertTrue(
+            contacts.fileMapping.transforms?.pull?.contains(where: {
+                $0.op == "spread" && $0.path == "info.name"
+            }) == true,
+            "Wix contacts should spread info.name so first/last are visible in the human CSV"
+        )
     }
 
     // MARK: - 8. Airtable: Verify Pagination Config Exists

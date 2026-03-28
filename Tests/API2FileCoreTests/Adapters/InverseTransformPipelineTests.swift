@@ -177,6 +177,50 @@ final class InverseTransformPipelineTests: XCTestCase {
         XCTAssertEqual(titles, ["Priority", "Status"])
     }
 
+    func testInverseKeyByPreservesRawColumnMetadataWhenMerging() {
+        let pullTransforms = [TransformOp(op: "keyBy", to: "columns", path: "column_values", key: "column.title", value: "text")]
+        let inverseOps = InverseTransformPipeline.computeInverse(of: pullTransforms)
+
+        let edited: [String: Any] = [
+            "id": "1",
+            "columns": [
+                "Status": "Done",
+                "Due date": "2026-04-01"
+            ]
+        ]
+        let raw: [String: Any] = [
+            "id": "1",
+            "column_values": [
+                [
+                    "id": "project_status",
+                    "text": "Working on it",
+                    "type": "status",
+                    "column": ["title": "Status"]
+                ],
+                [
+                    "id": "date",
+                    "text": "2026-03-23",
+                    "type": "date",
+                    "column": ["title": "Due date"]
+                ]
+            ]
+        ]
+
+        let result = InverseTransformPipeline.apply(inverseOps: inverseOps, editedRecord: edited, rawRecord: raw)
+        let columnValues = result["column_values"] as? [[String: Any]]
+        XCTAssertEqual(columnValues?.count, 2)
+
+        let status = columnValues?.first(where: { ($0["id"] as? String) == "project_status" })
+        XCTAssertEqual(status?["text"] as? String, "Done")
+        XCTAssertEqual(status?["type"] as? String, "status")
+        let statusColumn = status?["column"] as? [String: Any]
+        XCTAssertEqual(statusColumn?["title"] as? String, "Status")
+
+        let dueDate = columnValues?.first(where: { ($0["id"] as? String) == "date" })
+        XCTAssertEqual(dueDate?["text"] as? String, "2026-04-01")
+        XCTAssertEqual(dueDate?["type"] as? String, "date")
+    }
+
     // MARK: - Mechanical (no raw record)
 
     func testMechanicalInverseRename() {

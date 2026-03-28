@@ -1,11 +1,14 @@
 import SwiftUI
 import API2FileCore
 #if DEBUG
+#if canImport(AppXray)
 import AppXray
+#endif
 #endif
 
 @main
 struct API2FileApp: App {
+    @NSApplicationDelegateAdaptor(API2FileAppDelegate.self) private var appDelegate
     @StateObject private var appState: AppState
 
     init() {
@@ -14,14 +17,20 @@ struct API2FileApp: App {
 
         NSApplication.shared.setActivationPolicy(.regular)
         #if DEBUG
+        #if canImport(AppXray)
+        let xrayMode: AppXrayConnectionMode =
+            ProcessInfo.processInfo.environment["API2FILE_APPXRAY_MODE"] == "server"
+            ? .server
+            : .client
         AppXray.shared.start(config: AppXrayConfig(
             appName: "API2File",
             platform: AppXrayConfig.macos,
-            mode: .client
+            mode: xrayMode
         ))
         AppXray.shared.registerObservableObject(state, name: "appState", setters: [
             "isPaused": { state.isPaused = $0 as! Bool }
         ])
+        #endif
         #endif
     }
 
@@ -33,9 +42,83 @@ struct API2FileApp: App {
         }
 
         Window("Dashboard", id: "dashboard") {
-            PreferencesView(appState: appState)
+            DashboardRootView(appState: appState)
         }
-        .defaultSize(width: 900, height: 600)
+        .defaultSize(width: 1280, height: 820)
+        .windowResizability(.contentMinSize)
+    }
+}
+
+struct SQLMirrorTableSummary: Decodable, Identifiable {
+    let tableName: String
+    let resourceName: String
+    let rowCount: Int
+
+    var id: String { tableName }
+
+    private enum CodingKeys: String, CodingKey {
+        case tableName = "table_name"
+        case resourceName = "resource_name"
+        case rowCount = "row_count"
+    }
+}
+
+struct SQLMirrorTableColumn: Decodable, Identifiable {
+    let cid: Int
+    let name: String
+    let type: String
+    let notNull: Int
+    let defaultValue: String?
+    let primaryKey: Int
+
+    var id: String { name }
+
+    private enum CodingKeys: String, CodingKey {
+        case cid
+        case name
+        case type
+        case notNull = "notnull"
+        case defaultValue = "dflt_value"
+        case primaryKey = "pk"
+    }
+}
+
+struct SQLMirrorTableDescription: Decodable {
+    let databasePath: String
+    let table: String
+    let resourceName: String
+    let rowCount: Int
+    let columns: [SQLMirrorTableColumn]
+}
+
+struct SQLMirrorQueryRow: Identifiable {
+    let id = UUID()
+    let values: [String: String]
+    let recordId: String?
+}
+
+struct SQLMirrorQueryResult {
+    let databasePath: String?
+    let query: String
+    let rowCount: Int
+    let columns: [String]
+    let rows: [SQLMirrorQueryRow]
+}
+
+enum SQLExplorerError: LocalizedError {
+    case unavailable
+    case invalidResponse
+    case missingFilePath(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .unavailable:
+            return "The sync engine is not available yet."
+        case .invalidResponse:
+            return "API2File returned an unexpected SQLite response."
+        case .missingFilePath(let path):
+            return "The resolved file does not exist: \(path)"
+        }
     }
 }
 
@@ -43,7 +126,11 @@ struct API2FileApp: App {
 final class AppState: ObservableObject {
     @Published var services: [ServiceInfo] = []
     @Published var isPaused: Bool = false
-    @Published var config: GlobalConfig = .init()
+    @Published var config: GlobalConfig = .init() {
+        didSet {
+            publishFinderBadgeSnapshot()
+        }
+    }
     @Published var recentActivity: [SyncHistoryEntry] = []
 
     private(set) var syncEngine: SyncEngine?
@@ -70,13 +157,18 @@ final class AppState: ObservableObject {
         return "checkmark.icloud"
     }
 
+    var codingAgentDisplayName: String {
+        "Claude Code"
+    }
+
     func startEngine() {
-        print("[AppState] startEngine called")
+        NSLog("AppState startEngine called")
         guard !engineStarted else { return }
         engineStarted = true
-        print("[API2File] Starting sync engine...")
+        NSLog("AppState starting sync engine")
         let config = GlobalConfig.loadOrDefault(syncFolder: GlobalConfig().resolvedSyncFolder)
         self.config = config
+        publishFinderBadgeSnapshot()
 
         let engine = SyncEngine(config: config)
         self.syncEngine = engine
@@ -95,23 +187,28 @@ final class AppState: ObservableObject {
                 // Seed bundled adapters into ~/.api2file/adapters/ before starting
                 try? await AdapterStore.shared.seedIfNeeded()
 
+                NSLog("AppState starting SyncEngine")
                 try await engine.start()
+                NSLog("AppState SyncEngine started")
 
                 // Start local REST server
                 let server = LocalServer(port: UInt16(config.serverPort), syncEngine: engine)
+                NSLog("AppState starting LocalServer on port %ld", config.serverPort)
                 try await server.start()
                 self.localServer = server
+                NSLog("AppState LocalServer started on port %ld", config.serverPort)
 
                 // Register shared WebViewStore as browser delegate for MCP
                 await server.setBrowserDelegate(self.sharedWebViewStore)
 
                 // Write port discovery file for MCP binary
                 Self.writeServerInfo(port: config.serverPort)
+                NSLog("AppState wrote server info for port %ld", config.serverPort)
 
                 // Refresh services list
                 await refreshServices()
             } catch {
-                print("[API2File] Failed to start: \(error)")
+                NSLog("AppState failed to start: %@", error.localizedDescription)
             }
         }
 
@@ -128,9 +225,11 @@ final class AppState: ObservableObject {
     func stopEngine() {
         refreshTask?.cancel()
         Self.removeServerInfo()
+        NSLog("AppState stopEngine called")
         Task {
             await syncEngine?.stop()
             await localServer?.stop()
+            NSLog("AppState stopEngine finished")
         }
     }
 
@@ -250,6 +349,88 @@ final class AppState: ObservableObject {
         return await engine.getHistory(serviceId: serviceId, limit: limit)
     }
 
+    // MARK: - SQLite Explorer
+
+    func listSQLTables(serviceId: String) async -> [SQLMirrorTableSummary] {
+        guard let engine = syncEngine else { return [] }
+        do {
+            let data = try await engine.listSQLTables(serviceId: serviceId)
+            let payload = try JSONDecoder().decode(SQLTablesPayload.self, from: data)
+            return payload.tables
+        } catch {
+            print("[API2File] Failed to list SQL tables for \(serviceId): \(error)")
+            return []
+        }
+    }
+
+    func describeSQLTable(serviceId: String, table: String) async -> SQLMirrorTableDescription? {
+        guard let engine = syncEngine else { return nil }
+        do {
+            let data = try await engine.describeSQLTable(serviceId: serviceId, table: table)
+            return try JSONDecoder().decode(SQLMirrorTableDescription.self, from: data)
+        } catch {
+            print("[API2File] Failed to describe SQL table \(table) for \(serviceId): \(error)")
+            return nil
+        }
+    }
+
+    func runSQLQuery(serviceId: String, query: String) async throws -> SQLMirrorQueryResult {
+        guard let engine = syncEngine else {
+            throw SQLExplorerError.unavailable
+        }
+
+        let data = try await engine.querySQL(serviceId: serviceId, query: query)
+        guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw SQLExplorerError.invalidResponse
+        }
+
+        let rawRows = object["rows"] as? [[String: Any]] ?? []
+        let columns = resolvedColumns(from: object, rows: rawRows)
+        let rows = rawRows.map { row in
+            SQLMirrorQueryRow(
+                values: Dictionary(uniqueKeysWithValues: columns.map { column in
+                    (column, Self.sqlDisplayString(row[column]))
+                }),
+                recordId: Self.sqlRecordIdentifier(from: row)
+            )
+        }
+
+        return SQLMirrorQueryResult(
+            databasePath: object["databasePath"] as? String,
+            query: object["query"] as? String ?? query,
+            rowCount: object["rowCount"] as? Int ?? rows.count,
+            columns: columns,
+            rows: rows
+        )
+    }
+
+    func openSQLRecordInEditor(
+        serviceId: String,
+        resource: String,
+        recordId: String,
+        surface: String
+    ) async throws {
+        guard let engine = syncEngine else {
+            throw SQLExplorerError.unavailable
+        }
+
+        let data = try await engine.getRecordByID(serviceId: serviceId, resource: resource, recordId: recordId)
+        guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw SQLExplorerError.invalidResponse
+        }
+
+        let key = surface == "canonical" ? "canonicalFile" : "projectionFile"
+        guard let path = object[key] as? String else {
+            throw SQLExplorerError.invalidResponse
+        }
+        let fileURL = URL(fileURLWithPath: path)
+        guard FileManager.default.fileExists(atPath: fileURL.path) else {
+            throw SQLExplorerError.missingFilePath(path)
+        }
+
+        openFileInEditor(fileURL)
+    }
+
     // MARK: - Browser Window
 
     func openBrowserWindow() {
@@ -264,6 +445,33 @@ final class AppState: ObservableObject {
                 await self.localServer?.setBrowserDelegate(self.webViewBridge)
             }
         }
+    }
+
+    func openLiteManager() {
+        openLiteManager(serviceId: nil)
+    }
+
+    func openLiteManager(serviceId: String?) {
+        if var components = URLComponents(string: "http://localhost:\(config.serverPort)/lite") {
+            if let serviceId {
+                components.fragment = "service=\(serviceId)"
+            }
+            if let url = components.url {
+                NSWorkspace.shared.open(url)
+                return
+            }
+        }
+
+        if let url = liteManagerURL(serviceId: serviceId) {
+            NSWorkspace.shared.open(url)
+            return
+        }
+
+        var fallbackURL = config.resolvedSyncFolder
+        if let serviceId {
+            fallbackURL.appendPathComponent(serviceId)
+        }
+        NSWorkspace.shared.open(fallbackURL)
     }
 
     // MARK: - Live Reload
@@ -284,46 +492,92 @@ final class AppState: ObservableObject {
         }
     }
 
+    private func liteManagerURL(serviceId: String?) -> URL? {
+        let candidates = [
+            Bundle.main.url(forResource: "index", withExtension: "html", subdirectory: "LiteManager"),
+            Bundle.main.url(forResource: "index", withExtension: "html", subdirectory: "website"),
+            Self.developmentLiteManagerURL()
+        ]
+
+        guard var url = candidates.compactMap({ $0 }).first else {
+            return nil
+        }
+
+        if var components = URLComponents(url: url, resolvingAgainstBaseURL: false) {
+            components.queryItems = (components.queryItems ?? []) + [
+                URLQueryItem(name: "serverPort", value: String(config.serverPort))
+            ]
+            if let serviceId {
+                components.fragment = "service=\(serviceId)"
+            }
+            if let deepLinkedURL = components.url {
+                url = deepLinkedURL
+            }
+        }
+
+        return url
+    }
+
+    private static func developmentLiteManagerURL() -> URL? {
+        let sourceFileURL = URL(fileURLWithPath: #filePath)
+        let repoRootURL = sourceFileURL
+            .deletingLastPathComponent() // API2FileApp.swift
+            .deletingLastPathComponent() // App
+            .deletingLastPathComponent() // API2FileApp
+            .deletingLastPathComponent() // Sources
+        let websiteURL = repoRootURL
+            .appendingPathComponent("website", isDirectory: true)
+            .appendingPathComponent("index.html", isDirectory: false)
+
+        guard FileManager.default.fileExists(atPath: websiteURL.path) else {
+            return nil
+        }
+        return websiteURL
+    }
+
     // MARK: - Claude Code Launcher
 
-    func launchClaudeCode(serviceId: String? = nil) {
+    func launchCodingAgent(serviceId: String? = nil) {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
 
-            // Check if claude CLI is installed
-            let whichProcess = Process()
-            whichProcess.executableURL = URL(fileURLWithPath: "/usr/bin/which")
-            whichProcess.arguments = ["claude"]
-            let pipe = Pipe()
-            whichProcess.standardOutput = pipe
-            whichProcess.standardError = pipe
-            try? whichProcess.run()
-            whichProcess.waitUntilExit()
-
-            guard whichProcess.terminationStatus == 0 else {
+            guard let claudePath = Self.resolveClaudeExecutable() else {
                 let alert = NSAlert()
                 alert.alertStyle = .informational
                 alert.messageText = "Claude Code not found"
-                alert.informativeText = "Install Claude Code CLI first:\n\nnpm install -g @anthropic-ai/claude-code\n\nOr visit https://claude.ai/download"
+                alert.informativeText = """
+                Install Claude Code CLI first:
+
+                npm install -g @anthropic-ai/claude-code
+
+                API2File checks your login shell and common locations like ~/.local/bin/claude.
+                """
                 alert.addButton(withTitle: "OK")
                 NSApp.activate(ignoringOtherApps: true)
                 alert.runModal()
                 return
             }
 
-            // Generate MCP config
             let home = FileManager.default.homeDirectoryForCurrentUser
             let api2fileDir = home.appendingPathComponent(".api2file")
             try? FileManager.default.createDirectory(at: api2fileDir, withIntermediateDirectories: true)
 
-            // Find the MCP binary — check build output first, then ~/.api2file/bin/
             var mcpBinaryPath = api2fileDir.appendingPathComponent("bin/api2file-mcp").path
-            // In development, use the build output
             let devBinary = home.appendingPathComponent("API2File/.build/debug/api2file-mcp").path
             if FileManager.default.fileExists(atPath: devBinary) {
                 mcpBinaryPath = devBinary
             }
 
+            if let serviceId,
+               let service = self.services.first(where: { $0.serviceId == serviceId }),
+               let siteUrl = service.config.siteUrl {
+                self.sharedWebViewStore.navigate(to: siteUrl)
+            }
+
+            var targetFolder = self.config.resolvedSyncFolder
+            if let serviceId {
+                targetFolder = targetFolder.appendingPathComponent(serviceId)
+            }
             let mcpConfig: [String: Any] = [
                 "mcpServers": [
                     "api2file": [
@@ -336,29 +590,23 @@ final class AppState: ObservableObject {
             if let data = try? JSONSerialization.data(withJSONObject: mcpConfig, options: [.prettyPrinted, .sortedKeys]) {
                 try? data.write(to: mcpConfigURL, options: .atomic)
             }
-
-            // Auto-navigate the shared browser to the service's siteUrl
-            if let serviceId,
-               let service = self.services.first(where: { $0.serviceId == serviceId }),
-               let siteUrl = service.config.siteUrl {
-                self.sharedWebViewStore.navigate(to: siteUrl)
+            let pathDirectories = Self.claudeRuntimePathEntries(claudePath: claudePath)
+            let exportPath: String
+            if pathDirectories.isEmpty {
+                exportPath = ""
+            } else {
+                let joined = pathDirectories.map(Self.shellEscape).joined(separator: ":")
+                exportPath = "export PATH=\(joined):$PATH && "
             }
-
-            // Detect terminal and launch — cd into service subfolder if provided
-            var targetFolder = self.config.resolvedSyncFolder
-            if let serviceId {
-                targetFolder = targetFolder.appendingPathComponent(serviceId)
-            }
-            let command = "cd \(Self.shellEscape(targetFolder.path)) && claude --mcp-config \(Self.shellEscape(mcpConfigURL.path))"
+            let command = "\(exportPath)cd \(Self.shellEscape(targetFolder.path)) && \(Self.shellEscape(claudePath)) --mcp-config \(Self.shellEscape(mcpConfigURL.path))"
             Self.openInTerminal(command: command)
         }
     }
 
     private static func openInTerminal(command: String) {
-        // Write a .command file — macOS opens these in Terminal.app automatically
         let scriptPath = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".api2file/launch-claude.command")
-        let scriptContent = "#!/bin/zsh\n\(command)\n"
+        let scriptContent = "#!/bin/zsh -l\n\(command)\n"
         try? scriptContent.write(to: scriptPath, atomically: true, encoding: .utf8)
         try? FileManager.default.setAttributes(
             [.posixPermissions: 0o755], ofItemAtPath: scriptPath.path
@@ -368,6 +616,47 @@ final class AppState: ObservableObject {
 
     private static func shellEscape(_ path: String) -> String {
         "'" + path.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+
+    private static func claudeRuntimePathEntries(claudePath: String) -> [String] {
+        var entries: [String] = [URL(fileURLWithPath: claudePath).deletingLastPathComponent().path]
+        if let nodePath = resolveShellCommand("node") {
+            entries.append(URL(fileURLWithPath: nodePath).deletingLastPathComponent().path)
+        }
+        return Array(NSOrderedSet(array: entries)) as? [String] ?? entries
+    }
+
+    private static func resolveClaudeExecutable() -> String? {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let candidates = [
+            "\(home)/.local/bin/claude",
+            "/opt/homebrew/bin/claude",
+            "/usr/local/bin/claude"
+        ]
+        for candidate in candidates where FileManager.default.isExecutableFile(atPath: candidate) {
+            return candidate
+        }
+        return resolveShellCommand("claude")
+    }
+
+    private static func resolveShellCommand(_ command: String) -> String? {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        process.arguments = ["-lc", "command -v \(command)"]
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = Pipe()
+        do {
+            try process.run()
+            process.waitUntilExit()
+            guard process.terminationStatus == 0 else { return nil }
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            let output = String(data: data, encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return output?.isEmpty == false ? output : nil
+        } catch {
+            return nil
+        }
     }
 
     // MARK: - Port Discovery File
@@ -432,6 +721,177 @@ final class AppState: ObservableObject {
         let infos = await engine.getServices()
         await MainActor.run {
             self.services = infos
+            self.publishFinderBadgeSnapshot()
         }
+    }
+
+    private func publishFinderBadgeSnapshot() {
+        guard shouldUseFinderBadgeSharedContainer else {
+            return
+        }
+
+        guard let defaults = FinderBadgeSupport.sharedDefaults() else { return }
+
+        FinderBadgeSupport.setSyncRootURL(config.resolvedSyncFolder, in: defaults)
+        if let bookmarkData = try? config.resolvedSyncFolder.bookmarkData(
+            options: [.withSecurityScope, .securityScopeAllowOnlyReadAccess],
+            includingResourceValuesForKeys: nil,
+            relativeTo: nil
+        ) {
+            FinderBadgeSupport.setSyncRootBookmarkData(bookmarkData, in: defaults)
+        } else {
+            FinderBadgeSupport.setSyncRootBookmarkData(nil, in: defaults)
+        }
+        FinderBadgeSupport.setBadgesEnabled(config.finderBadges, in: defaults)
+
+        FinderBadgeSupport.clearBadgeStates(in: defaults)
+        FinderBadgeSupport.clearServiceConfigs(in: defaults)
+
+        for service in services {
+            FinderBadgeSupport.setServiceConfig(service.config, forServiceId: service.serviceId, in: defaults)
+        }
+
+        guard config.finderBadges else {
+            postFinderBadgeRefresh()
+            return
+        }
+
+        for service in services {
+            let serviceStatus = finderBadgeStatus(for: service.status)
+            if !serviceStatus.isEmpty {
+                FinderBadgeSupport.setBadgeState(serviceStatus, forRelativePath: service.serviceId, in: defaults)
+            }
+
+            publishFileBadgeStates(for: service, defaults: defaults)
+        }
+
+        postFinderBadgeRefresh()
+    }
+
+    private func publishFileBadgeStates(for service: ServiceInfo, defaults: UserDefaults) {
+        let stateURL = config.resolvedSyncFolder
+            .appendingPathComponent(service.serviceId, isDirectory: true)
+            .appendingPathComponent(".api2file/state.json", isDirectory: false)
+
+        guard let state = try? SyncState.load(from: stateURL) else { return }
+
+        for (relativePath, fileState) in state.files {
+            let normalizedStatus = FinderBadgeSupport.normalizeStatus(fileState.status.rawValue)
+            guard !normalizedStatus.isEmpty else { continue }
+            let badgePath = "\(service.serviceId)/\(FinderBadgeSupport.normalizeRelativePath(relativePath))"
+            FinderBadgeSupport.setBadgeState(normalizedStatus, forRelativePath: badgePath, in: defaults)
+        }
+    }
+
+    private func finderBadgeStatus(for serviceStatus: ServiceStatus) -> String {
+        switch serviceStatus {
+        case .connected:
+            return "synced"
+        case .syncing:
+            return "syncing"
+        case .error:
+            return "error"
+        case .paused, .disconnected:
+            return ""
+        }
+    }
+
+    private func postFinderBadgeRefresh() {
+        DistributedNotificationCenter.default().post(
+            name: FinderBadgeSupport.refreshNotificationName,
+            object: nil
+        )
+    }
+
+    private var shouldUseFinderBadgeSharedContainer: Bool {
+        if ProcessInfo.processInfo.environment["API2FILE_ALLOW_APP_GROUP_ACCESS"] == "1" {
+            return true
+        }
+
+        let bundleURL = Bundle.main.bundleURL.resolvingSymlinksInPath()
+        let bundlePath = bundleURL.path
+
+        let blockedPathFragments = [
+            "/DerivedData/",
+            "/.build/",
+            "/build/Debug/",
+            "/build/Release/"
+        ]
+        if blockedPathFragments.contains(where: { bundlePath.contains($0) }) {
+            return false
+        }
+
+        if bundleURL.lastPathComponent == "API2File-sandboxed.app" {
+            return false
+        }
+
+        let homeApplicationsPath = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Applications", isDirectory: true)
+            .resolvingSymlinksInPath()
+            .path
+
+        return bundlePath.hasPrefix("/Applications/")
+            || bundlePath.hasPrefix(homeApplicationsPath + "/")
+    }
+
+    private struct SQLTablesPayload: Decodable {
+        let tables: [SQLMirrorTableSummary]
+    }
+
+    private func resolvedColumns(from object: [String: Any], rows: [[String: Any]]) -> [String] {
+        if let columns = object["columns"] as? [String], !columns.isEmpty {
+            return columns
+        }
+        return rows.first.map { $0.keys.sorted() } ?? []
+    }
+
+    private static func sqlDisplayString(_ value: Any?) -> String {
+        switch value {
+        case nil, is NSNull:
+            return ""
+        case let string as String:
+            return string
+        case let int as Int:
+            return String(int)
+        case let double as Double:
+            return double.rounded() == double ? String(Int(double)) : String(double)
+        case let bool as Bool:
+            return bool ? "true" : "false"
+        case let number as NSNumber:
+            return number.stringValue
+        case let array as [Any]:
+            if let data = try? JSONSerialization.data(withJSONObject: array, options: [.sortedKeys]),
+               let string = String(data: data, encoding: .utf8) {
+                return string
+            }
+            return "\(array)"
+        case let dictionary as [String: Any]:
+            if let data = try? JSONSerialization.data(withJSONObject: dictionary, options: [.sortedKeys]),
+               let string = String(data: data, encoding: .utf8) {
+                return string
+            }
+            return "\(dictionary)"
+        default:
+            return String(describing: value ?? "")
+        }
+    }
+
+    private static func sqlRecordIdentifier(from row: [String: Any]) -> String? {
+        for key in ["_remote_id", "id", "_id"] {
+            if let string = row[key] as? String {
+                let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty { return trimmed }
+            }
+            if let int = row[key] as? Int {
+                return String(int)
+            }
+            if let double = row[key] as? Double {
+                return double.rounded() == double ? String(Int(double)) : String(double)
+            }
+            if let number = row[key] as? NSNumber {
+                return number.stringValue
+            }
+        }
+        return nil
     }
 }

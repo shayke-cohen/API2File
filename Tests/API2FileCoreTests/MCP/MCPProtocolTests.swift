@@ -68,7 +68,9 @@ final class MCPProtocolTests: XCTestCase {
         let expectedTools: Set<String> = [
             "navigate", "screenshot", "get_dom", "click", "type",
             "evaluate_js", "get_page_url", "wait_for", "back",
-            "forward", "reload", "scroll", "get_services", "sync"
+            "forward", "reload", "scroll", "get_services", "sync",
+            "list_sql_tables", "describe_sql_table", "query_sql", "search_records",
+            "get_record_by_id", "open_record_file", "query_and_open_first"
         ]
 
         for expected in expectedTools {

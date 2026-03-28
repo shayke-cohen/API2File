@@ -1,5 +1,7 @@
 import Foundation
+#if os(macOS)
 import CoreServices
+#endif
 
 // MARK: - FileWatcher
 
@@ -34,7 +36,10 @@ public final class FileWatcher: @unchecked Sendable {
     // MARK: - Private State
 
     private let queue = DispatchQueue(label: "com.api2file.filewatcher", qos: .utility)
+    private let isEnabled: Bool
+    #if os(macOS)
     private var stream: FSEventStreamRef?
+    #endif
     private var handler: ChangeHandler?
 
     /// Accumulated changes during the debounce window.
@@ -50,7 +55,9 @@ public final class FileWatcher: @unchecked Sendable {
 
     // MARK: - Init / Deinit
 
-    public init() {}
+    public init(enabled: Bool = true) {
+        self.isEnabled = enabled
+    }
 
     deinit {
         stop()
@@ -61,6 +68,11 @@ public final class FileWatcher: @unchecked Sendable {
     /// Start watching the given directories for file-level changes.
     /// The handler is called on a background queue with batched changes after a 500ms debounce window.
     public func start(directories: [String], handler: @escaping ChangeHandler) {
+        guard isEnabled else {
+            self.handler = handler
+            return
+        }
+        #if os(macOS)
         stop()
 
         self.handler = handler
@@ -94,16 +106,21 @@ public final class FileWatcher: @unchecked Sendable {
         self.stream = stream
         FSEventStreamSetDispatchQueue(stream, queue)
         FSEventStreamStart(stream)
+        #else
+        self.handler = handler
+        #endif
     }
 
     /// Stop watching and clean up the FSEvents stream.
     public func stop() {
+        #if os(macOS)
         if let stream = self.stream {
             FSEventStreamStop(stream)
             FSEventStreamInvalidate(stream)
             FSEventStreamRelease(stream)
             self.stream = nil
         }
+        #endif
 
         pendingLock.lock()
         debounceWorkItem?.cancel()
@@ -147,6 +164,8 @@ public final class FileWatcher: @unchecked Sendable {
 }
 
 // MARK: - FSEvents Callback (file-level)
+
+#if os(macOS)
 
 /// File-level callback function for FSEvents — avoids the "covariant Self" issue
 /// that arises when storing a closure referencing `Self` as a static property.
@@ -210,3 +229,4 @@ private func mapFSEventFlags(_ raw: FSEventStreamEventFlags) -> FileWatcher.Chan
 
     return result
 }
+#endif

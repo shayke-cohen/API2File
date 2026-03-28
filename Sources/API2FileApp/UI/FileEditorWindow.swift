@@ -6,10 +6,16 @@ import API2FileCore
 // MARK: - Window Launcher
 
 enum FileEditorWindow {
+    enum LaunchMode {
+        case automatic
+        case preview
+        case edit
+    }
+
     private static var windows: [String: NSWindow] = [:]
 
     @MainActor
-    static func open(fileURL: URL, serviceDir: URL? = nil) {
+    static func open(fileURL: URL, serviceDir: URL? = nil, launchMode: LaunchMode = .automatic) {
         let key = fileURL.path
 
         if let window = windows[key], window.isVisible {
@@ -20,7 +26,7 @@ enum FileEditorWindow {
 
         // Auto-detect service dir by walking up to find .git
         let svcDir = serviceDir ?? detectServiceDir(for: fileURL)
-        let view = FileEditorView(fileURL: fileURL, serviceDir: svcDir)
+        let view = FileEditorView(fileURL: fileURL, serviceDir: svcDir, launchMode: launchMode)
         let hostingController = NSHostingController(rootView: view)
         let window = NSWindow(contentViewController: hostingController)
         window.title = fileURL.lastPathComponent
@@ -100,16 +106,24 @@ private struct FileEditorView: View {
 
     private let fileType: FileType
 
-    init(fileURL: URL, serviceDir: URL?) {
+    init(fileURL: URL, serviceDir: URL?, launchMode: FileEditorWindow.LaunchMode) {
         self.fileURL = fileURL
         self.serviceDir = serviceDir
         self.fileType = FileType(ext: fileURL.pathExtension)
         _watcher = StateObject(wrappedValue: FileWatcherHelper(fileURL: fileURL))
-        // Default mode based on file type
-        switch FileType(ext: fileURL.pathExtension) {
-        case .csv: _viewMode = State(initialValue: .table)
-        case .markdown: _viewMode = State(initialValue: .preview)
-        default: _viewMode = State(initialValue: .edit)
+        _viewMode = State(initialValue: Self.initialViewMode(for: fileURL, launchMode: launchMode))
+    }
+
+    private static func initialViewMode(for fileURL: URL, launchMode: FileEditorWindow.LaunchMode) -> ViewMode {
+        switch (FileType(ext: fileURL.pathExtension), launchMode) {
+        case (.csv, _):
+            return .table
+        case (.markdown, .edit):
+            return .edit
+        case (.markdown, _):
+            return .preview
+        case (.json, _), (.text, _):
+            return .edit
         }
     }
 

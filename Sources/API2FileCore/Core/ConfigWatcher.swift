@@ -1,5 +1,7 @@
 import Foundation
+#if os(macOS)
 import CoreServices
+#endif
 
 /// Watches .api2file/ directories for adapter.json changes.
 /// When a config file is modified, calls the handler with the service ID.
@@ -7,14 +9,19 @@ public final class ConfigWatcher: @unchecked Sendable {
     public typealias ReloadHandler = @Sendable (String) -> Void
 
     private let queue = DispatchQueue(label: "com.api2file.configwatcher", qos: .utility)
+    private let isEnabled: Bool
+    #if os(macOS)
     private var stream: FSEventStreamRef?
+    #endif
     private var handler: ReloadHandler?
     private var debounceWorkItem: DispatchWorkItem?
 
     /// Debounce interval — wait for editor to finish writing
     private static let debounceInterval: TimeInterval = 1.0
 
-    public init() {}
+    public init(enabled: Bool = true) {
+        self.isEnabled = enabled
+    }
 
     deinit { stop() }
 
@@ -23,6 +30,11 @@ public final class ConfigWatcher: @unchecked Sendable {
     ///   - directories: Paths to .api2file/ directories (e.g., ~/API2File/demo/.api2file)
     ///   - handler: Called with the service ID when its adapter.json changes
     public func start(directories: [String], handler: @escaping ReloadHandler) {
+        guard isEnabled else {
+            self.handler = handler
+            return
+        }
+        #if os(macOS)
         stop()
         guard !directories.isEmpty else { return }
 
@@ -55,15 +67,20 @@ public final class ConfigWatcher: @unchecked Sendable {
         self.stream = stream
         FSEventStreamSetDispatchQueue(stream, queue)
         FSEventStreamStart(stream)
+        #else
+        self.handler = handler
+        #endif
     }
 
     public func stop() {
+        #if os(macOS)
         if let stream {
             FSEventStreamStop(stream)
             FSEventStreamInvalidate(stream)
             FSEventStreamRelease(stream)
             self.stream = nil
         }
+        #endif
         debounceWorkItem?.cancel()
         debounceWorkItem = nil
         handler = nil
@@ -94,6 +111,8 @@ public final class ConfigWatcher: @unchecked Sendable {
 
 // MARK: - FSEvents Callback
 
+#if os(macOS)
+
 private func configWatcherCallback(
     _ streamRef: ConstFSEventStreamRef,
     _ clientCallBackInfo: UnsafeMutableRawPointer?,
@@ -120,3 +139,4 @@ private func configWatcherCallback(
         }
     }
 }
+#endif

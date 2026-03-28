@@ -110,6 +110,18 @@ public enum CSVFormat: FormatConverter {
         case let d as Double:
             if d == Double(Int(d)) { return "\(Int(d))" }
             return "\(d)"
+        case let arr as [Any]:
+            if let jsonData = try? JSONSerialization.data(withJSONObject: arr),
+               let jsonString = String(data: jsonData, encoding: .utf8) {
+                return jsonString
+            }
+            return "\(value)"
+        case let dict as [String: Any]:
+            if let jsonData = try? JSONSerialization.data(withJSONObject: dict),
+               let jsonString = String(data: jsonData, encoding: .utf8) {
+                return jsonString
+            }
+            return "\(value)"
         default: return "\(value)"
         }
     }
@@ -178,6 +190,19 @@ public enum CSVFormat: FormatConverter {
         if value == "false" { return false }
         if let intVal = Int(value) { return intVal }
         if let doubleVal = Double(value), value.contains(".") { return doubleVal }
+        if let jsonValue = parseJSONLiteral(value) {
+            return jsonValue
+        }
         return value
+    }
+
+    private static func parseJSONLiteral(_ value: String) -> Any? {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let first = trimmed.first, let last = trimmed.last else { return nil }
+        let looksLikeJSONObject = first == "{" && last == "}"
+        let looksLikeJSONArray = first == "[" && last == "]"
+        guard looksLikeJSONObject || looksLikeJSONArray else { return nil }
+        guard let data = trimmed.data(using: .utf8) else { return nil }
+        return try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])
     }
 }
