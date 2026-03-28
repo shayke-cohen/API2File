@@ -1798,6 +1798,10 @@ public actor SyncEngine {
         serviceInfos[serviceId]
     }
 
+    public func getSyncRootURL() -> URL {
+        syncFolder
+    }
+
     public func triggerSync(serviceId: String) async {
         await coordinator.syncNow(serviceId: serviceId)
     }

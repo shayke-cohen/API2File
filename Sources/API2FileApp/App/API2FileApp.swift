@@ -266,6 +266,33 @@ final class AppState: ObservableObject {
         }
     }
 
+    func openLiteManager() {
+        openLiteManager(serviceId: nil)
+    }
+
+    func openLiteManager(serviceId: String?) {
+        if var components = URLComponents(string: "http://localhost:\(config.serverPort)/lite") {
+            if let serviceId {
+                components.fragment = "service=\(serviceId)"
+            }
+            if let url = components.url {
+                NSWorkspace.shared.open(url)
+                return
+            }
+        }
+
+        if let url = liteManagerURL(serviceId: serviceId) {
+            NSWorkspace.shared.open(url)
+            return
+        }
+
+        var fallbackURL = config.resolvedSyncFolder
+        if let serviceId {
+            fallbackURL.appendPathComponent(serviceId)
+        }
+        NSWorkspace.shared.open(fallbackURL)
+    }
+
     // MARK: - Live Reload
 
     private func checkLiveReload() async {
@@ -282,6 +309,49 @@ final class AppState: ObservableObject {
         if anyChanged {
             try? await bridge.reload()
         }
+    }
+
+    private func liteManagerURL(serviceId: String?) -> URL? {
+        let candidates = [
+            Bundle.main.url(forResource: "index", withExtension: "html", subdirectory: "LiteManager"),
+            Bundle.main.url(forResource: "index", withExtension: "html", subdirectory: "website"),
+            Self.developmentLiteManagerURL()
+        ]
+
+        guard var url = candidates.compactMap({ $0 }).first else {
+            return nil
+        }
+
+        if var components = URLComponents(url: url, resolvingAgainstBaseURL: false) {
+            components.queryItems = (components.queryItems ?? []) + [
+                URLQueryItem(name: "serverPort", value: String(config.serverPort))
+            ]
+            if let serviceId {
+                components.fragment = "service=\(serviceId)"
+            }
+            if let deepLinkedURL = components.url {
+                url = deepLinkedURL
+            }
+        }
+
+        return url
+    }
+
+    private static func developmentLiteManagerURL() -> URL? {
+        let sourceFileURL = URL(fileURLWithPath: #filePath)
+        let repoRootURL = sourceFileURL
+            .deletingLastPathComponent() // API2FileApp.swift
+            .deletingLastPathComponent() // App
+            .deletingLastPathComponent() // API2FileApp
+            .deletingLastPathComponent() // Sources
+        let websiteURL = repoRootURL
+            .appendingPathComponent("website", isDirectory: true)
+            .appendingPathComponent("index.html", isDirectory: false)
+
+        guard FileManager.default.fileExists(atPath: websiteURL.path) else {
+            return nil
+        }
+        return websiteURL
     }
 
     // MARK: - Claude Code Launcher

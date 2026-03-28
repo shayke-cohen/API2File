@@ -1,5 +1,6 @@
 import Foundation
 import Network
+import UniformTypeIdentifiers
 
 /// Lightweight HTTP server using NWListener for local control API.
 /// Designed for AI agents and scripts to query and control the sync engine.
@@ -124,6 +125,51 @@ public actor LocalServer {
         let path = request.path
         let method = request.method
 
+        if method == "OPTIONS" && path.hasPrefix("/lite/api/") {
+            return HTTPResponse(statusCode: 204, bodyRaw: Data(), headers: liteCORSHeaders())
+        }
+
+        if method == "GET" && (path == "/lite" || path == "/lite/") {
+            return handleLiteManagerPage()
+        }
+
+        if method == "GET" && path.hasPrefix("/website/") {
+            return handleLiteStaticAsset(path: path)
+        }
+
+        if method == "GET" && path == "/lite/api/services" {
+            return await handleLiteServices()
+        }
+
+        if method == "GET" && path == "/lite/api/files" {
+            let includeHidden = request.queryItems["includeHidden"] == "true"
+            return await handleLiteFiles(serviceId: request.queryItems["service"], includeHidden: includeHidden)
+        }
+
+        if method == "GET" && path == "/lite/api/file" {
+            return await handleLiteFile(queryItems: request.queryItems)
+        }
+
+        if method == "PUT" && path == "/lite/api/file" {
+            return await handleLiteFileSave(queryItems: request.queryItems, body: request.body)
+        }
+
+        if method == "POST" && path == "/lite/api/file" {
+            return await handleLiteFileCreate(queryItems: request.queryItems, body: request.body)
+        }
+
+        if method == "DELETE" && path == "/lite/api/file" {
+            return await handleLiteFileDelete(queryItems: request.queryItems)
+        }
+
+        if method == "POST" && path == "/lite/api/folder" {
+            return await handleLiteFolderCreate(queryItems: request.queryItems)
+        }
+
+        if method == "POST" && path == "/lite/api/rename" {
+            return await handleLiteRename(queryItems: request.queryItems)
+        }
+
         // GET /api/health
         if method == "GET" && path == "/api/health" {
             return handleHealth()
@@ -210,6 +256,252 @@ public actor LocalServer {
             "status": "ok",
             "version": "1.0"
         ])
+    }
+
+    private func handleLiteManagerPage() -> HTTPResponse {
+        guard let htmlURL = liteManagerHTMLURL(),
+              let html = try? Data(contentsOf: htmlURL) else {
+            return HTTPResponse(
+                statusCode: 404,
+                bodyRaw: Data("Lite Manager HTML not found".utf8),
+                contentType: "text/plain; charset=utf-8"
+            )
+        }
+
+        return HTTPResponse(statusCode: 200, bodyRaw: html, contentType: "text/html; charset=utf-8")
+    }
+
+    private func handleLiteStaticAsset(path: String) -> HTTPResponse {
+        guard let websiteRoot = liteManagerRootURL() else {
+            return HTTPResponse(statusCode: 404, bodyRaw: Data("Lite Manager assets not found".utf8), contentType: "text/plain; charset=utf-8")
+        }
+
+        let relativePath = String(path.dropFirst("/website/".count))
+        let segments = relativePath.split(separator: "/").map(String.init)
+        guard !segments.isEmpty,
+              !segments.contains(".."),
+              !segments.contains(where: { $0.isEmpty }) else {
+            return HTTPResponse(statusCode: 400, bodyRaw: Data("Invalid asset path".utf8), contentType: "text/plain; charset=utf-8")
+        }
+
+        let assetURL = websiteRoot.appendingPathComponent(relativePath, isDirectory: false).standardizedFileURL
+        guard assetURL.path.hasPrefix(websiteRoot.path + "/") else {
+            return HTTPResponse(statusCode: 400, bodyRaw: Data("Invalid asset path".utf8), contentType: "text/plain; charset=utf-8")
+        }
+        guard let data = try? Data(contentsOf: assetURL) else {
+            return HTTPResponse(statusCode: 404, bodyRaw: Data("Asset not found".utf8), contentType: "text/plain; charset=utf-8")
+        }
+
+        return HTTPResponse(statusCode: 200, bodyRaw: data, contentType: contentType(for: assetURL))
+    }
+
+    private func handleLiteServices() async -> HTTPResponse {
+        let services = await syncEngine.getServices()
+            .sorted { $0.displayName.localizedStandardCompare($1.displayName) == .orderedAscending }
+
+        let items: [[String: Any]] = services.map { info in
+            var item: [String: Any] = [
+                "serviceId": info.serviceId,
+                "displayName": info.displayName,
+                "status": info.status.rawValue,
+                "fileCount": info.fileCount
+            ]
+            if let lastSync = info.lastSyncTime {
+                item["lastSyncTime"] = ISO8601DateFormatter().string(from: lastSync)
+            }
+            return item
+        }
+
+        return HTTPResponse(statusCode: 200, bodyRaw: encodeJSON(items), headers: liteCORSHeaders())
+    }
+
+    private func handleLiteFiles(serviceId: String?, includeHidden: Bool) async -> HTTPResponse {
+        let services = await syncEngine.getServices()
+        let allowedServices = Dictionary(uniqueKeysWithValues: services.map { ($0.serviceId, $0) })
+
+        let targetServiceIds: [String]
+        if let serviceId, !serviceId.isEmpty {
+            guard allowedServices[serviceId] != nil else {
+                return HTTPResponse(statusCode: 404, bodyRaw: encodeJSON(["error": "Service not found", "serviceId": serviceId]), headers: liteCORSHeaders())
+            }
+            targetServiceIds = [serviceId]
+        } else {
+            targetServiceIds = allowedServices.keys.sorted()
+        }
+
+        let rootURL = await syncEngine.getSyncRootURL()
+        var files: [[String: Any]] = []
+
+        for serviceId in targetServiceIds {
+            guard let service = allowedServices[serviceId] else { continue }
+            let serviceRoot = rootURL.appendingPathComponent(serviceId, isDirectory: true)
+            guard let enumerator = FileManager.default.enumerator(
+                at: serviceRoot,
+                includingPropertiesForKeys: [.isRegularFileKey, .contentModificationDateKey, .fileSizeKey],
+                options: [.skipsPackageDescendants]
+            ) else {
+                continue
+            }
+
+            for case let fileURL as URL in enumerator {
+                let values = try? fileURL.resourceValues(forKeys: [.isRegularFileKey, .contentModificationDateKey, .fileSizeKey])
+                guard values?.isRegularFile == true else { continue }
+
+                let relativePath = fileURL.path.replacingOccurrences(of: serviceRoot.path + "/", with: "")
+                if shouldHideLitePath(relativePath, includeHidden: includeHidden) {
+                    continue
+                }
+
+                let ext = fileURL.pathExtension.lowercased()
+                let item: [String: Any] = [
+                    "serviceId": serviceId,
+                    "displayName": service.displayName,
+                    "path": relativePath,
+                    "name": fileURL.lastPathComponent,
+                    "extension": ext,
+                    "size": values?.fileSize ?? 0,
+                    "modifiedAt": values?.contentModificationDate.map { ISO8601DateFormatter().string(from: $0) } ?? "",
+                    "editable": isLiteEditable(relativePath: relativePath, fileExtension: ext)
+                ]
+                files.append(item)
+            }
+        }
+
+        files.sort {
+            let lhsService = ($0["serviceId"] as? String) ?? ""
+            let rhsService = ($1["serviceId"] as? String) ?? ""
+            if lhsService == rhsService {
+                return (($0["path"] as? String) ?? "").localizedStandardCompare(($1["path"] as? String) ?? "") == .orderedAscending
+            }
+            return lhsService.localizedStandardCompare(rhsService) == .orderedAscending
+        }
+
+        return HTTPResponse(statusCode: 200, bodyRaw: encodeJSON(files), headers: liteCORSHeaders())
+    }
+
+    private func handleLiteFile(queryItems: [String: String]) async -> HTTPResponse {
+        guard let fileURL = await validatedLiteFileURL(queryItems: queryItems) else {
+            return HTTPResponse(statusCode: 400, bodyRaw: encodeJSON(["error": "Missing or invalid service/path"]), headers: liteCORSHeaders())
+        }
+        guard FileManager.default.fileExists(atPath: fileURL.path) else {
+            return HTTPResponse(statusCode: 404, bodyRaw: encodeJSON(["error": "File not found"]), headers: liteCORSHeaders())
+        }
+        guard let data = try? Data(contentsOf: fileURL) else {
+            return HTTPResponse(statusCode: 500, bodyRaw: encodeJSON(["error": "Failed to read file"]), headers: liteCORSHeaders())
+        }
+        return HTTPResponse(statusCode: 200, bodyRaw: data, contentType: contentType(for: fileURL), headers: liteCORSHeaders())
+    }
+
+    private func handleLiteFileSave(queryItems: [String: String], body: Data?) async -> HTTPResponse {
+        guard let fileURL = await validatedLiteFileURL(queryItems: queryItems) else {
+            return HTTPResponse(statusCode: 400, bodyRaw: encodeJSON(["error": "Missing or invalid service/path"]), headers: liteCORSHeaders())
+        }
+        guard let body else {
+            return HTTPResponse(statusCode: 400, bodyRaw: encodeJSON(["error": "Request body is required"]), headers: liteCORSHeaders())
+        }
+        guard FileManager.default.fileExists(atPath: fileURL.path) else {
+            return HTTPResponse(statusCode: 404, bodyRaw: encodeJSON(["error": "File not found"]), headers: liteCORSHeaders())
+        }
+
+        let relativePath = queryItems["path"] ?? ""
+        if !isLiteEditable(relativePath: relativePath, fileExtension: fileURL.pathExtension.lowercased()) {
+            return HTTPResponse(statusCode: 400, bodyRaw: encodeJSON(["error": "This file type is not editable from Lite Manager"]), headers: liteCORSHeaders())
+        }
+
+        do {
+            try body.write(to: fileURL, options: .atomic)
+            return HTTPResponse(statusCode: 200, bodyRaw: encodeJSON(["status": "ok"]), headers: liteCORSHeaders())
+        } catch {
+            return HTTPResponse(statusCode: 500, bodyRaw: encodeJSON(["error": error.localizedDescription]), headers: liteCORSHeaders())
+        }
+    }
+
+    private func handleLiteFileCreate(queryItems: [String: String], body: Data?) async -> HTTPResponse {
+        guard let serviceId = queryItems["service"], !serviceId.isEmpty,
+              let path = queryItems["path"], !path.isEmpty,
+              let fileURL = await validatedLiteServicePathURL(serviceId: serviceId, path: path) else {
+            return HTTPResponse(statusCode: 400, bodyRaw: encodeJSON(["error": "Missing or invalid service/path"]), headers: liteCORSHeaders())
+        }
+        guard let body else {
+            return HTTPResponse(statusCode: 400, bodyRaw: encodeJSON(["error": "Request body is required"]), headers: liteCORSHeaders())
+        }
+        guard isLiteMutable(relativePath: path) else {
+            return HTTPResponse(statusCode: 400, bodyRaw: encodeJSON(["error": "This path cannot be modified from Lite Manager"]), headers: liteCORSHeaders())
+        }
+
+        do {
+            try FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: nil)
+            try body.write(to: fileURL, options: .atomic)
+            return HTTPResponse(statusCode: 200, bodyRaw: encodeJSON(["status": "ok"]), headers: liteCORSHeaders())
+        } catch {
+            return HTTPResponse(statusCode: 500, bodyRaw: encodeJSON(["error": error.localizedDescription]), headers: liteCORSHeaders())
+        }
+    }
+
+    private func handleLiteFileDelete(queryItems: [String: String]) async -> HTTPResponse {
+        guard let serviceId = queryItems["service"], !serviceId.isEmpty,
+              let path = queryItems["path"], !path.isEmpty,
+              let fileURL = await validatedLiteServicePathURL(serviceId: serviceId, path: path) else {
+            return HTTPResponse(statusCode: 400, bodyRaw: encodeJSON(["error": "Missing or invalid service/path"]), headers: liteCORSHeaders())
+        }
+        guard isLiteMutable(relativePath: path) else {
+            return HTTPResponse(statusCode: 400, bodyRaw: encodeJSON(["error": "This path cannot be modified from Lite Manager"]), headers: liteCORSHeaders())
+        }
+        guard FileManager.default.fileExists(atPath: fileURL.path) else {
+            return HTTPResponse(statusCode: 404, bodyRaw: encodeJSON(["error": "File not found"]), headers: liteCORSHeaders())
+        }
+
+        do {
+            try FileManager.default.removeItem(at: fileURL)
+            return HTTPResponse(statusCode: 200, bodyRaw: encodeJSON(["status": "ok"]), headers: liteCORSHeaders())
+        } catch {
+            return HTTPResponse(statusCode: 500, bodyRaw: encodeJSON(["error": error.localizedDescription]), headers: liteCORSHeaders())
+        }
+    }
+
+    private func handleLiteFolderCreate(queryItems: [String: String]) async -> HTTPResponse {
+        guard let serviceId = queryItems["service"], !serviceId.isEmpty,
+              let path = queryItems["path"], !path.isEmpty,
+              let folderURL = await validatedLiteServicePathURL(serviceId: serviceId, path: path) else {
+            return HTTPResponse(statusCode: 400, bodyRaw: encodeJSON(["error": "Missing or invalid service/path"]), headers: liteCORSHeaders())
+        }
+        guard isLiteMutable(relativePath: path) else {
+            return HTTPResponse(statusCode: 400, bodyRaw: encodeJSON(["error": "This path cannot be modified from Lite Manager"]), headers: liteCORSHeaders())
+        }
+
+        do {
+            try FileManager.default.createDirectory(at: folderURL, withIntermediateDirectories: true, attributes: nil)
+            return HTTPResponse(statusCode: 200, bodyRaw: encodeJSON(["status": "ok"]), headers: liteCORSHeaders())
+        } catch {
+            return HTTPResponse(statusCode: 500, bodyRaw: encodeJSON(["error": error.localizedDescription]), headers: liteCORSHeaders())
+        }
+    }
+
+    private func handleLiteRename(queryItems: [String: String]) async -> HTTPResponse {
+        guard let serviceId = queryItems["service"], !serviceId.isEmpty,
+              let path = queryItems["path"], !path.isEmpty,
+              let nextPath = queryItems["nextPath"], !nextPath.isEmpty,
+              let sourceURL = await validatedLiteServicePathURL(serviceId: serviceId, path: path),
+              let destinationURL = await validatedLiteServicePathURL(serviceId: serviceId, path: nextPath) else {
+            return HTTPResponse(statusCode: 400, bodyRaw: encodeJSON(["error": "Missing or invalid rename path"]), headers: liteCORSHeaders())
+        }
+        guard isLiteMutable(relativePath: path), isLiteMutable(relativePath: nextPath) else {
+            return HTTPResponse(statusCode: 400, bodyRaw: encodeJSON(["error": "This path cannot be modified from Lite Manager"]), headers: liteCORSHeaders())
+        }
+        guard FileManager.default.fileExists(atPath: sourceURL.path) else {
+            return HTTPResponse(statusCode: 404, bodyRaw: encodeJSON(["error": "Source file not found"]), headers: liteCORSHeaders())
+        }
+        guard !FileManager.default.fileExists(atPath: destinationURL.path) else {
+            return HTTPResponse(statusCode: 400, bodyRaw: encodeJSON(["error": "Destination already exists"]), headers: liteCORSHeaders())
+        }
+
+        do {
+            try FileManager.default.createDirectory(at: destinationURL.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: nil)
+            try FileManager.default.moveItem(at: sourceURL, to: destinationURL)
+            return HTTPResponse(statusCode: 200, bodyRaw: encodeJSON(["status": "ok"]), headers: liteCORSHeaders())
+        } catch {
+            return HTTPResponse(statusCode: 500, bodyRaw: encodeJSON(["error": error.localizedDescription]), headers: liteCORSHeaders())
+        }
     }
 
     private func handleGetServices() async -> HTTPResponse {
@@ -556,6 +848,118 @@ public actor LocalServer {
         return result
     }
 
+    private func encodeJSON(_ object: Any) -> Data {
+        (try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])) ?? Data()
+    }
+
+    private func liteManagerHTMLURL() -> URL? {
+        liteManagerRootURL()?.appendingPathComponent("index.html", isDirectory: false)
+    }
+
+    private func liteManagerRootURL() -> URL? {
+        let bundleCandidates = [
+            Bundle.main.url(forResource: "website", withExtension: nil),
+            Bundle.main.url(forResource: "LiteManager", withExtension: nil)
+        ]
+        if let match = bundleCandidates.compactMap({ $0 }).first(where: {
+            FileManager.default.fileExists(atPath: $0.appendingPathComponent("index.html").path)
+        }) {
+            return match
+        }
+
+        let sourceFileURL = URL(fileURLWithPath: #filePath)
+        let repoRootURL = sourceFileURL
+            .deletingLastPathComponent() // LocalServer.swift
+            .deletingLastPathComponent() // Server
+            .deletingLastPathComponent() // API2FileCore
+            .deletingLastPathComponent() // Sources
+        let developmentURL = repoRootURL.appendingPathComponent("website", isDirectory: true)
+        return FileManager.default.fileExists(atPath: developmentURL.appendingPathComponent("index.html").path) ? developmentURL : nil
+    }
+
+    private func shouldHideLitePath(_ relativePath: String, includeHidden: Bool) -> Bool {
+        let segments = relativePath.split(separator: "/").map(String.init)
+        let hasHiddenSegment = segments.contains { $0.hasPrefix(".") }
+        if relativePath.hasPrefix(".git/") || relativePath == ".git" {
+            return true
+        }
+        return hasHiddenSegment && !includeHidden
+    }
+
+    private func isLiteEditable(relativePath: String, fileExtension: String) -> Bool {
+        if relativePath.hasPrefix(".api2file/") || relativePath.hasPrefix(".git/") {
+            return false
+        }
+        let editableExtensions: Set<String> = [
+            "txt", "md", "markdown", "json", "yaml", "yml", "html", "htm", "svg",
+            "csv", "ics", "vcf", "eml", "xml", "js", "css", "log"
+        ]
+        return editableExtensions.contains(fileExtension)
+    }
+
+    private func isLiteMutable(relativePath: String) -> Bool {
+        !(relativePath.hasPrefix(".api2file/") || relativePath == ".api2file" || relativePath.hasPrefix(".git/") || relativePath == ".git")
+    }
+
+    private func validatedLiteFileURL(queryItems: [String: String]) async -> URL? {
+        guard let serviceId = queryItems["service"], !serviceId.isEmpty,
+              let path = queryItems["path"], !path.isEmpty else {
+            return nil
+        }
+        return await validatedLiteServicePathURL(serviceId: serviceId, path: path)
+    }
+
+    private func validatedLiteServicePathURL(serviceId: String, path: String) async -> URL? {
+        guard !path.hasPrefix("/") else {
+            return nil
+        }
+
+        let segments = path.split(separator: "/").map(String.init)
+        guard !segments.isEmpty,
+              !segments.contains(".."),
+              !segments.contains(where: { $0.isEmpty }) else {
+            return nil
+        }
+
+        guard await syncEngine.getServiceStatus(serviceId) != nil else {
+            return nil
+        }
+
+        let rootURL = await syncEngine.getSyncRootURL()
+        let serviceRoot = rootURL.appendingPathComponent(serviceId, isDirectory: true).standardizedFileURL
+        let itemURL = serviceRoot.appendingPathComponent(path, isDirectory: false).standardizedFileURL
+        guard itemURL.path.hasPrefix(serviceRoot.path + "/") else {
+            return nil
+        }
+        return itemURL
+    }
+
+    private func contentType(for url: URL) -> String {
+        if let type = UTType(filenameExtension: url.pathExtension),
+           let mime = type.preferredMIMEType {
+            return mime
+        }
+
+        switch url.pathExtension.lowercased() {
+        case "md", "markdown", "txt", "log", "csv", "yaml", "yml", "json", "js", "css", "xml", "ics", "vcf", "eml":
+            return "text/plain; charset=utf-8"
+        case "html", "htm":
+            return "text/html; charset=utf-8"
+        case "svg":
+            return "image/svg+xml"
+        default:
+            return "application/octet-stream"
+        }
+    }
+
+    private func liteCORSHeaders() -> [(String, String)] {
+        [
+            ("Access-Control-Allow-Origin", "*"),
+            ("Access-Control-Allow-Methods", "GET, PUT, POST, DELETE, OPTIONS"),
+            ("Access-Control-Allow-Headers", "Content-Type")
+        ]
+    }
+
     // MARK: - Header Parsing
 
     private static func parseContentLength(from headers: String) -> Int {
@@ -603,7 +1007,9 @@ private struct HTTPRequest {
             for pair in queryString.split(separator: "&") {
                 let kv = pair.split(separator: "=", maxSplits: 1)
                 if kv.count == 2 {
-                    queryItems[String(kv[0])] = String(kv[1])
+                    let key = String(kv[0]).replacingOccurrences(of: "+", with: " ").removingPercentEncoding ?? String(kv[0])
+                    let value = String(kv[1]).replacingOccurrences(of: "+", with: " ").removingPercentEncoding ?? String(kv[1])
+                    queryItems[key] = value
                 }
             }
         }
@@ -628,20 +1034,27 @@ private struct HTTPRequest {
 private struct HTTPResponse {
     let statusCode: Int
     let bodyData: Data
+    let contentType: String
+    let headers: [(String, String)]
 
     init(statusCode: Int, body: [String: String]) {
         self.statusCode = statusCode
         self.bodyData = (try? JSONSerialization.data(withJSONObject: body, options: [.sortedKeys])) ?? Data()
+        self.contentType = "application/json"
+        self.headers = []
     }
 
-    init(statusCode: Int, bodyRaw: Data) {
+    init(statusCode: Int, bodyRaw: Data, contentType: String = "application/json", headers: [(String, String)] = []) {
         self.statusCode = statusCode
         self.bodyData = bodyRaw
+        self.contentType = contentType
+        self.headers = headers
     }
 
     var statusText: String {
         switch statusCode {
         case 200: return "OK"
+        case 204: return "No Content"
         case 400: return "Bad Request"
         case 404: return "Not Found"
         case 408: return "Request Timeout"
@@ -652,14 +1065,13 @@ private struct HTTPResponse {
     }
 
     func serialize() -> Data {
-        let header = """
-        HTTP/1.1 \(statusCode) \(statusText)\r
-        Content-Type: application/json\r
-        Content-Length: \(bodyData.count)\r
-        Connection: close\r
-        \r
-
-        """
+        var header = "HTTP/1.1 \(statusCode) \(statusText)\r\n"
+        header += "Content-Type: \(contentType)\r\n"
+        header += "Content-Length: \(bodyData.count)\r\n"
+        for (name, value) in headers {
+            header += "\(name): \(value)\r\n"
+        }
+        header += "Connection: close\r\n\r\n"
         var data = Data(header.utf8)
         data.append(bodyData)
         return data

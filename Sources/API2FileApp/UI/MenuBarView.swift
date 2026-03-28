@@ -64,6 +64,11 @@ struct MenuBarView: View {
         }
         .testId("menubar-open-browser")
 
+        Button("Open Lite Manager") {
+            appState.openLiteManager()
+        }
+        .testId("menubar-open-lite-manager")
+
         Button("Open Claude Code...") {
             appState.launchClaudeCode()
         }
@@ -109,6 +114,11 @@ struct MenuBarView: View {
                 NSWorkspace.shared.open(url)
             }
             .testId("menubar-service-folder-\(service.serviceId)")
+
+            Button("Open Lite Page") {
+                appState.openLiteManager(serviceId: service.serviceId)
+            }
+            .testId("menubar-service-lite-page-\(service.serviceId)")
 
             if let time = service.lastSyncTime {
                 Divider()
