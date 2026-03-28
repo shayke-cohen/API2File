@@ -53,24 +53,19 @@ struct MenuBarView: View {
 
         Divider()
 
-        Button("Open ~/API2File") {
+        Button("Open in Finder") {
             let url = appState.config.resolvedSyncFolder
-            NSWorkspace.shared.open(url)
+            FinderSupport.openInFinder(url)
         }
         .testId("menubar-open-folder")
-
-        Button("Open Browser") {
-            appState.openBrowserWindow()
-        }
-        .testId("menubar-open-browser")
 
         Button("Open Lite Manager") {
             appState.openLiteManager()
         }
         .testId("menubar-open-lite-manager")
 
-        Button("Open Claude Code...") {
-            appState.launchClaudeCode()
+        Button("Open \(appState.codingAgentDisplayName)...") {
+            appState.launchCodingAgent()
         }
         .testId("menubar-open-claude-code")
 
@@ -111,7 +106,7 @@ struct MenuBarView: View {
             Button("Open Folder") {
                 let url = appState.config.resolvedSyncFolder
                     .appendingPathComponent(service.serviceId)
-                NSWorkspace.shared.open(url)
+                FinderSupport.openInFinder(url)
             }
             .testId("menubar-service-folder-\(service.serviceId)")
 

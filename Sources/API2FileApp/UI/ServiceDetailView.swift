@@ -250,16 +250,16 @@ struct ServiceDetailView: View {
         return result.hasSuffix("/") ? String(result.dropLast()) : result
     }
 
-    // MARK: - Claude Code Button
+    // MARK: - Coding Agent Button
 
     private var claudeCodeButton: some View {
         Button {
-            appState.launchClaudeCode(serviceId: service.serviceId)
+            appState.launchCodingAgent(serviceId: service.serviceId)
         } label: {
             HStack(spacing: 8) {
                 Image(systemName: "terminal")
                     .font(.system(size: 14))
-                Text("Open Claude Code")
+                Text("Open \(appState.codingAgentDisplayName)")
                     .fontWeight(.medium)
                 Text("— work with \(service.displayName) data using AI")
                     .foregroundStyle(.secondary)

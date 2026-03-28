@@ -156,6 +156,10 @@ final class AppState: ObservableObject {
         return "checkmark.icloud"
     }
 
+    var codingAgentDisplayName: String {
+        "Claude Code"
+    }
+
     func startEngine() {
         NSLog("AppState startEngine called")
         guard !engineStarted else { return }
@@ -532,44 +536,47 @@ final class AppState: ObservableObject {
 
     // MARK: - Claude Code Launcher
 
-    func launchClaudeCode(serviceId: String? = nil) {
+    func launchCodingAgent(serviceId: String? = nil) {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
 
-            // Check if claude CLI is installed
-            let whichProcess = Process()
-            whichProcess.executableURL = URL(fileURLWithPath: "/usr/bin/which")
-            whichProcess.arguments = ["claude"]
-            let pipe = Pipe()
-            whichProcess.standardOutput = pipe
-            whichProcess.standardError = pipe
-            try? whichProcess.run()
-            whichProcess.waitUntilExit()
-
-            guard whichProcess.terminationStatus == 0 else {
+            guard let claudePath = Self.resolveClaudeExecutable() else {
                 let alert = NSAlert()
                 alert.alertStyle = .informational
                 alert.messageText = "Claude Code not found"
-                alert.informativeText = "Install Claude Code CLI first:\n\nnpm install -g @anthropic-ai/claude-code\n\nOr visit https://claude.ai/download"
+                alert.informativeText = """
+                Install Claude Code CLI first:
+
+                npm install -g @anthropic-ai/claude-code
+
+                API2File checks your login shell and common locations like ~/.local/bin/claude.
+                """
                 alert.addButton(withTitle: "OK")
                 NSApp.activate(ignoringOtherApps: true)
                 alert.runModal()
                 return
             }
 
-            // Generate MCP config
             let home = FileManager.default.homeDirectoryForCurrentUser
             let api2fileDir = home.appendingPathComponent(".api2file")
             try? FileManager.default.createDirectory(at: api2fileDir, withIntermediateDirectories: true)
 
-            // Find the MCP binary — check build output first, then ~/.api2file/bin/
             var mcpBinaryPath = api2fileDir.appendingPathComponent("bin/api2file-mcp").path
-            // In development, use the build output
             let devBinary = home.appendingPathComponent("API2File/.build/debug/api2file-mcp").path
             if FileManager.default.fileExists(atPath: devBinary) {
                 mcpBinaryPath = devBinary
             }
 
+            if let serviceId,
+               let service = self.services.first(where: { $0.serviceId == serviceId }),
+               let siteUrl = service.config.siteUrl {
+                self.sharedWebViewStore.navigate(to: siteUrl)
+            }
+
+            var targetFolder = self.config.resolvedSyncFolder
+            if let serviceId {
+                targetFolder = targetFolder.appendingPathComponent(serviceId)
+            }
             let mcpConfig: [String: Any] = [
                 "mcpServers": [
                     "api2file": [
@@ -582,29 +589,23 @@ final class AppState: ObservableObject {
             if let data = try? JSONSerialization.data(withJSONObject: mcpConfig, options: [.prettyPrinted, .sortedKeys]) {
                 try? data.write(to: mcpConfigURL, options: .atomic)
             }
-
-            // Auto-navigate the shared browser to the service's siteUrl
-            if let serviceId,
-               let service = self.services.first(where: { $0.serviceId == serviceId }),
-               let siteUrl = service.config.siteUrl {
-                self.sharedWebViewStore.navigate(to: siteUrl)
+            let pathDirectories = Self.claudeRuntimePathEntries(claudePath: claudePath)
+            let exportPath: String
+            if pathDirectories.isEmpty {
+                exportPath = ""
+            } else {
+                let joined = pathDirectories.map(Self.shellEscape).joined(separator: ":")
+                exportPath = "export PATH=\(joined):$PATH && "
             }
-
-            // Detect terminal and launch — cd into service subfolder if provided
-            var targetFolder = self.config.resolvedSyncFolder
-            if let serviceId {
-                targetFolder = targetFolder.appendingPathComponent(serviceId)
-            }
-            let command = "cd \(Self.shellEscape(targetFolder.path)) && claude --mcp-config \(Self.shellEscape(mcpConfigURL.path))"
+            let command = "\(exportPath)cd \(Self.shellEscape(targetFolder.path)) && \(Self.shellEscape(claudePath)) --mcp-config \(Self.shellEscape(mcpConfigURL.path))"
             Self.openInTerminal(command: command)
         }
     }
 
     private static func openInTerminal(command: String) {
-        // Write a .command file — macOS opens these in Terminal.app automatically
         let scriptPath = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".api2file/launch-claude.command")
-        let scriptContent = "#!/bin/zsh\n\(command)\n"
+        let scriptContent = "#!/bin/zsh -l\n\(command)\n"
         try? scriptContent.write(to: scriptPath, atomically: true, encoding: .utf8)
         try? FileManager.default.setAttributes(
             [.posixPermissions: 0o755], ofItemAtPath: scriptPath.path
@@ -614,6 +615,47 @@ final class AppState: ObservableObject {
 
     private static func shellEscape(_ path: String) -> String {
         "'" + path.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+
+    private static func claudeRuntimePathEntries(claudePath: String) -> [String] {
+        var entries: [String] = [URL(fileURLWithPath: claudePath).deletingLastPathComponent().path]
+        if let nodePath = resolveShellCommand("node") {
+            entries.append(URL(fileURLWithPath: nodePath).deletingLastPathComponent().path)
+        }
+        return Array(NSOrderedSet(array: entries)) as? [String] ?? entries
+    }
+
+    private static func resolveClaudeExecutable() -> String? {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let candidates = [
+            "\(home)/.local/bin/claude",
+            "/opt/homebrew/bin/claude",
+            "/usr/local/bin/claude"
+        ]
+        for candidate in candidates where FileManager.default.isExecutableFile(atPath: candidate) {
+            return candidate
+        }
+        return resolveShellCommand("claude")
+    }
+
+    private static func resolveShellCommand(_ command: String) -> String? {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        process.arguments = ["-lc", "command -v \(command)"]
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = Pipe()
+        do {
+            try process.run()
+            process.waitUntilExit()
+            guard process.terminationStatus == 0 else { return nil }
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            let output = String(data: data, encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return output?.isEmpty == false ? output : nil
+        } catch {
+            return nil
+        }
     }
 
     // MARK: - Port Discovery File
