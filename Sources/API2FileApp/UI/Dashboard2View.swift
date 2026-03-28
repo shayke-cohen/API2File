@@ -4,6 +4,9 @@ import API2FileCore
 
 struct Dashboard2View: View {
     @ObservedObject var appState: AppState
+    let headerTitle: String
+    let headerSubtitle: String
+    let embeddedInWorkspace: Bool
 
     @State private var selectedServiceId: String?
     @State private var selectedFileURL: URL?
@@ -22,14 +25,31 @@ struct Dashboard2View: View {
         endPoint: .bottomTrailing
     )
 
+    init(
+        appState: AppState,
+        headerTitle: String = "Dashboard",
+        headerSubtitle: String = "A management portal for synced content: browse by folder, edit records in tables, refine Markdown content, and jump into the right tool faster.",
+        embeddedInWorkspace: Bool = false
+    ) {
+        self.appState = appState
+        self.headerTitle = headerTitle
+        self.headerSubtitle = headerSubtitle
+        self.embeddedInWorkspace = embeddedInWorkspace
+    }
+
     var body: some View {
         ZStack {
-            background.ignoresSafeArea()
+            if !embeddedInWorkspace {
+                background.ignoresSafeArea()
+            }
 
-            VStack(spacing: 16) {
-                portalHeader
-                heroMetrics
-                workspaceSyncSummary
+            VStack(spacing: 12) {
+                if embeddedInWorkspace {
+                    workspaceDeck
+                } else {
+                    portalHeader
+                    overviewStrip
+                }
 
                 if services.isEmpty {
                     portalEmptyState
@@ -44,7 +64,7 @@ struct Dashboard2View: View {
                     .padding(.bottom, 4)
                 }
             }
-            .padding(18)
+            .padding(embeddedInWorkspace ? 0 : 18)
         }
         .onAppear {
             selectDefaultServiceIfNeeded()
@@ -92,51 +112,24 @@ struct Dashboard2View: View {
     }
 
     private var portalHeader: some View {
-        HStack(alignment: .top, spacing: 16) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Dashboard 2")
-                    .font(.system(size: 28, weight: .bold, design: .rounded))
-                Text("A management portal for synced content: browse by folder, edit records in tables, refine Markdown content, and jump into the right tool faster.")
-                    .font(.callout)
+        HStack(alignment: .center, spacing: 18) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(headerTitle)
+                    .font(.system(size: 24, weight: .bold, design: .rounded))
+                Text(headerSubtitle)
+                    .font(.subheadline)
                     .foregroundStyle(.secondary)
+                    .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            Spacer(minLength: 20)
+            Spacer(minLength: 16)
 
-            VStack(alignment: .trailing, spacing: 10) {
-                HStack(spacing: 10) {
-                    Picker("Workspace", selection: Binding(
-                        get: { selectedService?.serviceId },
-                        set: { selectedServiceId = $0 }
-                    )) {
-                        ForEach(services, id: \.serviceId) { service in
-                            Text(service.displayName).tag(Optional(service.serviceId))
-                        }
-                    }
-                    .pickerStyle(.menu)
-                    .frame(width: 220)
-
-                    Button {
-                        appState.openAddServiceWindow()
-                    } label: {
-                        Label("Add Service", systemImage: "plus")
-                    }
-                    .buttonStyle(.bordered)
-
-                    Button {
-                        if let serviceId = selectedService?.serviceId {
-                            appState.syncService(serviceId: serviceId)
-                        } else {
-                            appState.syncNow()
-                        }
-                    } label: {
-                        Label(selectedService == nil ? "Sync All" : "Sync Workspace", systemImage: "arrow.triangle.2.circlepath")
-                    }
-                    .buttonStyle(.borderedProminent)
+            VStack(alignment: .trailing, spacing: 8) {
+                HStack(spacing: 8) {
                 }
 
-                HStack(spacing: 10) {
+                HStack(spacing: 8) {
                     Button {
                         openSelectedServiceFolder()
                     } label: {
@@ -144,6 +137,7 @@ struct Dashboard2View: View {
                     }
                     .buttonStyle(.bordered)
                     .disabled(selectedService == nil)
+                    .controlSize(.small)
 
                     Button {
                         if let serviceId = selectedService?.serviceId {
@@ -154,40 +148,147 @@ struct Dashboard2View: View {
                     }
                     .buttonStyle(.bordered)
                     .disabled(selectedService == nil)
+                    .controlSize(.small)
                 }
             }
         }
-        .padding(18)
+        .padding(16)
         .background(portalGlassPanel(cornerRadius: 24))
     }
 
-    private var heroMetrics: some View {
-        HStack(spacing: 12) {
-            PortalMetricCard(
-                title: "Connected",
-                value: "\(services.count)",
-                subtitle: services.filter { $0.status == .connected }.isEmpty ? "No active services" : "\(services.filter { $0.status == .connected }.count) healthy",
-                icon: "bolt.horizontal.circle"
-            )
-            PortalMetricCard(
-                title: "Tracked Files",
-                value: "\(services.reduce(0) { $0 + $1.fileCount })",
-                subtitle: selectedService.map { "\($0.fileCount) in \($0.displayName)" } ?? "Across all services",
-                icon: "doc.stack"
-            )
-            PortalMetricCard(
-                title: "Recent Pulls",
-                value: "\(recentPullFileCount)",
-                subtitle: recentPullSummary,
-                icon: "arrow.down.doc"
-            )
-            PortalMetricCard(
-                title: "Recent Pushes",
-                value: "\(recentPushFileCount)",
-                subtitle: recentPushSummary,
-                icon: "arrow.up.doc"
-            )
+    private var workspaceDeck: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            HStack(alignment: .top, spacing: 18) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(headerTitle)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+
+                    HStack(spacing: 10) {
+                        Text(selectedService?.displayName ?? "Choose a workspace")
+                            .font(.system(size: 28, weight: .bold, design: .rounded))
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+
+                        if let selectedService {
+                            PortalStatusPill(
+                                title: portalStatusText(for: selectedService),
+                                tint: portalStatusColor(for: selectedService)
+                            )
+                        }
+                    }
+
+                    Text(selectedService.map { "\($0.serviceId) · \(compactLastSyncSummary)" } ?? headerSubtitle)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+
+                Spacer(minLength: 16)
+
+                HStack(spacing: 8) {
+                    Button {
+                        openSelectedServiceFolder()
+                    } label: {
+                        Label("Open Folder", systemImage: "folder")
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(selectedService == nil)
+                    .controlSize(.small)
+
+                    Button {
+                        if let serviceId = selectedService?.serviceId {
+                            appState.launchCodingAgent(serviceId: serviceId)
+                        }
+                    } label: {
+                        Label("Open \(appState.codingAgentDisplayName)", systemImage: "terminal")
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(selectedService == nil)
+                    .controlSize(.small)
+                }
+            }
+
+            HStack(spacing: 10) {
+                PortalWorkspaceSelector(
+                    services: services,
+                    selectedServiceId: Binding(
+                        get: { selectedService?.serviceId },
+                        set: { selectedServiceId = $0 }
+                    )
+                )
+
+                Button {
+                    appState.openAddServiceWindow()
+                } label: {
+                    Label("Add Service", systemImage: "plus")
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+
+                Spacer(minLength: 12)
+
+                Button {
+                    if let serviceId = selectedService?.serviceId {
+                        appState.syncService(serviceId: serviceId)
+                    } else {
+                        appState.syncNow()
+                    }
+                } label: {
+                    Label(selectedService == nil ? "Sync All" : "Sync Now", systemImage: "arrow.triangle.2.circlepath")
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+            }
+
+            LazyVGrid(
+                columns: [GridItem(.adaptive(minimum: 150), spacing: 10, alignment: .top)],
+                alignment: .leading,
+                spacing: 10
+            ) {
+                PortalSummaryCard(
+                    title: "Sync Status",
+                    value: selectedService.map(portalStatusText(for:)) ?? "No workspace",
+                    detail: selectedService == nil ? "Connect a service to start syncing" : "Last sync \(compactLastSyncSummary)",
+                    icon: "dot.radiowaves.left.and.right",
+                    tint: selectedService.map(portalStatusColor(for:)) ?? .secondary
+                )
+
+                PortalSummaryCard(
+                    title: "Tracked Files",
+                    value: selectedService.map { "\($0.fileCount)" } ?? "\(services.reduce(0) { $0 + $1.fileCount })",
+                    detail: selectedService == nil ? "Across all connected services" : "Files mirrored for this workspace",
+                    icon: "doc.stack",
+                    tint: .secondary
+                )
+
+                PortalSummaryCard(
+                    title: "Recent Pulls",
+                    value: "\(recentPullFileCount)",
+                    detail: recentPullSummary,
+                    icon: "arrow.down.doc",
+                    tint: .blue
+                )
+
+                PortalSummaryCard(
+                    title: "Recent Pushes",
+                    value: "\(recentPushFileCount)",
+                    detail: recentPushSummary,
+                    icon: "arrow.up.doc",
+                    tint: .green
+                )
+
+                PortalSummaryCard(
+                    title: "Explorer",
+                    value: selectedService == nil ? "Select a workspace" : "\(folderCount) folders",
+                    detail: selectedService == nil ? "Browse content after selecting a workspace" : "\(visibleFiles.count) visible files",
+                    icon: "folder",
+                    tint: .secondary
+                )
+            }
         }
+        .padding(22)
+        .background(portalGlassPanel(cornerRadius: 28))
     }
 
     private var folderCount: Int {
@@ -242,29 +343,94 @@ struct Dashboard2View: View {
         return selectedService == nil ? "Select a workspace" : "No push history yet"
     }
 
-    private var workspaceSyncSummary: some View {
-        HStack(spacing: 12) {
-            PortalStatusBadge(
-                title: "Sync Status",
-                value: selectedService.map(portalStatusText(for:)) ?? "No workspace",
-                tint: selectedService.map(portalStatusColor(for:)) ?? .secondary
-            )
+    private var compactLastSyncSummary: String {
+        guard let date = selectedService?.lastSyncTime else { return "Not yet" }
+        return date.formatted(.relative(presentation: .named))
+    }
 
-            PortalStatusBadge(
-                title: "Last Sync",
-                value: selectedService?.lastSyncTime?.formatted(date: .abbreviated, time: .shortened) ?? "Not yet",
-                tint: .blue
-            )
+    private var overviewStrip: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 0) {
+                PortalWorkspaceControl(
+                    services: services,
+                    selectedServiceId: Binding(
+                        get: { selectedService?.serviceId },
+                        set: { selectedServiceId = $0 }
+                    ),
+                    selectedService: selectedService,
+                    onAddService: {
+                        appState.openAddServiceWindow()
+                    }
+                )
 
-            PortalStatusBadge(
-                title: "Explorer",
-                value: selectedService == nil ? "Select a workspace" : "\(folderCount) folders · \(visibleFiles.count) files",
-                tint: .secondary
-            )
+                PortalCompactDivider()
 
-            Spacer()
+                PortalCompactStat(
+                    title: "Connected",
+                    value: "\(services.count)",
+                    detail: services.filter { $0.status == .connected }.isEmpty ? "No active services" : "\(services.filter { $0.status == .connected }.count) healthy",
+                    icon: "bolt.horizontal.circle",
+                    actionTitle: selectedService == nil ? "Sync All" : "Sync",
+                    actionIcon: "arrow.triangle.2.circlepath",
+                    action: {
+                        if let serviceId = selectedService?.serviceId {
+                            appState.syncService(serviceId: serviceId)
+                        } else {
+                            appState.syncNow()
+                        }
+                    }
+                )
+
+                PortalCompactDivider()
+
+                PortalCompactStat(
+                    title: "Tracked Files",
+                    value: "\(services.reduce(0) { $0 + $1.fileCount })",
+                    detail: selectedService.map { "\($0.fileCount) in \($0.displayName)" } ?? "Across all services",
+                    icon: "doc.stack"
+                )
+
+                PortalCompactDivider()
+
+                PortalCompactStat(
+                    title: "Recent Pulls",
+                    value: "\(recentPullFileCount)",
+                    detail: recentPullSummary,
+                    icon: "arrow.down.doc"
+                )
+
+                PortalCompactDivider()
+
+                PortalCompactStat(
+                    title: "Recent Pushes",
+                    value: "\(recentPushFileCount)",
+                    detail: recentPushSummary,
+                    icon: "arrow.up.doc"
+                )
+
+                PortalCompactDivider()
+
+                PortalCompactStat(
+                    title: "Sync Status",
+                    value: selectedService.map(portalStatusText(for:)) ?? "No workspace",
+                    detail: "Last sync \(compactLastSyncSummary)",
+                    icon: "dot.radiowaves.left.and.right",
+                    tint: selectedService.map(portalStatusColor(for:)) ?? .secondary
+                )
+
+                PortalCompactDivider()
+
+                PortalCompactStat(
+                    title: "Explorer",
+                    value: selectedService == nil ? "Select a workspace" : "\(folderCount) folders",
+                    detail: selectedService == nil ? "Browse content after selecting a workspace" : "\(visibleFiles.count) visible files",
+                    icon: "folder"
+                )
+            }
+            .padding(.horizontal, 6)
         }
-        .padding(14)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
         .background(portalGlassPanel(cornerRadius: 20))
     }
 
@@ -443,31 +609,171 @@ struct Dashboard2View: View {
     }
 }
 
-private struct PortalStatusBadge: View {
+private struct PortalCompactStat: View {
     let title: String
     let value: String
+    let detail: String
+    let icon: String
+    var tint: Color = .secondary
+    var actionTitle: String? = nil
+    var actionIcon: String? = nil
+    var action: (() -> Void)? = nil
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(alignment: .center, spacing: 8) {
+                Label(title, systemImage: icon)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+
+                Spacer(minLength: 8)
+
+                if let actionTitle, let action {
+                    Button {
+                        action()
+                    } label: {
+                        Label(actionTitle, systemImage: actionIcon ?? "arrow.triangle.2.circlepath")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.mini)
+                }
+            }
+            HStack(spacing: 7) {
+                Circle()
+                    .fill(tint)
+                    .frame(width: 7, height: 7)
+                Text(value)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+            }
+            Text(detail)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+        }
+        .frame(width: 210, alignment: .leading)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+    }
+}
+
+private struct PortalWorkspaceControl: View {
+    let services: [ServiceInfo]
+    @Binding var selectedServiceId: String?
+    let selectedService: ServiceInfo?
+    let onAddService: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Label("Workspace", systemImage: "square.stack.3d.up")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+
+            HStack(spacing: 8) {
+                Picker("", selection: $selectedServiceId) {
+                    ForEach(services, id: \.serviceId) { service in
+                        Text(service.displayName).tag(Optional(service.serviceId))
+                    }
+                }
+                .pickerStyle(.menu)
+                .frame(width: 280)
+
+                Button {
+                    onAddService()
+                } label: {
+                    Label("Add Service", systemImage: "plus")
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            }
+
+            Text(selectedService?.serviceId ?? "Choose a workspace to browse content")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+        }
+        .frame(width: 430, alignment: .leading)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+    }
+}
+
+private struct PortalCompactDivider: View {
+    var body: some View {
+        Rectangle()
+            .fill(Color.white.opacity(0.45))
+            .frame(width: 1, height: 54)
+            .padding(.vertical, 10)
+    }
+}
+
+private struct PortalWorkspaceSelector: View {
+    let services: [ServiceInfo]
+    @Binding var selectedServiceId: String?
+
+    var body: some View {
+        Picker("", selection: $selectedServiceId) {
+            ForEach(services, id: \.serviceId) { service in
+                Text(service.displayName).tag(Optional(service.serviceId))
+            }
+        }
+        .pickerStyle(.menu)
+        .frame(width: 320)
+    }
+}
+
+private struct PortalStatusPill: View {
+    let title: String
     let tint: Color
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        HStack(spacing: 8) {
+            Circle()
+                .fill(tint)
+                .frame(width: 8, height: 8)
             Text(title)
                 .font(.caption.weight(.semibold))
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 7)
+        .background(Capsule().fill(tint.opacity(0.14)))
+        .foregroundStyle(tint)
+    }
+}
+
+private struct PortalSummaryCard: View {
+    let title: String
+    let value: String
+    let detail: String
+    let icon: String
+    let tint: Color
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label(title, systemImage: icon)
+                .font(.caption.weight(.semibold))
                 .foregroundStyle(.secondary)
+
             HStack(spacing: 8) {
                 Circle()
                     .fill(tint)
                     .frame(width: 8, height: 8)
                 Text(value)
-                    .font(.callout.weight(.medium))
-                    .foregroundStyle(.primary)
+                    .font(.headline.weight(.semibold))
                     .lineLimit(1)
             }
+
+            Text(detail)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, minHeight: 86, alignment: .leading)
+        .padding(14)
         .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Color.white.opacity(0.55))
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(Color.white.opacity(0.46))
         )
     }
 }
@@ -715,31 +1021,6 @@ private struct PortalBrowserTreeRow: View {
         Button("Open Editor") {
             openFileInEditor(fileURL)
         }
-    }
-}
-
-private struct PortalMetricCard: View {
-    let title: String
-    let value: String
-    let subtitle: String
-    let icon: String
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Label(title, systemImage: icon)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-            Text(value)
-                .font(.system(size: 24, weight: .bold, design: .rounded))
-                .lineLimit(1)
-            Text(subtitle)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .lineLimit(2)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(16)
-        .background(portalGlassPanel(cornerRadius: 20))
     }
 }
 

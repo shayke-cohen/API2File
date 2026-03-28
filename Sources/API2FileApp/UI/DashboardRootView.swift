@@ -1,35 +1,146 @@
 import SwiftUI
 
-private enum DashboardWorkspaceTab: Hashable {
-    case classic
-    case portal
-    case minimal
+private enum Dashboard3Tab: Hashable {
+    case fileExplorer
+    case dataExplorer
+    case activity
 }
 
 struct DashboardRootView: View {
     @ObservedObject var appState: AppState
-    @State private var selectedTab: DashboardWorkspaceTab = .portal
 
     var body: some View {
-        TabView(selection: $selectedTab) {
-            PreferencesView(appState: appState)
-                .tabItem {
-                    Label("Dashboard", systemImage: "sidebar.left")
-                }
-                .tag(DashboardWorkspaceTab.classic)
+        Dashboard3WorkspaceView(appState: appState)
+            .frame(minWidth: 900, idealWidth: 1280, minHeight: 620, idealHeight: 820)
+    }
+}
 
-            Dashboard2View(appState: appState)
-                .tabItem {
-                    Label("Dashboard 2", systemImage: "rectangle.3.group.bubble.left")
-                }
-                .tag(DashboardWorkspaceTab.portal)
+private struct Dashboard3WorkspaceView: View {
+    @ObservedObject var appState: AppState
+    @State private var selectedTab: Dashboard3Tab = .fileExplorer
+    @State private var showingSettings = false
 
-            Dashboard3View(appState: appState)
-                .tabItem {
-                    Label("Dashboard 3", systemImage: "square.grid.2x2")
+    private let background = LinearGradient(
+        colors: [
+            Color(nsColor: .windowBackgroundColor),
+            Color(red: 0.94, green: 0.97, blue: 1.0),
+            Color(red: 0.96, green: 0.95, blue: 0.99)
+        ],
+        startPoint: .topLeading,
+        endPoint: .bottomTrailing
+    )
+
+    var body: some View {
+        ZStack {
+            background.ignoresSafeArea()
+
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(alignment: .center, spacing: 18) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Dashboard")
+                            .font(.system(size: 28, weight: .bold, design: .rounded))
+                        Text("Files, local mirror data, and sync activity in one place.")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Spacer(minLength: 16)
+
+                    Picker("Workspace Section", selection: $selectedTab) {
+                        Text("File Explorer").tag(Dashboard3Tab.fileExplorer)
+                        Text("Data Explorer").tag(Dashboard3Tab.dataExplorer)
+                        Text("Activity").tag(Dashboard3Tab.activity)
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .frame(width: 420)
+
+                    Button {
+                        showingSettings = true
+                    } label: {
+                        Label("Settings", systemImage: "gearshape")
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
                 }
-                .tag(DashboardWorkspaceTab.minimal)
+                .padding(20)
+                .background(dashboardShellPanel(cornerRadius: 28))
+                .padding(.horizontal, 18)
+                .padding(.top, 18)
+
+                Group {
+                    switch selectedTab {
+                    case .fileExplorer:
+                        Dashboard2View(
+                            appState: appState,
+                            headerTitle: "File Explorer",
+                            headerSubtitle: "Browse synced files, edit records in place, and jump into the right tool faster.",
+                            embeddedInWorkspace: true
+                        )
+                        .padding(.horizontal, 18)
+                        .padding(.bottom, 18)
+                    case .dataExplorer:
+                        SQLExplorerPane(appState: appState, initialServiceId: nil)
+                            .padding(.horizontal, 18)
+                            .padding(.bottom, 18)
+                    case .activity:
+                        ActivityPane(appState: appState)
+                            .padding(.horizontal, 18)
+                            .padding(.bottom, 18)
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
         }
-        .frame(minWidth: 900, idealWidth: 1280, minHeight: 620, idealHeight: 820)
+        .sheet(isPresented: $showingSettings) {
+            NavigationStack {
+                ZStack {
+                    background.ignoresSafeArea()
+
+                    VStack(alignment: .leading, spacing: 14) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Settings")
+                                .font(.system(size: 24, weight: .bold, design: .rounded))
+                            Text("General sync, git, and app settings for your API2File workspace.")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding(.horizontal, 18)
+                        .padding(.top, 18)
+
+                        GeneralPane(config: $appState.config)
+                            .padding(.horizontal, 18)
+                            .padding(.bottom, 18)
+                    }
+                }
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Done") {
+                            showingSettings = false
+                        }
+                    }
+                }
+            }
+            .frame(minWidth: 860, idealWidth: 980, minHeight: 620, idealHeight: 760)
+        }
+    }
+
+    private func dashboardShellPanel(cornerRadius: CGFloat) -> some View {
+        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            .fill(
+                LinearGradient(
+                    colors: [
+                        Color.white.opacity(0.72),
+                        Color.white.opacity(0.56)
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .strokeBorder(Color.white.opacity(0.42), lineWidth: 1)
+            )
+            .shadow(color: Color.black.opacity(0.05), radius: 16, x: 0, y: 10)
     }
 }
