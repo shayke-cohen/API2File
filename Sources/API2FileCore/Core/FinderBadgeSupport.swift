@@ -15,7 +15,6 @@ public enum FinderBadgeSupport {
     public static let badgeKeyPrefix = "badge."
     public static let serviceConfigKeyPrefix = "serviceConfig."
     public static let refreshNotificationName = Notification.Name("com.api2file.finder-badges-updated")
-    public static let openURLNotificationName = Notification.Name("com.api2file.finder-open-url")
     public static let supportedStatuses: Set<String> = ["synced", "syncing", "conflict", "error"]
 
     public static func sharedDefaults() -> UserDefaults? {

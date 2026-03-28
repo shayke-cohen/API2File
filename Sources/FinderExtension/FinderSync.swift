@@ -6,6 +6,7 @@ import API2FileCore
 /// Shows sync-status overlays, including Wix-branded variants for the Wix service.
 final class FinderSync: FIFinderSync {
     private let sharedDefaults = FinderBadgeSupport.sharedDefaults()
+    private let controlServerBaseURL = "http://127.0.0.1:21567"
     private let fallbackSyncFolderURL = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent("API2File-Data", isDirectory: true)
     private var securityScopedSyncFolderURL: URL?
@@ -84,14 +85,28 @@ final class FinderSync: FIFinderSync {
 
     @objc func forceSyncAction(_ sender: AnyObject?) {
         NSLog("FinderSync forceSyncAction fired")
-        guard let items = FIFinderSyncController.default().selectedItemURLs(), !items.isEmpty else { return }
-        guard let serviceId = extractServiceId(from: items[0]) else { return }
+        guard let items = FIFinderSyncController.default().selectedItemURLs(), !items.isEmpty else {
+            NSLog("FinderSync forceSyncAction missing selected items")
+            return
+        }
+        guard let serviceId = extractServiceId(from: items[0]) else {
+            NSLog("FinderSync forceSyncAction could not resolve service id for %@", items[0].path)
+            return
+        }
 
         Task {
-            let url = URL(string: "http://localhost:21567/api/services/\(serviceId)/sync")!
+            let url = URL(string: "\(controlServerBaseURL)/api/services/\(serviceId)/sync")!
             var request = URLRequest(url: url)
             request.httpMethod = "POST"
-            _ = try? await URLSession.shared.data(for: request)
+            NSLog("FinderSync forceSyncAction POST %@", url.absoluteString)
+            do {
+                let (data, response) = try await URLSession.shared.data(for: request)
+                let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
+                let body = String(data: data, encoding: .utf8) ?? "<non-utf8>"
+                NSLog("FinderSync forceSyncAction response status=%ld body=%@", statusCode, body)
+            } catch {
+                NSLog("FinderSync forceSyncAction failed for %@: %@", url.absoluteString, error.localizedDescription)
+            }
         }
     }
 
@@ -108,9 +123,7 @@ final class FinderSync: FIFinderSync {
         }
 
         NSLog("FinderSync viewOnServerAction opening %@ for %@", dashboardURL.absoluteString, targetURL.path)
-        Task {
-            await requestBrowserOpen(dashboardURL)
-        }
+        openURLInBrowser(dashboardURL)
     }
 
     @objc func viewConflictAction(_ sender: AnyObject?) {
@@ -243,45 +256,28 @@ final class FinderSync: FIFinderSync {
             workspace.open([url], withApplicationAt: chromeURL, configuration: configuration) { _, error in
                 if let error {
                     NSLog("FinderSync failed opening Chrome for %@: %@", url.absoluteString, error.localizedDescription)
-                    workspace.open(url)
+                    let fallbackConfiguration = NSWorkspace.OpenConfiguration()
+                    workspace.open(url, configuration: fallbackConfiguration) { _, fallbackError in
+                        if let fallbackError {
+                            NSLog("FinderSync failed opening default browser for %@: %@", url.absoluteString, fallbackError.localizedDescription)
+                        } else {
+                            NSLog("FinderSync opened default browser for %@", url.absoluteString)
+                        }
+                    }
+                } else {
+                    NSLog("FinderSync opened Chrome for %@", url.absoluteString)
                 }
             }
             return
         }
 
-        workspace.open(url)
-    }
-
-    private func requestBrowserOpen(_ url: URL) async {
-        NSLog("FinderSync posting open-url notification for %@", url.absoluteString)
-        DistributedNotificationCenter.default().postNotificationName(
-            FinderBadgeSupport.openURLNotificationName,
-            object: nil,
-            userInfo: [
-                "url": url.absoluteString,
-                "preferredBrowser": "chrome"
-            ],
-            deliverImmediately: true
-        )
-
-        guard let endpoint = URL(string: "http://localhost:21567/api/open-url") else { return }
-
-        var request = URLRequest(url: endpoint)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try? JSONSerialization.data(withJSONObject: [
-            "url": url.absoluteString,
-            "preferredBrowser": "chrome"
-        ])
-
-        do {
-            let (_, response) = try await URLSession.shared.data(for: request)
-            if let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) {
-                return
+        let configuration = NSWorkspace.OpenConfiguration()
+        workspace.open(url, configuration: configuration) { _, error in
+            if let error {
+                NSLog("FinderSync failed opening default browser for %@: %@", url.absoluteString, error.localizedDescription)
+            } else {
+                NSLog("FinderSync opened default browser for %@", url.absoluteString)
             }
-            NSLog("FinderSync requestBrowserOpen unexpected response for %@", url.absoluteString)
-        } catch {
-            NSLog("FinderSync requestBrowserOpen failed for %@: %@", url.absoluteString, error.localizedDescription)
         }
     }
 
