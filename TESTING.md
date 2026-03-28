@@ -16,6 +16,11 @@ swift build
 # Build the universal iOS app
 xcodebuild -project API2File.xcodeproj -scheme API2FileiOS -destination 'platform=iOS Simulator,name=iPhone 16' build
 
+# Build the macOS app and Finder-facing extensions
+xcodebuild -project API2File.xcodeproj -scheme API2File build
+xcodebuild -project API2File.xcodeproj -scheme API2FileFinderExtension build
+xcodebuild -project API2File.xcodeproj -scheme API2FileQuickLookExtension build
+
 # Run the iOS unit tests
 xcodebuild -project API2File.xcodeproj -scheme API2FileiOS -destination 'platform=iOS Simulator,name=iPhone 16' test
 ```
@@ -578,6 +583,13 @@ swift test --filter WixLiveE2ETests/testBlogPosts_Update_MarkdownStructurePush_P
 
 # Focused Wix adapter expansion tests
 swift test --filter RealAdapterConfigTests/testWixAdapterAddsHumanFriendlyOrdersFormsMembersAndSiteProperties
+swift test --filter RealAdapterConfigTests/testWixAdapterLocksDownSetupFieldsAndResourceInventory
+swift test --filter RealAdapterConfigTests/testWixHumanFacingFormatsStaySanitized
+swift test --filter TransformPipelineTests/testContainsAllKeepsRecordsWhoseArrayContainsEveryExpectedValue
+swift test --filter WixLiveE2ETests/testWixResourceContracts_CoverEveryBundledTopLevelResource
+swift test --filter WixLiveE2ETests/testWixResourceContracts_CoverExplicitChildSurfaces
+swift test --filter WixLiveE2ETests/testWixResourceContracts_MatchBundledCapabilityClasses
+swift test --filter WixLiveE2ETests/testWixResourceContracts_ReportStatusMatrix
 swift test --filter WixLiveE2ETests/testOrders_Pull_ReturnsCSVWithExpectedFields
 swift test --filter WixLiveE2ETests/testOrders_Update_ModifyRecipientName_ReflectedOnServer
 swift test --filter WixLiveE2ETests/testOrders_ThreeWayUpdatePropagation_WhenEditableOrderExists
@@ -594,6 +606,7 @@ swift test --filter WixLiveE2ETests/testMembers_Update_ModifyNickname_ReflectedO
 swift test --filter WixLiveE2ETests/testMembers_Delete_RemoveMember_DeletedFromServer
 swift test --filter WixLiveE2ETests/testMembers_ThreeWayUpdatePropagation
 swift test --filter WixLiveE2ETests/testSiteProperties_Pull_ReturnsJSONSnapshotWhenInstalled
+swift test --filter WixLiveE2ETests/testThreeWayUpdatePropagation_WritableCollectionResources
 
 # Live monday file/API CRUD tests (requires api2file.monday.api-key in Keychain)
 swift test --filter MondayLiveE2ETests

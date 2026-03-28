@@ -181,7 +181,36 @@ final class RealAdapterConfigTests: XCTestCase {
             "Wix adapter top-level resources changed; update docs/tests intentionally if this is expected"
         )
 
+        let expectedCapabilityClasses: [String: ResourceCapabilityClass] = [
+            "contacts": .partialWritable,
+            "blog-posts": .fullCRUD,
+            "products": .fullCRUD,
+            "orders": .partialWritable,
+            "forms": .partialWritable,
+            "members": .fullCRUD,
+            "site-properties": .readOnly,
+            "media": .readOnly,
+            "pro-gallery": .readOnly,
+            "pdf-viewer": .readOnly,
+            "wix-video": .readOnly,
+            "wix-music-podcasts": .readOnly,
+            "bookings-services": .partialWritable,
+            "bookings-appointments": .readOnly,
+            "groups": .partialWritable,
+            "comments": .readOnly,
+            "bookings": .partialWritable,
+            "collections": .readOnly,
+        ]
+        for resource in config.resources {
+            XCTAssertEqual(
+                resource.capabilityClass,
+                expectedCapabilityClasses[resource.name],
+                "Wix \(resource.name) capability class drifted; keep the adapter and live contract matrix aligned"
+            )
+        }
+
         let collections = try XCTUnwrap(config.resources.first(where: { $0.name == "collections" }))
+        XCTAssertEqual(collections.capabilityClass, .readOnly)
         XCTAssertEqual(collections.fileMapping.format, .json)
         XCTAssertEqual(collections.children?.count, 1)
         XCTAssertTrue(
@@ -198,19 +227,20 @@ final class RealAdapterConfigTests: XCTestCase {
         )
         XCTAssertTrue(
             collections.fileMapping.transforms?.pull?.contains(where: {
-                $0.op == "excludeRegex" && $0.field == "id" && ($0.value?.contains("e2e") == true)
+                $0.op == "containsAll" &&
+                $0.field == "capabilities.dataOperations" &&
+                Set($0.fields ?? []).isSuperset(of: ["INSERT", "UPDATE", "REMOVE"])
             }) == true,
-            "Wix collections should exclude test/demo collection ids before pulling child items"
+            "Wix collections should only expose metadata-proven writable collections in the generic CMS surface"
         )
-        XCTAssertTrue(
-            collections.fileMapping.transforms?.pull?.contains(where: {
-                $0.op == "excludeRegex" && $0.field == "displayName" && ($0.value?.contains("android") == true)
-            }) == true,
-            "Wix collections should exclude platform/demo display names before pulling child items"
+        XCTAssertFalse(
+            collections.fileMapping.transforms?.pull?.contains(where: { $0.op == "excludeRegex" }) == true,
+            "The bundled Wix adapter should stay site-agnostic and avoid name-based collection exclusions"
         )
 
         let items = try XCTUnwrap(collections.children?.first)
         XCTAssertEqual(items.name, "items")
+        XCTAssertEqual(items.capabilityClass, .fullCRUD)
         XCTAssertEqual(items.fileMapping.format, .csv)
         XCTAssertEqual(items.fileMapping.directory, "cms")
         XCTAssertEqual(items.fileMapping.filename, "{displayName|slugify}.csv")
@@ -236,6 +266,7 @@ final class RealAdapterConfigTests: XCTestCase {
         let config = try loadBundledAdapter(named: "wix.adapter")
 
         let orders = try XCTUnwrap(config.resources.first(where: { $0.name == "orders" }))
+        XCTAssertEqual(orders.capabilityClass, .partialWritable)
         XCTAssertEqual(orders.fileMapping.filename, "orders.csv")
         XCTAssertEqual(orders.fileMapping.format, .csv)
         XCTAssertEqual(orders.fileMapping.effectivePushMode, .custom)
@@ -250,6 +281,7 @@ final class RealAdapterConfigTests: XCTestCase {
         )
 
         let forms = try XCTUnwrap(config.resources.first(where: { $0.name == "forms" }))
+        XCTAssertEqual(forms.capabilityClass, .partialWritable)
         XCTAssertEqual(forms.fileMapping.filename, "forms.csv")
         XCTAssertEqual(forms.fileMapping.format, .csv)
         XCTAssertEqual(forms.fileMapping.effectivePushMode, .custom)
@@ -266,6 +298,7 @@ final class RealAdapterConfigTests: XCTestCase {
 
         let submissions = try XCTUnwrap(forms.children?.first)
         XCTAssertEqual(submissions.name, "submissions")
+        XCTAssertEqual(submissions.capabilityClass, .partialWritable)
         XCTAssertEqual(submissions.fileMapping.directory, "forms")
         XCTAssertEqual(submissions.fileMapping.filename, "{name|slugify}-submissions.csv")
         XCTAssertEqual(submissions.fileMapping.format, .csv)
@@ -287,6 +320,7 @@ final class RealAdapterConfigTests: XCTestCase {
         )
 
         let members = try XCTUnwrap(config.resources.first(where: { $0.name == "members" }))
+        XCTAssertEqual(members.capabilityClass, .fullCRUD)
         XCTAssertEqual(members.fileMapping.filename, "members.csv")
         XCTAssertEqual(members.fileMapping.format, .csv)
         XCTAssertEqual(members.fileMapping.effectivePushMode, .custom)
@@ -302,6 +336,7 @@ final class RealAdapterConfigTests: XCTestCase {
         )
 
         let siteProperties = try XCTUnwrap(config.resources.first(where: { $0.name == "site-properties" }))
+        XCTAssertEqual(siteProperties.capabilityClass, .readOnly)
         XCTAssertEqual(siteProperties.fileMapping.filename, "site-properties.json")
         XCTAssertEqual(siteProperties.fileMapping.format, .json)
         XCTAssertEqual(siteProperties.fileMapping.readOnly, true)
@@ -326,6 +361,7 @@ final class RealAdapterConfigTests: XCTestCase {
         XCTAssertEqual(appointments.fileMapping.readOnly, true)
 
         let comments = try XCTUnwrap(config.resources.first(where: { $0.name == "comments" }))
+        XCTAssertEqual(comments.capabilityClass, .readOnly)
         XCTAssertEqual(comments.fileMapping.filename, "comments.csv")
         XCTAssertEqual(comments.fileMapping.readOnly, true)
 
@@ -333,8 +369,52 @@ final class RealAdapterConfigTests: XCTestCase {
         XCTAssertEqual(siteProperties.fileMapping.readOnly, true)
 
         let products = try XCTUnwrap(config.resources.first(where: { $0.name == "products" }))
+        XCTAssertEqual(products.capabilityClass, .fullCRUD)
         XCTAssertEqual(products.push?.create?.bodyType, "wix-product-create")
         XCTAssertEqual(products.push?.update?.bodyType, "wix-product-update")
+        XCTAssertNil(
+            products.pull?.updatedSinceBodyPath,
+            "Wix products incremental updatedDate filtering is too lossy for reliable server-to-file propagation"
+        )
+    }
+
+    func testWixHumanFacingFormatsStaySanitized() throws {
+        let config = try loadBundledAdapter(named: "wix.adapter")
+
+        let contacts = try XCTUnwrap(config.resources.first(where: { $0.name == "contacts" }))
+        XCTAssertTrue(
+            contacts.fileMapping.transforms?.pull?.contains(where: {
+                $0.op == "omit" &&
+                ($0.fields?.contains("revision") == true) &&
+                ($0.fields?.contains("source") == true)
+            }) == true,
+            "Contacts CSV should hide sync-heavy fields from the human file"
+        )
+        XCTAssertTrue(
+            contacts.fileMapping.transforms?.push?.contains(where: {
+                $0.op == "omit" && ($0.fields?.contains("_url") == true)
+            }) == true,
+            "Contacts CSV should omit sync-only helper fields before push"
+        )
+
+        let blogPosts = try XCTUnwrap(config.resources.first(where: { $0.name == "blog-posts" }))
+        XCTAssertEqual(blogPosts.fileMapping.format, .markdown)
+        XCTAssertEqual(blogPosts.fileMapping.contentField, "contentText")
+        XCTAssertEqual(blogPosts.fileMapping.formatOptions?.fieldMapping?["richContent"], "richContent")
+
+        let bookings = try XCTUnwrap(config.resources.first(where: { $0.name == "bookings" }))
+        XCTAssertEqual(bookings.capabilityClass, .partialWritable)
+        XCTAssertEqual(bookings.fileMapping.format, .json)
+
+        let groups = try XCTUnwrap(config.resources.first(where: { $0.name == "groups" }))
+        XCTAssertTrue(
+            groups.fileMapping.transforms?.push?.contains(where: {
+                $0.op == "omit" &&
+                ($0.fields?.contains("createdDate") == true) &&
+                ($0.fields?.contains("updatedDate") == true)
+            }) == true,
+            "Groups CSV should drop server-managed fields from the human push payload"
+        )
     }
 
     func testWixBlogPostsDoNotUseUnsupportedIncrementalFilter() throws {

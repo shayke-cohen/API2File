@@ -129,6 +129,7 @@ public struct GlobalsConfig: Codable, Sendable {
 public struct ResourceConfig: Codable, Sendable {
     public let name: String
     public let description: String?
+    public let capabilityClass: ResourceCapabilityClass?
     public let pull: PullConfig?
     public let push: PushConfig?
     public let fileMapping: FileMappingConfig
@@ -139,9 +140,10 @@ public struct ResourceConfig: Codable, Sendable {
     /// Management dashboard URL for this resource (e.g., Wix CRM, Monday board)
     public var dashboardUrl: String?
 
-    public init(name: String, description: String? = nil, pull: PullConfig? = nil, push: PushConfig? = nil, fileMapping: FileMappingConfig, children: [ResourceConfig]? = nil, sync: SyncConfig? = nil, siteUrl: String? = nil, dashboardUrl: String? = nil) {
+    public init(name: String, description: String? = nil, capabilityClass: ResourceCapabilityClass? = nil, pull: PullConfig? = nil, push: PushConfig? = nil, fileMapping: FileMappingConfig, children: [ResourceConfig]? = nil, sync: SyncConfig? = nil, siteUrl: String? = nil, dashboardUrl: String? = nil) {
         self.name = name
         self.description = description
+        self.capabilityClass = capabilityClass
         self.pull = pull
         self.push = push
         self.fileMapping = fileMapping
@@ -167,7 +169,7 @@ public struct ResourceConfig: Codable, Sendable {
             pushMode: fileMapping.pushMode,
             deleteFromAPI: fileMapping.deleteFromAPI
         )
-        return ResourceConfig(name: name, description: description, pull: pull, push: push, fileMapping: newMapping, children: children, sync: sync)
+        return ResourceConfig(name: name, description: description, capabilityClass: capabilityClass, pull: pull, push: push, fileMapping: newMapping, children: children, sync: sync)
     }
 
     public func withResolvedFileMapping(directory: String, filename: String?) -> ResourceConfig {
@@ -185,8 +187,14 @@ public struct ResourceConfig: Codable, Sendable {
             pushMode: fileMapping.pushMode,
             deleteFromAPI: fileMapping.deleteFromAPI
         )
-        return ResourceConfig(name: name, description: description, pull: pull, push: push, fileMapping: newMapping, children: children, sync: sync)
+        return ResourceConfig(name: name, description: description, capabilityClass: capabilityClass, pull: pull, push: push, fileMapping: newMapping, children: children, sync: sync)
     }
+}
+
+public enum ResourceCapabilityClass: String, Codable, Sendable {
+    case fullCRUD = "full_crud"
+    case partialWritable = "partial_writable"
+    case readOnly = "read_only"
 }
 
 // MARK: - Pull

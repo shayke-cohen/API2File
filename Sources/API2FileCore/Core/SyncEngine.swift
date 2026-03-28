@@ -879,6 +879,17 @@ public actor SyncEngine {
                         status: .synced
                     )
                 }
+
+                if resource.fileMapping.strategy == .onePerRecord {
+                    let recordId = existingRemoteId ?? createdId
+                    try await refreshOnePerRecordFilesAfterPush(
+                        serviceId: serviceId,
+                        resource: resource,
+                        userFilePath: filePath,
+                        recordId: recordId,
+                        engine: engine
+                    )
+                }
             }
 
             // Update sync state
@@ -1433,10 +1444,39 @@ public actor SyncEngine {
                 else { recordId = nil }
 
                 if let id = recordId {
-                    try await engine.pushRecord(record, resource: resource, action: .update(id: id))
+                    do {
+                        try await engine.pushRecord(record, resource: resource, action: .update(id: id))
+                    } catch {
+                        guard isOptimisticConcurrencyError(error),
+                              let latest = try await fetchLatestRawRecordForOnePerRecordObjectPush(
+                                  resource: resource,
+                                  userFilePath: userFilePath,
+                                  recordId: id,
+                                  engine: engine
+                              ) else {
+                            throw error
+                        }
+
+                        var retryRecord = record
+                        if let revision = latest["revision"] {
+                            retryRecord["revision"] = revision
+                        }
+                        if let revision = latest["_revision"] {
+                            retryRecord["_revision"] = revision
+                        }
+                        try await engine.pushRecord(retryRecord, resource: resource, action: .update(id: id))
+                    }
                 } else {
                     try await engine.pushRecord(record, resource: resource, action: .create)
                 }
+
+                try await refreshOnePerRecordFilesAfterPush(
+                    serviceId: serviceId,
+                    resource: resource,
+                    userFilePath: userFilePath,
+                    recordId: recordId,
+                    engine: engine
+                )
             } else {
                 // Collection: read all records, diff and push
                 let rawRecords = try ObjectFileManager.readCollectionObjectFile(from: objectURL)
@@ -1920,6 +1960,126 @@ public actor SyncEngine {
     ) async throws -> [[String: Any]] {
         let pullResult = try await engine.pull(resource: resource)
         return pullResult.rawRecordsByFile[userFilePath] ?? []
+    }
+
+    private func fetchLatestRawRecordForOnePerRecordObjectPush(
+        resource: ResourceConfig,
+        userFilePath: String,
+        recordId: String,
+        engine: AdapterEngine
+    ) async throws -> [String: Any]? {
+        let pullResult = try await engine.pull(resource: resource)
+
+        if let direct = pullResult.rawRecordsByFile[userFilePath]?.first {
+            let directId = (direct["id"] as? String) ?? (direct["_id"] as? String)
+            if directId == recordId {
+                return direct
+            }
+        }
+
+        for (_, records) in pullResult.rawRecordsByFile {
+            guard let record = records.first else { continue }
+            let currentId = (record["id"] as? String) ?? (record["_id"] as? String)
+            if currentId == recordId {
+                return record
+            }
+        }
+        return nil
+    }
+
+    private func refreshOnePerRecordFilesAfterPush(
+        serviceId: String,
+        resource: ResourceConfig,
+        userFilePath: String,
+        recordId: String?,
+        engine: AdapterEngine
+    ) async throws {
+        let pullResult = try await engine.pull(resource: resource)
+        let serviceDir = syncFolder.appendingPathComponent(serviceId)
+
+        let matchedFileAndRaw: (SyncableFile, [String: Any])? = {
+            if let recordId {
+                for file in pullResult.files {
+                    if let raw = pullResult.rawRecordsByFile[file.relativePath]?.first {
+                        let currentId = (raw["id"] as? String) ?? (raw["_id"] as? String)
+                        if currentId == recordId {
+                            return (file, raw)
+                        }
+                    }
+                }
+            }
+
+            if let file = pullResult.files.first(where: { $0.relativePath == userFilePath }),
+               let raw = pullResult.rawRecordsByFile[userFilePath]?.first {
+                return (file, raw)
+            }
+
+            guard let firstFile = pullResult.files.first,
+                  let raw = pullResult.rawRecordsByFile[firstFile.relativePath]?.first else {
+                return nil
+            }
+            return (firstFile, raw)
+        }()
+
+        guard let (freshFile, freshRaw) = matchedFileAndRaw else { return }
+
+        let objectPath = ObjectFileManager.objectFilePath(
+            forUserFile: userFilePath,
+            strategy: resource.fileMapping.strategy
+        )
+        let objectURL = serviceDir.appendingPathComponent(objectPath)
+        suppressPath(objectPath)
+        try ObjectFileManager.writeRecordObjectFile(record: freshRaw, to: objectURL)
+
+        let userFileURL = serviceDir.appendingPathComponent(userFilePath)
+        suppressPath(userFilePath)
+        try FileManager.default.createDirectory(
+            at: userFileURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try freshFile.content.write(to: userFileURL, options: .atomic)
+
+        let cacheKey = "\(serviceId):\(userFilePath)"
+        if let records = try? FormatConverterFactory.decode(
+            data: freshFile.content,
+            format: resource.fileMapping.format,
+            options: resource.fileMapping.effectiveFormatOptions
+        ) {
+            lastKnownRecords[cacheKey] = records
+        }
+        lastKnownRawRecords[cacheKey] = [freshRaw]
+
+        let remoteId = recordId
+            ?? syncStates[serviceId]?.files[userFilePath]?.remoteId
+            ?? (freshRaw["id"] as? String)
+            ?? (freshRaw["_id"] as? String)
+            ?? ""
+        syncStates[serviceId]?.files[userFilePath] = FileSyncState(
+            remoteId: remoteId,
+            lastSyncedHash: freshFile.content.sha256Hex,
+            lastSyncTime: Date(),
+            status: .synced
+        )
+
+        let stateURL = serviceDir.appendingPathComponent(".api2file/state.json")
+        try? syncStates[serviceId]?.save(to: stateURL)
+        upsertFileLink(
+            serviceDir: serviceDir,
+            resource: resource,
+            userPath: userFilePath,
+            remoteId: remoteId
+        )
+        synchronizeFileLinks(
+            serviceDir: serviceDir,
+            config: engine.config,
+            state: syncStates[serviceId] ?? SyncState()
+        )
+        refreshSQLiteMirrorIfPossible(
+            serviceId: serviceId,
+            serviceDir: serviceDir,
+            config: engine.config,
+            state: syncStates[serviceId] ?? SyncState()
+        )
     }
 
     // MARK: - Helpers

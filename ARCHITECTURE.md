@@ -8,17 +8,20 @@ The design direction is a **canonical object-file model**: every resource has a 
 
 Each service now also maintains a derived SQLite mirror at `.api2file/cache/service.sqlite`. The database is regenerated from canonical object files after successful pull/push work and is exposed as a read-only query surface for local tools and MCP agents, including record-resolution helpers that map SQL hits back to canonical and projection files.
 
+On macOS, the app also exposes a Finder-facing desktop workflow: the menu bar app can open synced files directly in the in-app editor, Finder Sync publishes badges and contextual actions, and a Quick Look preview extension renders synced file previews with text-first custom previews plus metadata fallback for binary and Office-style files.
+
 The repo now also contains an experimental browser-native product line in [`website/`](/Users/shayco/API2File/website). Lite is intentionally separate from the Swift runtime: it preserves adapter JSON and canonical/projection concepts, but re-implements the runtime in TypeScript around browser capabilities like File System Access, IndexedDB, and `fetch`.
 
 ## System Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│                 API2File macOS / iOS apps                 │
+│          API2File macOS / iOS apps + extensions         │
 │                                                          │
 │  ┌──────────────┐  ┌──────────────────────────────────┐ │
 │  │ SwiftUI UI   │  │         SyncEngine               │ │
 │  │ (macOS/iOS)  │──│  - Service discovery              │ │
+│  │ Finder / QL  │  │  - Finder state publishing        │ │
 │  └──────────────┘  │  - Lifecycle management           │ │
 │                    │  - Pull/push orchestration         │ │
 │                    └────────────┬─────────────────────┘ │
@@ -355,6 +358,14 @@ GitManager.commitAll("sync: push {service} — canonical + projections updated")
 - `.api2file/file-links.json` explicitly links projections to canonical object files
 - Wix blog Markdown is a projection of canonical `richContent` / Ricos data, not a raw storage format
 
+For Wix specifically, the adapter now also classifies each resource as one of:
+
+- `full_crud`
+- `partial_writable`
+- `read_only`
+
+That capability class is treated as part of the adapter contract and is validated both by config tests and by the live Wix contract matrix.
+
 ## Config-Driven Design
 
 The adapter system is the core architectural decision. Instead of writing code per service, everything is driven by `adapter.json` configs:
@@ -367,10 +378,13 @@ adapter.json
     ├── pull    → How to fetch (URL, method, JSONPath, pagination)
     ├── push    → How to create/update/delete (endpoints per operation)
     ├── fileMapping → How to write files (strategy, format, transforms)
+    ├── capabilityClass → full_crud / partial_writable / read_only
     └── sync    → When to sync (interval, debounce)
 ```
 
 Adding a new service requires only a JSON file — no Swift code, no recompilation.
+
+Wix CMS is a good example of why this matters: the bundled adapter uses collection metadata, not site-specific name filters, to decide which generic `cms/*.csv` files are writable. `collections.json` remains the read-only catalog, while only true `NATIVE` collections with write-capable metadata are surfaced as writable CSV projections.
 
 ## Concurrency Model
 

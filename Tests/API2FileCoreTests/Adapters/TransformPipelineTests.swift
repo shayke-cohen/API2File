@@ -276,6 +276,31 @@ final class TransformPipelineTests: XCTestCase {
         XCTAssertEqual(result.compactMap { $0["id"] as? Int }, [1, 2])
     }
 
+    func testContainsAllKeepsRecordsWhoseArrayContainsEveryExpectedValue() {
+        let data: [[String: Any]] = [
+            [
+                "id": "Projects",
+                "capabilities": [
+                    "dataOperations": ["GET", "FIND", "COUNT", "INSERT", "UPDATE", "REMOVE"]
+                ] as [String: Any]
+            ],
+            [
+                "id": "Blog/Posts",
+                "capabilities": [
+                    "dataOperations": ["GET", "FIND", "COUNT"]
+                ] as [String: Any]
+            ],
+        ]
+        let op = TransformOp(
+            op: "containsAll",
+            fields: ["INSERT", "UPDATE", "REMOVE"],
+            field: "capabilities.dataOperations"
+        )
+        let result = TransformPipeline.apply([op], to: data)
+
+        XCTAssertEqual(result.compactMap { $0["id"] as? String }, ["Projects"])
+    }
+
     func testExcludeRegexRemovesMatchingRecords() {
         let data: [[String: Any]] = [
             ["id": "Blog/Posts"],

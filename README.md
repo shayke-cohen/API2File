@@ -13,6 +13,7 @@ Pure Swift core with native macOS and iOS apps.
 - **Media sync** -- generic binary file download/upload for any cloud storage API (images, videos, documents)
 - **Bidirectional sync** with smart collection diffing -- pull from API, push local edits back
 - **macOS menu bar app** (MenuBarExtra) -- always-on sync with per-service controls
+- **Finder-aware desktop flow** -- Finder Sync badges/context actions, document opening into API2File, and Quick Look previews for synced file types
 - **Universal iOS app** -- browse, preview, edit, import, and share synced files from iPhone and iPad
 - **Web dashboard** at `localhost:8089` -- visual overview served by the demo server
 - **Browser-native Lite prototype** in [`website/`](/Users/shayco/API2File/website) -- experimental no-install sync runtime using File System Access API + IndexedDB
@@ -77,7 +78,15 @@ The app appears as a cloud icon in the menu bar. Click it to see connected servi
 xcodebuild -project API2File.xcodeproj -scheme API2FileiOS -destination 'platform=iOS Simulator,name=iPhone 16' build
 ```
 
-### 7. Run tests
+### 7. Build the macOS app and extensions
+
+```bash
+xcodebuild -project API2File.xcodeproj -scheme API2File build
+xcodebuild -project API2File.xcodeproj -scheme API2FileFinderExtension build
+xcodebuild -project API2File.xcodeproj -scheme API2FileQuickLookExtension build
+```
+
+### 8. Run tests
 
 ```bash
 swift test
@@ -126,7 +135,9 @@ Sources/
       Web/                dashboard.html
   API2FileApp/            macOS menu bar app (SwiftUI)
     App/                  API2FileApp.swift (entry point)
-    UI/                   MenuBarView, PreferencesView, ServiceDetailView, AddServiceView
+    UI/                   MenuBarView, PreferencesView, ServiceDetailView, AddServiceView,
+                          Dashboard2View
+  QuickLookExtension/     macOS Quick Look preview extension for synced files
   API2FileiOSApp/         iPhone + iPad app (SwiftUI)
     App/                  API2FileiOSApp.swift, IOSAppState.swift
     UI/                   Services, browser, activity, settings, file detail
@@ -283,6 +294,14 @@ API2File now keeps a hidden structured JSON representation next to synced files:
 The object file is the canonical local record. Human-facing files like `contacts.csv` or `blog/my-post.md` are editable projections regenerated from that canonical state.
 
 For Wix blog posts specifically, the Markdown file is a projection of Wix `richContent` / Ricos data. API2File uses Wix's official Ricos conversion API when available so Markdown pull/push preserves headings, lists, and other rich-content structure more accurately than a plain-text projection.
+
+Wix also uses explicit resource capability classes in the bundled adapter and live suite:
+
+- `full_crud`: create, update, and delete are expected to work live
+- `partial_writable`: writable, but narrower than full CRUD or missing one propagation leg
+- `read_only`: pull/sync only
+
+Generic Wix CMS CSVs are metadata-driven rather than site-specific. API2File treats `collections.json` as a read-only catalog and only exposes `cms/*.csv` as writable when the collection metadata says it is a true `NATIVE` collection with `INSERT`, `UPDATE`, and `REMOVE` data operations. Wix app/system collections stay on their dedicated surfaces like blog posts, products, bookings services, and other product APIs.
 
 ## CLI Reference
 
@@ -819,7 +838,7 @@ The child `directory` template can reference parent fields: `"cms/{displayName|s
 
 - **OAuth2** flow is implemented but not tested with a real browser redirect
 - **Real cloud APIs** (Monday.com, Wix, GitHub, Airtable) are not integration-tested -- they require live API keys
-- **Finder extension** is scaffold only -- badges and context menus are not functional
+- **Quick Look preview** currently focuses on text-like synced files and metadata fallback for office/binary formats, not bespoke renderers for every file type
 - **Notifications** are implemented in NotificationManager but not wired into SyncEngine events
 - **CLI target** (`API2FileCLI`) exists as source but is not declared in `Package.swift` -- build it manually or use the menu bar app
 

@@ -1191,6 +1191,9 @@ public actor AdapterEngine {
     private func buildWixContactBody(record: [String: Any], isUpdate: Bool) -> [String: Any]? {
         var info = (record["info"] as? [String: Any]) ?? [:]
         var name = (info["name"] as? [String: Any]) ?? [:]
+        let hadExplicitNestedName =
+            nonEmptyString(name["first"]) != nil ||
+            nonEmptyString(name["last"]) != nil
         let currentDisplayName = [nonEmptyString(name["first"]), nonEmptyString(name["last"])]
             .compactMap { $0 }
             .joined(separator: " ")
@@ -1203,6 +1206,7 @@ public actor AdapterEngine {
         }
         if nonEmptyString(record["first"]) == nil,
            nonEmptyString(record["last"]) == nil,
+           !hadExplicitNestedName,
            let displayName = nestedString(record, path: ["info", "extendedFields", "items", "contacts", "displayByFirstName"]),
            displayName != currentDisplayName,
            let parsedName = splitDisplayName(displayName) {

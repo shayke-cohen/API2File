@@ -262,6 +262,7 @@ public struct TemplateEngine {
 /// - `nestRemaining` — move non-kept top-level fields into a nested object
 /// - `keyBy` — convert an array of key-value objects into a dictionary
 /// - `match` — keep only records whose field exactly matches the provided value
+/// - `containsAll` — keep only records whose array field contains all provided values
 public struct TransformPipeline {
 
     /// Apply a sequence of transforms to an array of records.
@@ -303,6 +304,9 @@ public struct TransformPipeline {
         case "match":
             guard let field = op.field, let value = op.value else { return records }
             return records.filter { matches(field: field, value: value, record: $0) }
+        case "containsAll":
+            guard let field = op.field, let values = op.fields, !values.isEmpty else { return records }
+            return records.filter { containsAll(field: field, values: values, record: $0) }
         case "excludeRegex":
             guard let field = op.field, let value = op.value else { return records }
             return records.filter { !matchesRegex(field: field, pattern: value, record: $0) }
@@ -548,5 +552,32 @@ public struct TransformPipeline {
             }
         }
         return current
+    }
+
+    private static func containsAll(field: String, values: [String], record: [String: Any]) -> Bool {
+        let actual = resolveDotPath(field, in: record) ?? record[field]
+        let strings: [String]
+        switch actual {
+        case let array as [String]:
+            strings = array
+        case let array as [Any]:
+            strings = array.compactMap { element in
+                switch element {
+                case let string as String:
+                    return string
+                case let number as NSNumber:
+                    return number.stringValue
+                case let bool as Bool:
+                    return String(bool)
+                default:
+                    return nil
+                }
+            }
+        default:
+            return false
+        }
+
+        let actualSet = Set(strings)
+        return values.allSatisfy(actualSet.contains)
     }
 }

@@ -275,6 +275,7 @@ public actor AdapterStore {
             return ResourceConfig(
                 name: templateResource.name,
                 description: templateResource.description ?? deployedResource.description,
+                capabilityClass: templateResource.capabilityClass ?? deployedResource.capabilityClass,
                 pull: templateResource.pull,
                 push: templateResource.push,
                 fileMapping: templateResource.fileMapping,

@@ -1,7 +1,7 @@
 {
   "service": "wix",
   "displayName": "Wix — Website & Business Platform",
-  "version": "2.4",
+  "version": "2.6",
   "icon": "globe",
   "wizardDescription": "Contacts, products, orders, forms, members, blog, bookings, groups, media",
   "siteUrl": "YOUR_SITE_URL_HERE",
@@ -44,6 +44,7 @@
     {
       "name": "contacts",
       "description": "Wix CRM contacts as a CSV spreadsheet",
+      "capabilityClass": "partial_writable",
       "dashboardUrl": "https://www.wix.com/my-account/sites/YOUR_SITE_ID_HERE/contacts",
 
       "pull": {
@@ -56,8 +57,7 @@
             }
           }
         },
-        "dataPath": "$.contacts",
-        "updatedSinceBodyPath": "query.filter.updatedDate.$gt"
+        "dataPath": "$.contacts"
       },
 
       "pagination": {
@@ -113,6 +113,7 @@
     {
       "name": "blog-posts",
       "description": "Wix blog posts as Markdown files",
+      "capabilityClass": "full_crud",
       "siteUrl": "YOUR_SITE_URL_HERE/blog",
       "dashboardUrl": "https://www.wix.com/dashboard/YOUR_SITE_ID_HERE/blog",
 
@@ -199,6 +200,7 @@
     {
       "name": "products",
       "description": "Wix Store products as a CSV catalog",
+      "capabilityClass": "full_crud",
       "siteUrl": "YOUR_SITE_URL_HERE/shop",
       "dashboardUrl": "https://www.wix.com/dashboard/YOUR_SITE_ID_HERE/store/products",
 
@@ -210,8 +212,7 @@
             "limit": 100
           }
         },
-        "dataPath": "$.products",
-        "updatedSinceBodyPath": "search.filter.updatedDate.$gt"
+        "dataPath": "$.products"
       },
 
       "pagination": {
@@ -265,6 +266,7 @@
     {
       "name": "orders",
       "description": "Wix eCommerce orders as a CSV spreadsheet",
+      "capabilityClass": "partial_writable",
       "dashboardUrl": "https://www.wix.com/dashboard/YOUR_SITE_ID_HERE/store/orders",
 
       "pull": {
@@ -378,6 +380,7 @@
     {
       "name": "forms",
       "description": "Wix form schemas as a CSV spreadsheet",
+      "capabilityClass": "partial_writable",
       "dashboardUrl": "https://www.wix.com/dashboard/YOUR_SITE_ID_HERE/wix-forms-and-payments",
 
       "pull": {
@@ -446,6 +449,7 @@
         {
           "name": "submissions",
           "description": "Submissions for this form",
+          "capabilityClass": "partial_writable",
 
           "pull": {
             "method": "POST",
@@ -527,6 +531,7 @@
     {
       "name": "members",
       "description": "Wix site members as a CSV spreadsheet",
+      "capabilityClass": "full_crud",
       "dashboardUrl": "https://www.wix.com/dashboard/YOUR_SITE_ID_HERE/member-permissions/members",
 
       "pull": {
@@ -593,6 +598,7 @@
     {
       "name": "site-properties",
       "description": "Wix site settings and business properties",
+      "capabilityClass": "read_only",
       "dashboardUrl": "https://manage.wix.com/dashboard/YOUR_SITE_ID_HERE/settings/business-info",
 
       "pull": {
@@ -616,6 +622,7 @@
     {
       "name": "media",
       "description": "Wix Media Manager — images, videos, documents, and audio files",
+      "capabilityClass": "read_only",
       "dashboardUrl": "https://manage.wix.com/dashboard/YOUR_SITE_ID_HERE/media-manager",
 
       "pull": {
@@ -658,6 +665,7 @@
     {
       "name": "pro-gallery",
       "description": "Media Manager images used by Wix Pro Gallery",
+      "capabilityClass": "read_only",
       "dashboardUrl": "https://manage.wix.com/dashboard/YOUR_SITE_ID_HERE/media-manager",
 
       "pull": {
@@ -705,6 +713,7 @@
     {
       "name": "pdf-viewer",
       "description": "PDF documents stored in Media Manager for Wix PDF Viewer content",
+      "capabilityClass": "read_only",
       "dashboardUrl": "https://manage.wix.com/dashboard/YOUR_SITE_ID_HERE/media-manager",
 
       "pull": {
@@ -752,6 +761,7 @@
     {
       "name": "wix-video",
       "description": "Video assets stored in Media Manager for Wix Video content",
+      "capabilityClass": "read_only",
       "dashboardUrl": "https://manage.wix.com/dashboard/YOUR_SITE_ID_HERE/media-manager",
 
       "pull": {
@@ -799,6 +809,7 @@
     {
       "name": "wix-music-podcasts",
       "description": "Audio assets stored in Media Manager for Wix Music and podcast playback",
+      "capabilityClass": "read_only",
       "dashboardUrl": "https://manage.wix.com/dashboard/YOUR_SITE_ID_HERE/media-manager",
 
       "pull": {
@@ -846,6 +857,7 @@
     {
       "name": "bookings-services",
       "description": "Wix Bookings services as a CSV spreadsheet",
+      "capabilityClass": "partial_writable",
       "dashboardUrl": "https://www.wix.com/dashboard/YOUR_SITE_ID_HERE/bookings/services",
 
       "pull": {
@@ -912,6 +924,7 @@
     {
       "name": "bookings-appointments",
       "description": "Wix Bookings customer appointments and bookings",
+      "capabilityClass": "read_only",
       "dashboardUrl": "https://www.wix.com/dashboard/YOUR_SITE_ID_HERE/bookings/calendar",
 
       "pull": {
@@ -960,6 +973,7 @@
     {
       "name": "groups",
       "description": "Wix Groups as a CSV spreadsheet",
+      "capabilityClass": "partial_writable",
       "dashboardUrl": "https://www.wix.com/dashboard/YOUR_SITE_ID_HERE/social-groups-dashboard",
 
       "pull": {
@@ -1018,6 +1032,7 @@
     {
       "name": "comments",
       "description": "Wix Comments as a CSV spreadsheet",
+      "capabilityClass": "read_only",
       "dashboardUrl": "https://manage.wix.com/dashboard/YOUR_SITE_ID_HERE/comments",
 
       "pull": {
@@ -1080,6 +1095,7 @@
     {
       "name": "bookings",
       "description": "Wix Bookings services as JSON files",
+      "capabilityClass": "partial_writable",
       "dashboardUrl": "https://www.wix.com/dashboard/YOUR_SITE_ID_HERE/bookings/services",
 
       "pull": {
@@ -1140,6 +1156,7 @@
     {
       "name": "collections",
       "description": "Wix CMS data collections catalog",
+      "capabilityClass": "read_only",
       "dashboardUrl": "https://www.wix.com/dashboard/YOUR_SITE_ID_HERE/cms/collections",
 
       "pull": {
@@ -1165,8 +1182,7 @@
           "pull": [
             { "op": "match", "field": "displayNamespace", "value": "" },
             { "op": "match", "field": "collectionType", "value": "NATIVE" },
-            { "op": "excludeRegex", "field": "id", "value": "(?i)(^|[\\\\/_-])(android|ios|web|html)([\\\\/_-]|$)|react[-_ ]native|e2e|skel[-_ ]integ|cms[-_ ]json[-_ ]integ" },
-            { "op": "excludeRegex", "field": "displayName", "value": "(?i)\\\\((android|ios|web|html)\\\\)|react[-_ ]native|e2e|skel[-_ ]integ|cms[-_ ]json[-_ ]integ" },
+            { "op": "containsAll", "field": "capabilities.dataOperations", "fields": ["INSERT", "UPDATE", "REMOVE"] },
             { "op": "set", "field": "_url", "value": "https://manage.wix.com/dashboard/YOUR_SITE_ID_HERE/wix-cms/data/{id}" }
           ],
           "push": [
@@ -1179,6 +1195,7 @@
         {
           "name": "items",
           "description": "Items in this CMS collection",
+          "capabilityClass": "full_crud",
 
           "pull": {
             "method": "POST",

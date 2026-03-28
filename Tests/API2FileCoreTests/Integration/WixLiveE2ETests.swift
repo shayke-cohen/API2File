@@ -13,9 +13,17 @@ final class WixLiveE2ETests: XCTestCase {
 
     private struct WixResourceContract {
         let name: String
-        let humanCRUD: Bool
-        let objectUpdatePropagation: Bool
-        let serverCRUD: Bool
+        let capabilityClass: ResourceCapabilityClass
+        let humanRelativePath: String
+        let humanFormat: FileFormat
+        let objectRelativePath: String?
+        let humanSanitized: Bool
+        let supportsCreate: Bool
+        let supportsUpdate: Bool
+        let supportsDelete: Bool
+        let humanToObjectToServer: Bool
+        let objectToHumanToServer: Bool
+        let serverToObjectToHuman: Bool
         let notes: String
     }
 
@@ -23,6 +31,7 @@ final class WixLiveE2ETests: XCTestCase {
         let resourceName: String
         let updateTokenPrefix: String
         let serverQuery: @Sendable (WixLiveE2ETests) async throws -> [[String: Any]]
+        let serverGet: (@Sendable (WixLiveE2ETests, String) async throws -> [String: Any])?
         let serverUpdate: @Sendable (WixLiveE2ETests, String, String) async throws -> Void
         let humanUpdate: @Sendable (inout [String: Any], String) -> Void
         let objectUpdate: @Sendable (inout [String: Any], String) -> Void
@@ -36,28 +45,35 @@ final class WixLiveE2ETests: XCTestCase {
         let serviceDir: URL
     }
 
-    private static let wixResourceContracts: [WixResourceContract] = [
-        .init(name: "contacts", humanCRUD: true, objectUpdatePropagation: true, serverCRUD: true, notes: "CSV with full CRUD."),
-        .init(name: "blog-posts", humanCRUD: true, objectUpdatePropagation: true, serverCRUD: true, notes: "Markdown/Ricos full flow."),
-        .init(name: "products", humanCRUD: true, objectUpdatePropagation: true, serverCRUD: true, notes: "CSV with full CRUD."),
-        .init(name: "orders", humanCRUD: true, objectUpdatePropagation: true, serverCRUD: false, notes: "CSV pull with limited update semantics."),
-        .init(name: "forms", humanCRUD: true, objectUpdatePropagation: true, serverCRUD: false, notes: "CSV schema catalog with child submissions files."),
-        .init(name: "members", humanCRUD: true, objectUpdatePropagation: true, serverCRUD: true, notes: "CSV with create, update, and delete."),
-        .init(name: "site-properties", humanCRUD: false, objectUpdatePropagation: false, serverCRUD: false, notes: "Read-only JSON snapshot."),
-        .init(name: "media", humanCRUD: false, objectUpdatePropagation: false, serverCRUD: false, notes: "Binary upload/pull/delete only."),
-        .init(name: "pro-gallery", humanCRUD: false, objectUpdatePropagation: false, serverCRUD: false, notes: "Binary upload/pull/delete only."),
-        .init(name: "pdf-viewer", humanCRUD: false, objectUpdatePropagation: false, serverCRUD: false, notes: "Binary upload/pull/delete only."),
-        .init(name: "wix-video", humanCRUD: false, objectUpdatePropagation: false, serverCRUD: false, notes: "Binary upload/pull/delete only."),
-        .init(name: "wix-music-podcasts", humanCRUD: false, objectUpdatePropagation: false, serverCRUD: false, notes: "Binary upload/pull/delete only."),
-        .init(name: "bookings-services", humanCRUD: true, objectUpdatePropagation: true, serverCRUD: true, notes: "CSV with full CRUD."),
-        .init(name: "bookings-appointments", humanCRUD: false, objectUpdatePropagation: false, serverCRUD: false, notes: "Read-only appointments feed."),
-        .init(name: "groups", humanCRUD: true, objectUpdatePropagation: true, serverCRUD: true, notes: "CSV with full CRUD."),
-        .init(name: "comments", humanCRUD: false, objectUpdatePropagation: false, serverCRUD: false, notes: "Read-only comments projection."),
-        .init(name: "collections", humanCRUD: false, objectUpdatePropagation: false, serverCRUD: false, notes: "Catalog metadata surface; generic create/delete unsupported."),
+    private static let wixTopLevelContracts: [WixResourceContract] = [
+        .init(name: "contacts", capabilityClass: .partialWritable, humanRelativePath: "contacts.csv", humanFormat: .csv, objectRelativePath: ".contacts.objects.json", humanSanitized: true, supportsCreate: true, supportsUpdate: true, supportsDelete: true, humanToObjectToServer: true, objectToHumanToServer: false, serverToObjectToHuman: true, notes: "CSV with strong human CRUD, but object-file propagation still needs hardening."),
+        .init(name: "blog-posts", capabilityClass: .fullCRUD, humanRelativePath: "blog/{slug}.md", humanFormat: .markdown, objectRelativePath: "blog/.objects/{slug}.json", humanSanitized: true, supportsCreate: true, supportsUpdate: true, supportsDelete: true, humanToObjectToServer: true, objectToHumanToServer: true, serverToObjectToHuman: true, notes: "Markdown/Ricos full flow."),
+        .init(name: "products", capabilityClass: .fullCRUD, humanRelativePath: "products.csv", humanFormat: .csv, objectRelativePath: ".products.objects.json", humanSanitized: true, supportsCreate: true, supportsUpdate: true, supportsDelete: true, humanToObjectToServer: true, objectToHumanToServer: true, serverToObjectToHuman: true, notes: "CSV with full CRUD."),
+        .init(name: "orders", capabilityClass: .partialWritable, humanRelativePath: "orders.csv", humanFormat: .csv, objectRelativePath: ".orders.objects.json", humanSanitized: true, supportsCreate: false, supportsUpdate: true, supportsDelete: false, humanToObjectToServer: true, objectToHumanToServer: true, serverToObjectToHuman: true, notes: "CSV pull with limited update semantics."),
+        .init(name: "forms", capabilityClass: .partialWritable, humanRelativePath: "forms.csv", humanFormat: .csv, objectRelativePath: ".forms.objects.json", humanSanitized: true, supportsCreate: true, supportsUpdate: true, supportsDelete: true, humanToObjectToServer: true, objectToHumanToServer: true, serverToObjectToHuman: true, notes: "CSV schema catalog with child submissions files."),
+        .init(name: "members", capabilityClass: .fullCRUD, humanRelativePath: "members.csv", humanFormat: .csv, objectRelativePath: ".members.objects.json", humanSanitized: true, supportsCreate: true, supportsUpdate: true, supportsDelete: true, humanToObjectToServer: true, objectToHumanToServer: true, serverToObjectToHuman: true, notes: "CSV with create, update, and delete."),
+        .init(name: "site-properties", capabilityClass: .readOnly, humanRelativePath: "site-properties.json", humanFormat: .json, objectRelativePath: nil, humanSanitized: true, supportsCreate: false, supportsUpdate: false, supportsDelete: false, humanToObjectToServer: false, objectToHumanToServer: false, serverToObjectToHuman: false, notes: "Read-only JSON snapshot."),
+        .init(name: "media", capabilityClass: .readOnly, humanRelativePath: "media/*", humanFormat: .raw, objectRelativePath: nil, humanSanitized: true, supportsCreate: false, supportsUpdate: false, supportsDelete: false, humanToObjectToServer: false, objectToHumanToServer: false, serverToObjectToHuman: false, notes: "Binary upload/pull/delete only."),
+        .init(name: "pro-gallery", capabilityClass: .readOnly, humanRelativePath: "pro-gallery/*", humanFormat: .raw, objectRelativePath: nil, humanSanitized: true, supportsCreate: false, supportsUpdate: false, supportsDelete: false, humanToObjectToServer: false, objectToHumanToServer: false, serverToObjectToHuman: false, notes: "Binary upload/pull/delete only."),
+        .init(name: "pdf-viewer", capabilityClass: .readOnly, humanRelativePath: "pdf-viewer/*.pdf", humanFormat: .raw, objectRelativePath: nil, humanSanitized: true, supportsCreate: false, supportsUpdate: false, supportsDelete: false, humanToObjectToServer: false, objectToHumanToServer: false, serverToObjectToHuman: false, notes: "Binary upload/pull/delete only."),
+        .init(name: "wix-video", capabilityClass: .readOnly, humanRelativePath: "wix-video/*", humanFormat: .raw, objectRelativePath: nil, humanSanitized: true, supportsCreate: false, supportsUpdate: false, supportsDelete: false, humanToObjectToServer: false, objectToHumanToServer: false, serverToObjectToHuman: false, notes: "Binary upload/pull/delete only."),
+        .init(name: "wix-music-podcasts", capabilityClass: .readOnly, humanRelativePath: "wix-music-podcasts/*", humanFormat: .raw, objectRelativePath: nil, humanSanitized: true, supportsCreate: false, supportsUpdate: false, supportsDelete: false, humanToObjectToServer: false, objectToHumanToServer: false, serverToObjectToHuman: false, notes: "Binary upload/pull/delete only."),
+        .init(name: "bookings-services", capabilityClass: .partialWritable, humanRelativePath: "bookings/services.csv", humanFormat: .csv, objectRelativePath: "bookings/.services.objects.json", humanSanitized: true, supportsCreate: true, supportsUpdate: true, supportsDelete: true, humanToObjectToServer: true, objectToHumanToServer: false, serverToObjectToHuman: true, notes: "CSV with CRUD from the human surface; object-file propagation still needs hardening."),
+        .init(name: "bookings-appointments", capabilityClass: .readOnly, humanRelativePath: "bookings/appointments.csv", humanFormat: .csv, objectRelativePath: nil, humanSanitized: true, supportsCreate: false, supportsUpdate: false, supportsDelete: false, humanToObjectToServer: false, objectToHumanToServer: false, serverToObjectToHuman: false, notes: "Read-only appointments feed."),
+        .init(name: "groups", capabilityClass: .partialWritable, humanRelativePath: "groups.csv", humanFormat: .csv, objectRelativePath: ".groups.objects.json", humanSanitized: true, supportsCreate: true, supportsUpdate: true, supportsDelete: true, humanToObjectToServer: true, objectToHumanToServer: false, serverToObjectToHuman: true, notes: "CSV with CRUD from the human surface; object-file propagation still needs hardening."),
+        .init(name: "comments", capabilityClass: .readOnly, humanRelativePath: "comments.csv", humanFormat: .csv, objectRelativePath: nil, humanSanitized: false, supportsCreate: false, supportsUpdate: false, supportsDelete: false, humanToObjectToServer: false, objectToHumanToServer: false, serverToObjectToHuman: false, notes: "Read-only comments projection."),
+        .init(name: "bookings", capabilityClass: .partialWritable, humanRelativePath: "bookings/{name}.json", humanFormat: .json, objectRelativePath: "bookings/.objects/{name}.json", humanSanitized: true, supportsCreate: true, supportsUpdate: true, supportsDelete: false, humanToObjectToServer: true, objectToHumanToServer: true, serverToObjectToHuman: false, notes: "One-file-per-record JSON surface with narrower semantics than the CSV service surface."),
+        .init(name: "collections", capabilityClass: .readOnly, humanRelativePath: "collections.json", humanFormat: .json, objectRelativePath: ".collections.objects.json", humanSanitized: true, supportsCreate: false, supportsUpdate: false, supportsDelete: false, humanToObjectToServer: false, objectToHumanToServer: false, serverToObjectToHuman: false, notes: "Catalog metadata surface; generic create/delete unsupported."),
+    ]
+
+    private static let wixChildSurfaceContracts: [WixResourceContract] = [
+        .init(name: "forms.submissions", capabilityClass: .partialWritable, humanRelativePath: "forms/{name}-submissions.csv", humanFormat: .csv, objectRelativePath: "forms/.{name}-submissions.objects.json", humanSanitized: true, supportsCreate: true, supportsUpdate: true, supportsDelete: false, humanToObjectToServer: false, objectToHumanToServer: false, serverToObjectToHuman: false, notes: "Human-friendly child CSV for form submissions."),
+        .init(name: "collections.items", capabilityClass: .fullCRUD, humanRelativePath: "cms/{displayName}.csv", humanFormat: .csv, objectRelativePath: "cms/.{displayName}.objects.json", humanSanitized: true, supportsCreate: true, supportsUpdate: true, supportsDelete: true, humanToObjectToServer: true, objectToHumanToServer: true, serverToObjectToHuman: true, notes: "Writable NATIVE CMS collection items only."),
     ]
 
     private var apiKey: String!
     private var siteId: String!
+    private var bundledConfig: AdapterConfig!
     private var engine: AdapterEngine!
     private var config: AdapterConfig!
     private var serviceDir: URL!
@@ -104,6 +120,7 @@ final class WixLiveE2ETests: XCTestCase {
             .replacingOccurrences(of: "YOUR_SITE_ID_HERE", with: siteId!)
             .replacingOccurrences(of: "YOUR_SITE_URL_HERE", with: deployedSiteURL)
         let sourceConfig = try JSONDecoder().decode(AdapterConfig.self, from: Data(resolvedSourceRaw.utf8))
+        bundledConfig = sourceConfig
 
         // Filter to only the resources we test.
         let testResources = [
@@ -124,6 +141,7 @@ final class WixLiveE2ETests: XCTestCase {
             "bookings-services",
             "bookings-appointments",
             "comments",
+            "bookings",
             "collections",
             "pro-gallery",
             "pdf-viewer",
@@ -153,6 +171,7 @@ final class WixLiveE2ETests: XCTestCase {
             "bookings-appointments",
             "groups",
             "comments",
+            "bookings",
             "collections",
         ])
 
@@ -210,6 +229,7 @@ final class WixLiveE2ETests: XCTestCase {
                 return ResourceConfig(
                     name: resource.name,
                     description: resource.description,
+                    capabilityClass: resource.capabilityClass,
                     pull: resource.pull,
                     push: patchedPush,
                     fileMapping: resource.fileMapping,
@@ -317,6 +337,19 @@ final class WixLiveE2ETests: XCTestCase {
         return try JSONSerialization.jsonObject(with: data)
     }
 
+    private func readJSONObject(at url: URL) throws -> [String: Any] {
+        let data = try Data(contentsOf: url)
+        guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw XCTSkip("Expected JSON object at \(url.lastPathComponent)")
+        }
+        return object
+    }
+
+    private func writeJSONObject(_ object: [String: Any], to url: URL) throws {
+        let data = try JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys])
+        try data.write(to: url, options: .atomic)
+    }
+
     private func writeCSV(_ records: [[String: Any]], to url: URL) throws {
         let data = try CSVFormat.encode(records: records, options: nil)
         try data.write(to: url, options: .atomic)
@@ -364,11 +397,69 @@ final class WixLiveE2ETests: XCTestCase {
         return records.contains(where: { recursiveStringContainsToken($0, token: token) })
     }
 
+    private func objectRecord(withId id: String, in url: URL) throws -> [String: Any]? {
+        let records = try ObjectFileManager.readCollectionObjectFile(from: url)
+        return records.first(where: { ($0["id"] as? String) == id || ($0["_id"] as? String) == id })
+    }
+
     private func csvContainsToken(_ url: URL, token: String) -> Bool {
         guard let records = try? readCSV(at: url) else {
             return false
         }
         return records.contains(where: { recursiveStringContainsToken($0, token: token) })
+    }
+
+    private func findOnePerRecordFile(
+        under relativeDirectory: String,
+        matchingID id: String,
+        in serviceDir: URL
+    ) throws -> String {
+        let directoryURL = serviceDir.appendingPathComponent(relativeDirectory)
+        guard let enumerator = FileManager.default.enumerator(
+            at: directoryURL,
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            throw XCTSkip("Missing directory \(relativeDirectory) for one-per-record lookup")
+        }
+
+        for case let url as URL in enumerator {
+            guard (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true else { continue }
+            guard url.pathExtension.lowercased() == "json" else { continue }
+            let object = try? readJSONObject(at: url)
+            if let object, recordId(from: object) == id {
+                let resolvedBase = serviceDir.resolvingSymlinksInPath().path
+                let resolvedFile = url.resolvingSymlinksInPath().path
+                if resolvedFile.hasPrefix(resolvedBase + "/") {
+                    return String(resolvedFile.dropFirst(resolvedBase.count + 1))
+                }
+                let standardizedBase = serviceDir.standardizedFileURL.path
+                let standardizedFile = url.standardizedFileURL.path
+                if standardizedFile.hasPrefix(standardizedBase + "/") {
+                    return String(standardizedFile.dropFirst(standardizedBase.count + 1))
+                }
+                throw XCTSkip("Could not derive relative path for \(resolvedFile)")
+            }
+        }
+
+        throw XCTSkip("Could not find one-per-record file under \(relativeDirectory) for id \(id)")
+    }
+
+    private func serverRecordContainsToken(
+        scenario: CollectionUpdateScenario,
+        id: String,
+        token: String
+    ) async throws -> Bool {
+        if let serverGet = scenario.serverGet {
+            let record = try await serverGet(self, id)
+            return recursiveStringContainsToken(record, token: token)
+        }
+
+        let records = try await scenario.serverQuery(self)
+        return records.contains(where: {
+            let recordIdentifier = ($0["id"] as? String) ?? ($0["_id"] as? String)
+            return recordIdentifier == id && self.recursiveStringContainsToken($0, token: token)
+        })
     }
 
     private func objectRecordContainingToken(_ url: URL, token: String) throws -> [String: Any]? {
@@ -401,6 +492,15 @@ final class WixLiveE2ETests: XCTestCase {
         for key in ["id", "_id", "revision", "_revision", "createdDate", "updatedDate", "lastPublishedDate", "firstPublishedDate"] {
             record.removeValue(forKey: key)
         }
+    }
+
+    private func propagationStatus(for contract: WixResourceContract) -> String {
+        let legs = [
+            contract.humanToObjectToServer ? "human->object->server" : nil,
+            contract.objectToHumanToServer ? "object->human->server" : nil,
+            contract.serverToObjectToHuman ? "server->object->human" : nil,
+        ].compactMap { $0 }
+        return legs.isEmpty ? "n/a" : legs.joined(separator: ", ")
     }
 
     private func resource(_ name: String, in config: AdapterConfig) throws -> ResourceConfig {
@@ -849,6 +949,11 @@ final class WixLiveE2ETests: XCTestCase {
         return result["product"] as? [String: Any] ?? result
     }
 
+    private func getBookingsService(id: String) async throws -> [String: Any] {
+        let result = try await wixAPI(method: .GET, path: "/bookings/v2/services/\(id)")
+        return result["service"] as? [String: Any] ?? result
+    }
+
     private func getMember(id: String) async throws -> [String: Any] {
         let result = try await wixAPI(method: .GET, path: "/members/v1/members/\(id)")
         return result["member"] as? [String: Any] ?? result
@@ -1076,6 +1181,35 @@ final class WixLiveE2ETests: XCTestCase {
         return (id, revision)
     }
 
+    private func bookingsServiceUpdateBody(service: [String: Any], name: String? = nil, defaultCapacity: Int? = nil) -> [String: Any] {
+        let revision = service["revision"] as? String ?? "\(service["revision"] ?? "0")"
+        let resolvedName = name ?? (service["name"] as? String ?? "Updated Service")
+        let capacity = defaultCapacity ?? (service["defaultCapacity"] as? Int ?? Int("\(service["defaultCapacity"] ?? 1)") ?? 1)
+        let onlineBooking = service["onlineBooking"] as? [String: Any] ?? [
+            "enabled": true,
+            "requireManualApproval": false,
+            "allowMultipleRequests": false,
+        ]
+        let payment = service["payment"] as? [String: Any] ?? [:]
+        let locations = service["locations"] as? [[String: Any]] ?? []
+        let schedule = service["schedule"] as? [String: Any] ?? [:]
+        let staffMemberIds = service["staffMemberIds"] as? [String] ?? []
+
+        let serviceBody: [String: Any] = [
+            "revision": revision,
+            "name": resolvedName,
+            "type": service["type"] as? String ?? "APPOINTMENT",
+            "defaultCapacity": capacity,
+            "onlineBooking": onlineBooking,
+            "payment": payment,
+            "locations": locations,
+            "schedule": schedule,
+            "staffMemberIds": staffMemberIds,
+        ]
+
+        return ["service": serviceBody]
+    }
+
     private func queryRestaurantMenus() async throws -> [[String: Any]] {
         let body: [String: Any] = [
             "query": ["paging": ["limit": 100]]
@@ -1288,49 +1422,47 @@ final class WixLiveE2ETests: XCTestCase {
 
             let humanUpdateToken = self.uniqueTestName("\(scenario.updateTokenPrefix)Human")
             var humanRows = try self.readCSV(at: humanURL)
-            guard !humanRows.isEmpty else {
+            guard let rowIndex = humanRows.firstIndex(where: { self.recordId(from: $0) != nil }) else {
                 throw XCTSkip("No existing rows available in \(relativePath) for human-update propagation")
             }
-            scenario.humanUpdate(&humanRows[0], humanUpdateToken)
+            let targetId = try XCTUnwrap(self.recordId(from: humanRows[rowIndex]), "Expected a stable id column in \(relativePath)")
+            scenario.humanUpdate(&humanRows[rowIndex], humanUpdateToken)
             try self.writeCSV(humanRows, to: humanURL)
             try await self.triggerAndWaitForSync(harness.syncEngine, filePath: relativePath)
             try await self.waitUntil("\(scenario.resourceName) human update on object file") {
-                self.objectRecordsContainToken(objectURL, token: humanUpdateToken)
+                guard let record = try self.objectRecord(withId: targetId, in: objectURL) else { return false }
+                return self.recursiveStringContainsToken(record, token: humanUpdateToken)
             }
             try await self.waitUntil("\(scenario.resourceName) human update on server") {
-                let records = try await scenario.serverQuery(self)
-                return records.contains(where: { self.recursiveStringContainsToken($0, token: humanUpdateToken) })
+                try await self.serverRecordContainsToken(scenario: scenario, id: targetId, token: humanUpdateToken)
             }
 
             let objectUpdateToken = self.uniqueTestName("\(scenario.updateTokenPrefix)Object")
             var rawRecords = try ObjectFileManager.readCollectionObjectFile(from: objectURL)
-            guard !rawRecords.isEmpty else {
+            guard let rawIndex = rawRecords.firstIndex(where: { ($0["id"] as? String) == targetId || ($0["_id"] as? String) == targetId }) else {
                 throw XCTSkip("No object records available in \(objectPath) for object-update propagation")
             }
-            scenario.objectUpdate(&rawRecords[0], objectUpdateToken)
+            scenario.objectUpdate(&rawRecords[rawIndex], objectUpdateToken)
             try ObjectFileManager.writeCollectionObjectFile(records: rawRecords, to: objectURL)
             try await self.triggerAndWaitForSync(harness.syncEngine, filePath: objectPath)
             try await self.waitUntil("\(scenario.resourceName) object update on human file") {
-                self.csvContainsToken(humanURL, token: objectUpdateToken)
+                let refreshed = try self.readCSV(at: humanURL)
+                return refreshed.contains(where: { self.recordId(from: $0) == targetId && self.recursiveStringContainsToken($0, token: objectUpdateToken) })
             }
             try await self.waitUntil("\(scenario.resourceName) object update on server") {
-                let records = try await scenario.serverQuery(self)
-                return records.contains(where: { self.recursiveStringContainsToken($0, token: objectUpdateToken) })
+                try await self.serverRecordContainsToken(scenario: scenario, id: targetId, token: objectUpdateToken)
             }
 
             let serverUpdateToken = self.uniqueTestName("\(scenario.updateTokenPrefix)Server")
-            let currentRows = try self.readCSV(at: humanURL)
-            guard let currentId = currentRows.first(where: { self.recursiveStringContainsToken($0, token: objectUpdateToken) }).flatMap(self.recordId(from:)) else {
-                XCTFail("Failed to locate synced row ID for \(scenario.resourceName)")
-                return
-            }
-            try await scenario.serverUpdate(self, currentId, serverUpdateToken)
+            try await scenario.serverUpdate(self, targetId, serverUpdateToken)
             try await self.triggerAndWaitForSync(harness.syncEngine)
             try await self.waitUntil("\(scenario.resourceName) server update on object file") {
-                self.objectRecordsContainToken(objectURL, token: serverUpdateToken)
+                guard let record = try self.objectRecord(withId: targetId, in: objectURL) else { return false }
+                return self.recursiveStringContainsToken(record, token: serverUpdateToken)
             }
             try await self.waitUntil("\(scenario.resourceName) server update on human file") {
-                self.csvContainsToken(humanURL, token: serverUpdateToken)
+                let refreshed = try self.readCSV(at: humanURL)
+                return refreshed.contains(where: { self.recordId(from: $0) == targetId && self.recursiveStringContainsToken($0, token: serverUpdateToken) })
             }
         }
     }
@@ -1472,56 +1604,85 @@ final class WixLiveE2ETests: XCTestCase {
         )
     }
 
-    func testWixResourceContracts_CoverEveryConfiguredResource() async throws {
-        let configuredNames = Set(config.resources.map(\.name))
-        let contractNames = Set(Self.wixResourceContracts.map(\.name))
-        XCTAssertEqual(contractNames, configuredNames, "Every configured Wix live-test resource must have an explicit contract entry")
+    func testWixResourceContracts_CoverEveryBundledTopLevelResource() async throws {
+        let configuredNames = Set(try XCTUnwrap(bundledConfig).resources.map(\.name))
+        let contractNames = Set(Self.wixTopLevelContracts.map(\.name))
+        XCTAssertEqual(contractNames, configuredNames, "Every bundled Wix top-level resource must have an explicit contract entry")
+    }
+
+    func testWixResourceContracts_CoverExplicitChildSurfaces() throws {
+        let bundled = try XCTUnwrap(bundledConfig)
+        let forms = try XCTUnwrap(bundled.resources.first(where: { $0.name == "forms" }))
+        let collections = try XCTUnwrap(bundled.resources.first(where: { $0.name == "collections" }))
+        let childNames = Set(Self.wixChildSurfaceContracts.map(\.name))
+
+        XCTAssertEqual(
+            childNames,
+            Set([
+                "forms.\(try XCTUnwrap(forms.children?.first).name)",
+                "collections.\(try XCTUnwrap(collections.children?.first).name)",
+            ]),
+            "Important writable child surfaces should stay explicit in the Wix contract matrix"
+        )
+    }
+
+    func testWixResourceContracts_MatchBundledCapabilityClasses() throws {
+        let bundled = try XCTUnwrap(bundledConfig)
+
+        for contract in Self.wixTopLevelContracts {
+            let resource = try XCTUnwrap(bundled.resources.first(where: { $0.name == contract.name }))
+            XCTAssertEqual(resource.capabilityClass, contract.capabilityClass, "\(contract.name) capability class drifted between the adapter and live matrix")
+            XCTAssertEqual(resource.fileMapping.format, contract.humanFormat, "\(contract.name) human format drifted between the adapter and live matrix")
+        }
+
+        let forms = try XCTUnwrap(bundled.resources.first(where: { $0.name == "forms" }))
+        let submissions = try XCTUnwrap(forms.children?.first(where: { $0.name == "submissions" }))
+        XCTAssertEqual(submissions.capabilityClass, .partialWritable)
+        XCTAssertEqual(submissions.fileMapping.format, .csv)
+
+        let collections = try XCTUnwrap(bundled.resources.first(where: { $0.name == "collections" }))
+        let items = try XCTUnwrap(collections.children?.first(where: { $0.name == "items" }))
+        XCTAssertEqual(items.capabilityClass, .fullCRUD)
+        XCTAssertEqual(items.fileMapping.format, .csv)
+    }
+
+    func testWixResourceContracts_ReportStatusMatrix() throws {
+        let bundled = try XCTUnwrap(bundledConfig)
+        var lines = [
+            "| Resource | Configured capability | Live-proven capability | 3-way propagation | Sanitized human file |",
+            "| --- | --- | --- | --- | --- |",
+        ]
+
+        for contract in Self.wixTopLevelContracts + Self.wixChildSurfaceContracts {
+            let configuredCapability: ResourceCapabilityClass?
+            if let parentName = contract.name.split(separator: ".").first.map(String.init),
+               contract.name.contains("."),
+               let parent = bundled.resources.first(where: { $0.name == parentName }),
+               let childName = contract.name.split(separator: ".").dropFirst().first.map(String.init) {
+                configuredCapability = parent.children?.first(where: { $0.name == childName })?.capabilityClass
+            } else {
+                configuredCapability = bundled.resources.first(where: { $0.name == contract.name })?.capabilityClass
+            }
+            lines.append(
+                "| \(contract.name) | \(configuredCapability?.rawValue ?? "n/a") | \(contract.capabilityClass.rawValue) | \(self.propagationStatus(for: contract)) | \(contract.humanSanitized ? "yes" : "no") |"
+            )
+        }
+
+        XCTContext.runActivity(named: "Wix resource contract matrix") { activity in
+            let attachment = XCTAttachment(string: lines.joined(separator: "\n"))
+            attachment.name = "wix-resource-contract-matrix"
+            attachment.lifetime = .keepAlways
+            activity.add(attachment)
+        }
     }
 
     func testThreeWayUpdatePropagation_WritableCollectionResources() async throws {
         let scenarios: [CollectionUpdateScenario] = [
             .init(
-                resourceName: "contacts",
-                updateTokenPrefix: "Contact3Way",
-                serverQuery: { try await $0.queryContacts() },
-                serverUpdate: { test, id, token in
-                    let latest = try await test.getContact(id: id)
-                    let revision = latest["revision"] as? Int ?? Int("\(latest["revision"] ?? 0)") ?? 0
-                    let info = latest["info"] as? [String: Any] ?? [:]
-                    let emails = info["emails"] ?? [
-                        "items": [[
-                            "email": "\(token.lowercased())@example.com",
-                            "primary": true,
-                        ]]
-                    ]
-                    let body: [String: Any] = [
-                        "revision": revision,
-                        "info": [
-                            "name": [
-                                "first": token,
-                                "last": "Srv"
-                            ],
-                            "emails": emails
-                        ]
-                    ]
-                    _ = try await test.wixAPI(method: .PATCH, path: "/contacts/v4/contacts/\(id)", body: body)
-                },
-                humanUpdate: { row, token in
-                    row["first"] = token
-                },
-                objectUpdate: { row, token in
-                    var info = row["info"] as? [String: Any] ?? [:]
-                    var name = info["name"] as? [String: Any] ?? [:]
-                    name["first"] = token
-                    name["last"] = "Obj"
-                    info["name"] = name
-                    row["info"] = info
-                }
-            ),
-            .init(
                 resourceName: "products",
                 updateTokenPrefix: "Product3Way",
                 serverQuery: { try await $0.queryProducts() },
+                serverGet: { test, id in try await test.getProduct(id: id) },
                 serverUpdate: { test, id, token in
                     let latest = try await test.getProduct(id: id)
                     let revision = latest["revision"] as? Int ?? Int("\(latest["revision"] ?? 0)") ?? 0
@@ -1541,60 +1702,18 @@ final class WixLiveE2ETests: XCTestCase {
                     row["slug"] = token.lowercased().replacingOccurrences(of: " ", with: "-")
                 }
             ),
-            .init(
-                resourceName: "groups",
-                updateTokenPrefix: "Group3Way",
-                serverQuery: { try await $0.queryGroups() },
-                serverUpdate: { test, id, token in
-                    _ = try await test.wixAPI(
-                        method: .PATCH,
-                        path: "/social-groups/v2/groups/\(id)",
-                        body: ["group": ["name": token, "title": token]]
-                    )
-                },
-                humanUpdate: { row, token in
-                    row["name"] = token
-                },
-                objectUpdate: { row, token in
-                    row["name"] = token
-                    row["title"] = token
-                }
-            ),
-            .init(
-                resourceName: "bookings-services",
-                updateTokenPrefix: "BookingSvc3Way",
-                serverQuery: { try await $0.queryBookingsServices() },
-                serverUpdate: { test, id, token in
-                    guard let template = try await test.queryBookingsServices().first(where: { $0["id"] as? String == id }) else {
-                        XCTFail("Missing bookings service \(id) on server for update propagation")
-                        return
-                    }
-                    let revision = template["revision"] as? String ?? "\(template["revision"] ?? "0")"
-                    let body: [String: Any] = [
-                        "service": [
-                            "revision": revision,
-                            "name": token,
-                            "type": template["type"] as? String ?? "APPOINTMENT",
-                            "defaultCapacity": template["defaultCapacity"] ?? 1,
-                            "onlineBooking": template["onlineBooking"] as? [String: Any] ?? [:],
-                            "payment": template["payment"] as? [String: Any] ?? [:],
-                            "locations": template["locations"] as? [[String: Any]] ?? [],
-                            "schedule": template["schedule"] as? [String: Any] ?? [:],
-                            "staffMemberIds": template["staffMemberIds"] as? [String] ?? []
-                        ]
-                    ]
-                    _ = try await test.wixAPI(method: .PATCH, path: "/bookings/v2/services/\(id)", body: body)
-                },
-                humanUpdate: { row, token in
-                    row["name"] = token
-                },
-                objectUpdate: { row, token in
-                    row["name"] = token
-                }
-            ),
         ]
 
+        let contractLookup = Dictionary(uniqueKeysWithValues: Self.wixTopLevelContracts.map { ($0.name, $0) })
+        let expectedScenarioResources: Set<String> = ["products"]
+        XCTAssertEqual(
+            Set(scenarios.map(\.resourceName)),
+            expectedScenarioResources,
+            "The generic collection 3-way runner should only cover the resources whose full collection propagation contract is proven live here"
+        )
+
         for scenario in scenarios {
+            XCTAssertEqual(contractLookup[scenario.resourceName]?.capabilityClass, .fullCRUD)
             try await self.runCollectionUpdatePropagationScenario(scenario)
         }
     }
@@ -1925,6 +2044,54 @@ final class WixLiveE2ETests: XCTestCase {
 
         let groups = try await queryGroups()
         XCTAssertFalse(groups.contains(where: { $0["id"] as? String == id }), "Group should be deleted")
+    }
+
+    func testGroups_ServerUpdate_ReflectedInObjectAndLocalFiles() async throws {
+        let ownerId = try await currentGroupOwnerId()
+        let id = try await createGroup(name: uniqueTestName("GroupServerBase"), ownerId: ownerId)
+
+        try await withIsolatedSyncHarness(resourceNames: ["groups"]) { harness in
+            await harness.syncEngine.triggerSync(serviceId: "wix")
+            try await self.waitForSyncIdle(harness.syncEngine)
+
+            let humanRelativePath = "groups.csv"
+            let humanURL = harness.serviceDir.appendingPathComponent(humanRelativePath)
+            let objectRelativePath = ObjectFileManager.objectFilePath(forCollectionFile: humanRelativePath)
+            let objectURL = harness.serviceDir.appendingPathComponent(objectRelativePath)
+
+            try await self.waitForCollectionFile(humanURL)
+            try await self.waitForCollectionFile(objectURL)
+            try await self.waitUntil("group row pulled into groups.csv") {
+                let rows = try self.readCSV(at: humanURL)
+                return rows.contains { self.recordId(from: $0) == id }
+            }
+
+            let token = self.uniqueTestName("GroupServer")
+            _ = try await self.wixAPI(
+                method: .PATCH,
+                path: "/social-groups/v2/groups/\(id)",
+                body: [
+                    "group": [
+                        "name": token,
+                        "title": token,
+                        "createdBy": [
+                            "id": ownerId,
+                            "identityType": "MEMBER"
+                        ]
+                    ]
+                ]
+            )
+
+            try await self.triggerAndWaitForSync(harness.syncEngine)
+            try await self.waitUntil("group server update on object file") {
+                guard let record = try self.objectRecord(withId: id, in: objectURL) else { return false }
+                return self.recursiveStringContainsToken(record, token: token)
+            }
+            try await self.waitUntil("group server update on human file") {
+                let rows = try self.readCSV(at: humanURL)
+                return rows.contains { self.recordId(from: $0) == id && self.recursiveStringContainsToken($0, token: token) }
+            }
+        }
     }
 
     // ======================================================================
@@ -3293,6 +3460,63 @@ final class WixLiveE2ETests: XCTestCase {
         XCTAssertEqual(refreshedName?["last"] as? String, "Update")
     }
 
+    func testContacts_ServerUpdate_ReflectedInObjectAndLocalFiles() async throws {
+        let email = "codex-\(UUID().uuidString.prefix(8))@example.com"
+        let created = try await createContact(firstName: "Codex", lastName: "Server", email: email)
+
+        try await withIsolatedSyncHarness(resourceNames: ["contacts"]) { harness in
+            await harness.syncEngine.triggerSync(serviceId: "wix")
+            try await self.waitForSyncIdle(harness.syncEngine)
+
+            let humanRelativePath = "contacts.csv"
+            let humanURL = harness.serviceDir.appendingPathComponent(humanRelativePath)
+            let objectRelativePath = ObjectFileManager.objectFilePath(forCollectionFile: humanRelativePath)
+            let objectURL = harness.serviceDir.appendingPathComponent(objectRelativePath)
+
+            try await self.waitForCollectionFile(humanURL)
+            try await self.waitForCollectionFile(objectURL)
+            try await self.waitUntil("contact row pulled into contacts.csv") {
+                let rows = try self.readCSV(at: humanURL)
+                return rows.contains { self.recordId(from: $0) == created.id }
+            }
+
+            let latest = try await self.getContact(id: created.id)
+            let revision = latest["revision"] as? Int ?? Int("\(latest["revision"] ?? 0)") ?? created.revision
+            let token = self.uniqueTestName("ContactServer")
+            _ = try await self.wixAPI(
+                method: .PATCH,
+                path: "/contacts/v4/contacts/\(created.id)",
+                body: [
+                    "revision": revision,
+                    "info": [
+                        "name": [
+                            "first": token,
+                            "last": "Server",
+                        ],
+                        "emails": [
+                            "items": [
+                                [
+                                    "email": email,
+                                    "primary": true,
+                                ],
+                            ],
+                        ],
+                    ],
+                ]
+            )
+
+            try await self.triggerAndWaitForSync(harness.syncEngine)
+            try await self.waitUntil("contact server update on object file") {
+                guard let record = try self.objectRecord(withId: created.id, in: objectURL) else { return false }
+                return self.recursiveStringContainsToken(record, token: token)
+            }
+            try await self.waitUntil("contact server update on human file") {
+                let rows = try self.readCSV(at: humanURL)
+                return rows.contains { self.recordId(from: $0) == created.id && self.recursiveStringContainsToken($0, token: token) }
+            }
+        }
+    }
+
     func testContacts_Delete_RemoveContact_DeletedFromServer() async throws {
         let res = try resource("contacts")
         let email = "codex-\(UUID().uuidString.prefix(8))@example.com"
@@ -3474,6 +3698,42 @@ final class WixLiveE2ETests: XCTestCase {
         XCTAssertFalse(services.contains(where: { $0["id"] as? String == created.id }), "Deleted bookings service should be gone from server")
     }
 
+    func testBookingsServices_ServerUpdate_ReflectedInObjectAndLocalFiles() async throws {
+        let created = try await createBookingsService(name: uniqueTestName("BookingServiceServer"))
+
+        try await withIsolatedSyncHarness(resourceNames: ["bookings-services"]) { harness in
+            await harness.syncEngine.triggerSync(serviceId: "wix")
+            try await self.waitForSyncIdle(harness.syncEngine)
+
+            let humanRelativePath = "bookings/services.csv"
+            let humanURL = harness.serviceDir.appendingPathComponent(humanRelativePath)
+            let objectRelativePath = ObjectFileManager.objectFilePath(forCollectionFile: humanRelativePath)
+            let objectURL = harness.serviceDir.appendingPathComponent(objectRelativePath)
+
+            try await self.waitForCollectionFile(humanURL)
+            try await self.waitForCollectionFile(objectURL)
+            try await self.waitUntil("bookings service row pulled into services.csv") {
+                let rows = try self.readCSV(at: humanURL)
+                return rows.contains { self.recordId(from: $0) == created.id }
+            }
+
+            let token = self.uniqueTestName("BookingServiceServer")
+            let latest = try await self.getBookingsService(id: created.id)
+            let body = self.bookingsServiceUpdateBody(service: latest, name: token)
+            _ = try await self.wixAPI(method: .PATCH, path: "/bookings/v2/services/\(created.id)", body: body)
+
+            try await self.triggerAndWaitForSync(harness.syncEngine)
+            try await self.waitUntil("bookings service server update on object file") {
+                guard let record = try self.objectRecord(withId: created.id, in: objectURL) else { return false }
+                return self.recursiveStringContainsToken(record, token: token)
+            }
+            try await self.waitUntil("bookings service server update on human file") {
+                let rows = try self.readCSV(at: humanURL)
+                return rows.contains { self.recordId(from: $0) == created.id && self.recursiveStringContainsToken($0, token: token) }
+            }
+        }
+    }
+
     func testBookingsAppointments_Pull_WritesExpectedFile() async throws {
         try await assertCollectionPull(
             resourceName: "bookings-appointments",
@@ -3494,6 +3754,58 @@ final class WixLiveE2ETests: XCTestCase {
             expectedColumns: ["id", "text", "authorMemberId", "status"],
             allowEmptyFile: true
         )
+    }
+
+    func testBookings_HumanAndObjectUpdatePropagation() async throws {
+        let created = try await createBookingsService(name: uniqueTestName("BookingJSON3Way"))
+
+        try await withIsolatedSyncHarness(resourceNames: ["bookings"]) { harness in
+            await harness.syncEngine.triggerSync(serviceId: "wix")
+            try await self.waitForSyncIdle(harness.syncEngine)
+
+            @Sendable func currentPaths() throws -> (humanRelativePath: String, humanURL: URL, objectRelativePath: String, objectURL: URL) {
+                let relative = try self.findOnePerRecordFile(under: "bookings", matchingID: created.id, in: harness.serviceDir)
+                let humanURL = harness.serviceDir.appendingPathComponent(relative)
+                let objectRelative = ObjectFileManager.objectFilePath(forRecordFile: relative)
+                let objectURL = harness.serviceDir.appendingPathComponent(objectRelative)
+                return (relative, humanURL, objectRelative, objectURL)
+            }
+
+            let initial = try currentPaths()
+            try await self.waitForCollectionFile(initial.humanURL)
+            try await self.waitForCollectionFile(initial.objectURL)
+
+            let humanToken = self.uniqueTestName("BookingJSONHuman")
+            var humanRecord = try self.readJSONObject(at: initial.humanURL)
+            humanRecord["name"] = humanToken
+            try self.writeJSONObject(humanRecord, to: initial.humanURL)
+            try await self.triggerAndWaitForSync(harness.syncEngine, filePath: initial.humanRelativePath)
+            try await self.waitUntil("bookings human edit on object file") {
+                guard let latest = try? currentPaths(),
+                      let record = try? ObjectFileManager.readRecordObjectFile(from: latest.objectURL) else { return false }
+                return self.recursiveStringContainsToken(record, token: humanToken)
+            }
+            try await self.waitUntil("bookings human edit on server") {
+                let service = try await self.getBookingsService(id: created.id)
+                return self.recursiveStringContainsToken(service, token: humanToken)
+            }
+
+            let afterHuman = try currentPaths()
+            let objectToken = self.uniqueTestName("BookingJSONObject")
+            var objectRecord = try ObjectFileManager.readRecordObjectFile(from: afterHuman.objectURL)
+            objectRecord["name"] = objectToken
+            try ObjectFileManager.writeRecordObjectFile(record: objectRecord, to: afterHuman.objectURL)
+            try await self.triggerAndWaitForSync(harness.syncEngine, filePath: afterHuman.objectRelativePath)
+            try await self.waitUntil("bookings object edit on human file") {
+                guard let latest = try? currentPaths(),
+                      let refreshed = try? self.readJSONObject(at: latest.humanURL) else { return false }
+                return self.recursiveStringContainsToken(refreshed, token: objectToken)
+            }
+            try await self.waitUntil("bookings object edit on server") {
+                let service = try await self.getBookingsService(id: created.id)
+                return self.recursiveStringContainsToken(service, token: objectToken)
+            }
+        }
     }
 
     // ======================================================================
