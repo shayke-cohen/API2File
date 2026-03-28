@@ -85,7 +85,7 @@ struct Dashboard2View: View {
     }
 
     private var services: [ServiceInfo] {
-        appState.services.filter { $0.config.enabled != false }
+        appState.services
             .sorted { $0.displayName.localizedStandardCompare($1.displayName) == .orderedAscending }
     }
 
@@ -157,7 +157,7 @@ struct Dashboard2View: View {
     }
 
     private var workspaceDeck: some View {
-        VStack(alignment: .leading, spacing: 18) {
+        VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .top, spacing: 18) {
                 VStack(alignment: .leading, spacing: 8) {
                     Text(headerTitle)
@@ -184,62 +184,10 @@ struct Dashboard2View: View {
                         .lineLimit(2)
                 }
 
-                Spacer(minLength: 16)
-
-                HStack(spacing: 8) {
-                    Button {
-                        openSelectedServiceFolder()
-                    } label: {
-                        Label("Open Folder", systemImage: "folder")
-                    }
-                    .buttonStyle(.bordered)
-                    .disabled(selectedService == nil)
-                    .controlSize(.small)
-
-                    Button {
-                        if let serviceId = selectedService?.serviceId {
-                            appState.launchCodingAgent(serviceId: serviceId)
-                        }
-                    } label: {
-                        Label("Open \(appState.codingAgentDisplayName)", systemImage: "terminal")
-                    }
-                    .buttonStyle(.bordered)
-                    .disabled(selectedService == nil)
-                    .controlSize(.small)
-                }
-            }
-
-            HStack(spacing: 10) {
-                PortalWorkspaceSelector(
-                    services: services,
-                    selectedServiceId: Binding(
-                        get: { selectedService?.serviceId },
-                        set: { selectedServiceId = $0 }
-                    )
-                )
-
-                Button {
-                    appState.openAddServiceWindow()
-                } label: {
-                    Label("Add Service", systemImage: "plus")
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-
                 Spacer(minLength: 12)
-
-                Button {
-                    if let serviceId = selectedService?.serviceId {
-                        appState.syncService(serviceId: serviceId)
-                    } else {
-                        appState.syncNow()
-                    }
-                } label: {
-                    Label(selectedService == nil ? "Sync All" : "Sync Now", systemImage: "arrow.triangle.2.circlepath")
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.small)
             }
+
+            workspaceControlStrip
 
             LazyVGrid(
                 columns: [GridItem(.adaptive(minimum: 150), spacing: 10, alignment: .top)],
@@ -289,6 +237,107 @@ struct Dashboard2View: View {
         }
         .padding(22)
         .background(portalGlassPanel(cornerRadius: 28))
+    }
+
+    @ViewBuilder
+    private var workspaceControlStrip: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 10) {
+                workspaceSelectorControl
+                addServiceButton
+                serviceEnabledToggle
+                openActionsMenu
+                Spacer(minLength: 12)
+                syncNowButton
+            }
+
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 10) {
+                    workspaceSelectorControl
+                    addServiceButton
+                    Spacer(minLength: 0)
+                }
+
+                HStack(spacing: 10) {
+                    serviceEnabledToggle
+                    openActionsMenu
+                    Spacer(minLength: 0)
+                    syncNowButton
+                }
+            }
+        }
+    }
+
+    private var workspaceSelectorControl: some View {
+        PortalWorkspaceSelector(
+            services: services,
+            selectedServiceId: Binding(
+                get: { selectedService?.serviceId },
+                set: { selectedServiceId = $0 }
+            )
+        )
+    }
+
+    private var addServiceButton: some View {
+        Button {
+            appState.openAddServiceWindow()
+        } label: {
+            Label("Add Service", systemImage: "plus")
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+    }
+
+    private var serviceEnabledToggle: some View {
+        Toggle(isOn: Binding(
+            get: { selectedService?.config.enabled != false },
+            set: { enabled in
+                guard let serviceId = selectedService?.serviceId else { return }
+                appState.setServiceEnabled(serviceId: serviceId, enabled: enabled)
+            }
+        )) {
+            Text(selectedService?.config.enabled != false ? "Enabled" : "Disabled")
+                .font(.caption)
+        }
+        .toggleStyle(.switch)
+        .controlSize(.small)
+        .disabled(selectedService == nil)
+    }
+
+    private var openActionsMenu: some View {
+        Menu {
+            Button("Open Folder") {
+                openSelectedServiceFolder()
+            }
+            .disabled(selectedService == nil)
+
+            Button("Open \(appState.codingAgentDisplayName)") {
+                if let serviceId = selectedService?.serviceId {
+                    appState.launchCodingAgent(serviceId: serviceId)
+                }
+            }
+            .disabled(selectedService == nil)
+        } label: {
+            Label("Open", systemImage: "folder")
+        }
+        .menuStyle(.borderedButton)
+        .controlSize(.small)
+        .disabled(selectedService == nil)
+    }
+
+    private var syncNowButton: some View {
+        Button {
+            if let serviceId = selectedService?.serviceId {
+                appState.syncService(serviceId: serviceId)
+            } else {
+                appState.syncNow()
+            }
+        } label: {
+            Label(selectedService == nil ? "Sync All" : "Sync Now", systemImage: "arrow.triangle.2.circlepath")
+        }
+        .buttonStyle(.borderedProminent)
+        .controlSize(.small)
+        .disabled(selectedService?.status == .syncing || selectedService?.config.enabled == false)
     }
 
     private var folderCount: Int {

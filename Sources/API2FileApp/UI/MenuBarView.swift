@@ -15,7 +15,7 @@ struct MenuBarView: View {
             }
             .testId("menubar-add-first-service")
         } else {
-            ForEach(enabledServices, id: \.serviceId) { service in
+            ForEach(displayedServices, id: \.serviceId) { service in
                 serviceMenu(service)
             }
         }
@@ -90,8 +90,9 @@ struct MenuBarView: View {
         .testId("menubar-quit")
     }
 
-    private var enabledServices: [ServiceInfo] {
-        appState.services.filter { $0.config.enabled != false }
+    private var displayedServices: [ServiceInfo] {
+        appState.services
+            .sorted { $0.displayName.localizedStandardCompare($1.displayName) == .orderedAscending }
     }
 
     @ViewBuilder
