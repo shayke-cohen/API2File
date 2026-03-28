@@ -4,7 +4,7 @@
 <dict>
 	<key>com.apple.security.application-groups</key>
 	<array>
-		<string>group.com.api2file</string>
+		<string>group.com.shayco.api2file.dev</string>
 	</array>
 </dict>
 </plist>

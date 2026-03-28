@@ -1,7 +1,9 @@
 import SwiftUI
 import API2FileCore
 #if DEBUG
+#if canImport(AppXray)
 import AppXray
+#endif
 #endif
 
 @main
@@ -14,14 +16,20 @@ struct API2FileApp: App {
 
         NSApplication.shared.setActivationPolicy(.regular)
         #if DEBUG
+        #if canImport(AppXray)
+        let xrayMode: AppXrayConnectionMode =
+            ProcessInfo.processInfo.environment["API2FILE_APPXRAY_MODE"] == "server"
+            ? .server
+            : .client
         AppXray.shared.start(config: AppXrayConfig(
             appName: "API2File",
             platform: AppXrayConfig.macos,
-            mode: .client
+            mode: xrayMode
         ))
         AppXray.shared.registerObservableObject(state, name: "appState", setters: [
             "isPaused": { state.isPaused = $0 as! Bool }
         ])
+        #endif
         #endif
     }
 
@@ -43,12 +51,17 @@ struct API2FileApp: App {
 final class AppState: ObservableObject {
     @Published var services: [ServiceInfo] = []
     @Published var isPaused: Bool = false
-    @Published var config: GlobalConfig = .init()
+    @Published var config: GlobalConfig = .init() {
+        didSet {
+            publishFinderBadgeSnapshot()
+        }
+    }
     @Published var recentActivity: [SyncHistoryEntry] = []
 
     private(set) var syncEngine: SyncEngine?
     private(set) var localServer: LocalServer?
     private var refreshTask: Task<Void, Never>?
+    private let finderOpenURLObserver = FinderOpenURLObserver()
     private var engineStarted = false
     private var addServiceWindow: NSWindow?
     private var webViewBridge: WebViewBridge?
@@ -57,6 +70,13 @@ final class AppState: ObservableObject {
     private var lastSyncTimes: [String: Date] = [:]
 
     init() {
+        finderOpenURLObserver.handler = { [weak self] url, preferredBrowser in
+            guard let self else { return }
+            Task { @MainActor in
+                self.openExternalURL(url, preferredBrowser: preferredBrowser)
+            }
+        }
+
         // Auto-start engine on creation
         Task { @MainActor [weak self] in
             self?.startEngine()
@@ -77,6 +97,7 @@ final class AppState: ObservableObject {
         print("[API2File] Starting sync engine...")
         let config = GlobalConfig.loadOrDefault(syncFolder: GlobalConfig().resolvedSyncFolder)
         self.config = config
+        publishFinderBadgeSnapshot()
 
         let engine = SyncEngine(config: config)
         self.syncEngine = engine
@@ -293,6 +314,24 @@ final class AppState: ObservableObject {
         NSWorkspace.shared.open(fallbackURL)
     }
 
+    private func openExternalURL(_ url: URL, preferredBrowser: String?) {
+        let workspace = NSWorkspace.shared
+
+        if preferredBrowser == "chrome",
+           let chromeURL = workspace.urlForApplication(withBundleIdentifier: "com.google.Chrome") {
+            let configuration = NSWorkspace.OpenConfiguration()
+            workspace.open([url], withApplicationAt: chromeURL, configuration: configuration) { _, error in
+                if let error {
+                    NSLog("AppState failed opening Chrome for %@: %@", url.absoluteString, error.localizedDescription)
+                    workspace.open(url)
+                }
+            }
+            return
+        }
+
+        workspace.open(url)
+    }
+
     // MARK: - Live Reload
 
     private func checkLiveReload() async {
@@ -502,6 +541,146 @@ final class AppState: ObservableObject {
         let infos = await engine.getServices()
         await MainActor.run {
             self.services = infos
+            self.publishFinderBadgeSnapshot()
         }
+    }
+
+    private func publishFinderBadgeSnapshot() {
+        guard shouldUseFinderBadgeSharedContainer else {
+            return
+        }
+
+        guard let defaults = FinderBadgeSupport.sharedDefaults() else { return }
+
+        FinderBadgeSupport.setSyncRootURL(config.resolvedSyncFolder, in: defaults)
+        if let bookmarkData = try? config.resolvedSyncFolder.bookmarkData(
+            options: [.withSecurityScope, .securityScopeAllowOnlyReadAccess],
+            includingResourceValuesForKeys: nil,
+            relativeTo: nil
+        ) {
+            FinderBadgeSupport.setSyncRootBookmarkData(bookmarkData, in: defaults)
+        } else {
+            FinderBadgeSupport.setSyncRootBookmarkData(nil, in: defaults)
+        }
+        FinderBadgeSupport.setBadgesEnabled(config.finderBadges, in: defaults)
+
+        FinderBadgeSupport.clearBadgeStates(in: defaults)
+        FinderBadgeSupport.clearServiceConfigs(in: defaults)
+
+        for service in services {
+            FinderBadgeSupport.setServiceConfig(service.config, forServiceId: service.serviceId, in: defaults)
+        }
+
+        guard config.finderBadges else {
+            postFinderBadgeRefresh()
+            return
+        }
+
+        for service in services {
+            let serviceStatus = finderBadgeStatus(for: service.status)
+            if !serviceStatus.isEmpty {
+                FinderBadgeSupport.setBadgeState(serviceStatus, forRelativePath: service.serviceId, in: defaults)
+            }
+
+            publishFileBadgeStates(for: service, defaults: defaults)
+        }
+
+        postFinderBadgeRefresh()
+    }
+
+    private func publishFileBadgeStates(for service: ServiceInfo, defaults: UserDefaults) {
+        let stateURL = config.resolvedSyncFolder
+            .appendingPathComponent(service.serviceId, isDirectory: true)
+            .appendingPathComponent(".api2file/state.json", isDirectory: false)
+
+        guard let state = try? SyncState.load(from: stateURL) else { return }
+
+        for (relativePath, fileState) in state.files {
+            let normalizedStatus = FinderBadgeSupport.normalizeStatus(fileState.status.rawValue)
+            guard !normalizedStatus.isEmpty else { continue }
+            let badgePath = "\(service.serviceId)/\(FinderBadgeSupport.normalizeRelativePath(relativePath))"
+            FinderBadgeSupport.setBadgeState(normalizedStatus, forRelativePath: badgePath, in: defaults)
+        }
+    }
+
+    private func finderBadgeStatus(for serviceStatus: ServiceStatus) -> String {
+        switch serviceStatus {
+        case .connected:
+            return "synced"
+        case .syncing:
+            return "syncing"
+        case .error:
+            return "error"
+        case .paused, .disconnected:
+            return ""
+        }
+    }
+
+    private func postFinderBadgeRefresh() {
+        DistributedNotificationCenter.default().post(
+            name: FinderBadgeSupport.refreshNotificationName,
+            object: nil
+        )
+    }
+
+    private var shouldUseFinderBadgeSharedContainer: Bool {
+        if ProcessInfo.processInfo.environment["API2FILE_ALLOW_APP_GROUP_ACCESS"] == "1" {
+            return true
+        }
+
+        let bundleURL = Bundle.main.bundleURL.resolvingSymlinksInPath()
+        let bundlePath = bundleURL.path
+
+        let blockedPathFragments = [
+            "/DerivedData/",
+            "/.build/",
+            "/build/Debug/",
+            "/build/Release/"
+        ]
+        if blockedPathFragments.contains(where: { bundlePath.contains($0) }) {
+            return false
+        }
+
+        if bundleURL.lastPathComponent == "API2File-sandboxed.app" {
+            return false
+        }
+
+        let homeApplicationsPath = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Applications", isDirectory: true)
+            .resolvingSymlinksInPath()
+            .path
+
+        return bundlePath.hasPrefix("/Applications/")
+            || bundlePath.hasPrefix(homeApplicationsPath + "/")
+    }
+}
+
+private final class FinderOpenURLObserver: NSObject {
+    var handler: ((URL, String?) -> Void)?
+
+    override init() {
+        super.init()
+        DistributedNotificationCenter.default().addObserver(
+            self,
+            selector: #selector(handleNotification(_:)),
+            name: FinderBadgeSupport.openURLNotificationName,
+            object: nil,
+            suspensionBehavior: .deliverImmediately
+        )
+    }
+
+    deinit {
+        DistributedNotificationCenter.default().removeObserver(self)
+    }
+
+    @objc private func handleNotification(_ notification: Notification) {
+        guard let rawURL = notification.userInfo?["url"] as? String,
+              let url = URL(string: rawURL) else {
+            return
+        }
+
+        let preferredBrowser = notification.userInfo?["preferredBrowser"] as? String
+        NSLog("AppState received finder open-url notification for %@", url.absoluteString)
+        handler?(url, preferredBrowser)
     }
 }
