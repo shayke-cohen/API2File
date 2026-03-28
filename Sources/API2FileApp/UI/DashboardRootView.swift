@@ -3,6 +3,7 @@ import SwiftUI
 private enum DashboardWorkspaceTab: Hashable {
     case classic
     case portal
+    case minimal
 }
 
 struct DashboardRootView: View {
@@ -22,6 +23,12 @@ struct DashboardRootView: View {
                     Label("Dashboard 2", systemImage: "rectangle.3.group.bubble.left")
                 }
                 .tag(DashboardWorkspaceTab.portal)
+
+            Dashboard3View(appState: appState)
+                .tabItem {
+                    Label("Dashboard 3", systemImage: "square.grid.2x2")
+                }
+                .tag(DashboardWorkspaceTab.minimal)
         }
         .frame(minWidth: 900, idealWidth: 1280, minHeight: 620, idealHeight: 820)
     }

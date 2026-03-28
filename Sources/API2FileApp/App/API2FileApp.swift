@@ -8,6 +8,7 @@ import AppXray
 
 @main
 struct API2FileApp: App {
+    @NSApplicationDelegateAdaptor(API2FileAppDelegate.self) private var appDelegate
     @StateObject private var appState: AppState
 
     init() {
