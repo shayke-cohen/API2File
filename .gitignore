@@ -5,3 +5,6 @@
 *.xcworkspace
 DerivedData/
 xcuserdata/
+website/node_modules/
+website/.tmp-tests/
+website/dist/

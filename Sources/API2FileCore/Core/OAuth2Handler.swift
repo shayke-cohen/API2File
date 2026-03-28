@@ -5,6 +5,9 @@ import FoundationNetworking
 #if canImport(AppKit)
 import AppKit
 #endif
+#if canImport(UIKit)
+import UIKit
+#endif
 
 // MARK: - OAuth2Error
 
@@ -95,7 +98,7 @@ public actor OAuth2Handler {
         }
 
         // Open the browser
-        #if canImport(AppKit)
+        #if canImport(AppKit) || canImport(UIKit)
         await openURLInBrowser(authURL)
         #endif
 
@@ -390,6 +393,11 @@ public actor OAuth2Handler {
     @MainActor
     private func openURLInBrowser(_ url: URL) {
         NSWorkspace.shared.open(url)
+    }
+    #elseif canImport(UIKit)
+    @MainActor
+    private func openURLInBrowser(_ url: URL) {
+        UIApplication.shared.open(url)
     }
     #endif
 }

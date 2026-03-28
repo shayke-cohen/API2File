@@ -33,8 +33,11 @@ public final class NotificationManager: NSObject, @unchecked Sendable, UNUserNot
     // MARK: - Init
 
     override init() {
-        // Check if we have a proper app bundle (UNUserNotificationCenter crashes without one)
-        self.isAvailable = Bundle.main.bundleIdentifier != nil
+        // UNUserNotificationCenter is only safe from the packaged desktop app bundle.
+        // Under xctest/CLI runners, Bundle.main often points at Xcode tool binaries.
+        let mainBundleURL = Bundle.main.bundleURL
+        let isAppBundle = mainBundleURL.pathExtension == "app"
+        self.isAvailable = isAppBundle && Bundle.main.bundleIdentifier != nil
         super.init()
         if isAvailable {
             center?.delegate = self

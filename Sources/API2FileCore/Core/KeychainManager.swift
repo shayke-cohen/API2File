@@ -31,9 +31,11 @@ public actor KeychainManager {
     /// Shared singleton instance.
     public static let shared = KeychainManager()
 
-    private let keyPrefix = "com.api2file."
+    private let keyPrefix: String
 
-    public init() {}
+    public init(keyPrefix: String = "com.api2file.") {
+        self.keyPrefix = keyPrefix
+    }
 
     // MARK: - String CRUD
 
@@ -158,29 +160,42 @@ public actor KeychainManager {
         }
         if let apiResult { return apiResult }
 
+        #if os(macOS)
         // Fallback: use the `security` CLI which is always trusted by the login keychain ACL
         return await withCheckedContinuation { continuation in
             DispatchQueue.global(qos: .utility).async {
-                let process = Process()
-                process.executableURL = URL(fileURLWithPath: "/usr/bin/security")
-                process.arguments = ["find-generic-password", "-a", account, "-w"]
-                let outPipe = Pipe()
-                process.standardOutput = outPipe
-                process.standardError = Pipe()
-                do {
-                    try process.run()
-                    process.waitUntilExit()
-                    if process.terminationStatus == 0 {
-                        var output = outPipe.fileHandleForReading.readDataToEndOfFile()
-                        if output.last == 10 { output.removeLast() } // strip trailing newline
-                        continuation.resume(returning: output.isEmpty ? nil : output)
-                    } else {
-                        continuation.resume(returning: nil)
+                let fallbackArguments: [[String]] = [
+                    ["find-generic-password", "-a", account, "-w"],
+                    // Legacy API2File macOS items were sometimes stored with an explicit service name.
+                    ["find-generic-password", "-s", "API2File", "-a", account, "-w"],
+                    ["find-generic-password", "-s", "com.api2file", "-a", account, "-w"],
+                ]
+
+                for arguments in fallbackArguments {
+                    let process = Process()
+                    process.executableURL = URL(fileURLWithPath: "/usr/bin/security")
+                    process.arguments = arguments
+                    let outPipe = Pipe()
+                    process.standardOutput = outPipe
+                    process.standardError = Pipe()
+                    do {
+                        try process.run()
+                        process.waitUntilExit()
+                        if process.terminationStatus == 0 {
+                            var output = outPipe.fileHandleForReading.readDataToEndOfFile()
+                            if output.last == 10 { output.removeLast() } // strip trailing newline
+                            continuation.resume(returning: output.isEmpty ? nil : output)
+                            return
+                        }
+                    } catch {
+                        continue
                     }
-                } catch {
-                    continuation.resume(returning: nil)
                 }
+                continuation.resume(returning: nil)
             }
         }
+        #else
+        return nil
+        #endif
     }
 }

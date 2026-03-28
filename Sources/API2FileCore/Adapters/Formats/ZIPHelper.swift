@@ -6,6 +6,7 @@ enum ZIPHelper {
 
     /// Create a ZIP archive from a dictionary of relative paths → file contents.
     static func createZIP(files: [String: Data]) throws -> Data {
+        #if os(macOS)
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("api2file-zip-\(UUID().uuidString)")
         let contentDir = tempDir.appendingPathComponent("content")
@@ -40,10 +41,14 @@ enum ZIPHelper {
         }
 
         return try Data(contentsOf: zipPath)
+        #else
+        throw FormatError.encodingFailed("ZIP creation is only available on macOS in the current build.")
+        #endif
     }
 
     /// Extract a ZIP archive to a dictionary of relative paths → file contents.
     static func extractZIP(data: Data) throws -> [String: Data] {
+        #if os(macOS)
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("api2file-unzip-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
@@ -83,5 +88,8 @@ enum ZIPHelper {
         }
 
         return result
+        #else
+        throw FormatError.decodingFailed("ZIP extraction is only available on macOS in the current build.")
+        #endif
     }
 }

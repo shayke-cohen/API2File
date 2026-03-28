@@ -10,30 +10,28 @@ public actor AdapterStore {
 
     public static let shared = AdapterStore()
 
-    public static let userAdaptersURL: URL = {
-        FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".api2file/adapters")
-    }()
+    public static var userAdaptersURL: URL {
+        StorageLocations.current.adaptersDirectory
+    }
 
-    private init() {}
+    private let storageLocations: StorageLocations
+
+    public init(storageLocations: StorageLocations = .current) {
+        self.storageLocations = storageLocations
+    }
 
     // MARK: - Seeding
 
     /// Seeds bundled adapters into the user folder. Safe to call every launch.
     public func seedIfNeeded() throws {
         let fm = FileManager.default
-        let dir = AdapterStore.userAdaptersURL
+        let dir = storageLocations.adaptersDirectory
 
         if !fm.fileExists(atPath: dir.path) {
             try fm.createDirectory(at: dir, withIntermediateDirectories: true)
         }
 
-        guard let adaptersDir = Bundle.module.url(forResource: "Adapters", withExtension: nil, subdirectory: "Resources") else {
-            return
-        }
-
-        let contents = try fm.contentsOfDirectory(at: adaptersDir, includingPropertiesForKeys: nil)
-        let bundledAdapters = contents.filter { $0.lastPathComponent.hasSuffix(".adapter.json") }
+        let bundledAdapters = bundledAdapterURLs()
         let decoder = JSONDecoder()
 
         for bundledURL in bundledAdapters {
@@ -68,7 +66,7 @@ public actor AdapterStore {
     /// Files named `*.adapter_new.json` and adapters with `hidden: true` are excluded.
     public func loadAll() throws -> [AdapterTemplate] {
         let fm = FileManager.default
-        let dir = AdapterStore.userAdaptersURL
+        let dir = storageLocations.adaptersDirectory
 
         guard fm.fileExists(atPath: dir.path) else { return [] }
 
@@ -102,7 +100,7 @@ public actor AdapterStore {
     /// Returns true if any `*.adapter_new.json` files exist in the user folder.
     public func hasPendingUpdates() -> Bool {
         guard let contents = try? FileManager.default.contentsOfDirectory(
-            at: AdapterStore.userAdaptersURL,
+            at: storageLocations.adaptersDirectory,
             includingPropertiesForKeys: nil
         ) else { return false }
         return contents.contains { $0.lastPathComponent.hasSuffix(".adapter_new.json") }
@@ -148,16 +146,13 @@ public actor AdapterStore {
     }
 
     private func bundledTemplate(for serviceId: String) throws -> AdapterTemplate? {
-        guard let adaptersDir = Bundle.module.url(forResource: "Adapters", withExtension: nil, subdirectory: "Resources") else {
-            return nil
-        }
-        let url = adaptersDir.appendingPathComponent("\(serviceId).adapter.json")
-        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+        let targetName = "\(serviceId).adapter.json"
+        guard let url = bundledAdapterURLs().first(where: { $0.lastPathComponent == targetName }) else { return nil }
         return try loadTemplate(at: url)
     }
 
     private func userTemplate(for serviceId: String) throws -> AdapterTemplate? {
-        let url = AdapterStore.userAdaptersURL.appendingPathComponent("\(serviceId).adapter.json")
+        let url = storageLocations.adaptersDirectory.appendingPathComponent("\(serviceId).adapter.json")
         guard FileManager.default.fileExists(atPath: url.path) else { return nil }
         return try loadTemplate(at: url)
     }
@@ -167,6 +162,33 @@ public actor AdapterStore {
         let rawJSON = String(data: data, encoding: .utf8) ?? ""
         let config = try JSONDecoder().decode(AdapterConfig.self, from: data)
         return AdapterTemplate(config: config, rawJSON: rawJSON)
+    }
+
+    private func bundledAdapterURLs() -> [URL] {
+        let fm = FileManager.default
+        let bundle = Bundle.module
+        let root = bundle.resourceURL ?? bundle.bundleURL
+        let candidateDirectories = [
+            root.appendingPathComponent("Resources/Adapters", isDirectory: true),
+            root.appendingPathComponent("Adapters", isDirectory: true),
+            root,
+        ]
+
+        for directory in candidateDirectories where fm.fileExists(atPath: directory.path) {
+            guard let contents = try? fm.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) else {
+                continue
+            }
+
+            let adapterFiles = contents
+                .filter { $0.lastPathComponent.hasSuffix(".adapter.json") }
+                .sorted { $0.lastPathComponent < $1.lastPathComponent }
+
+            if !adapterFiles.isEmpty {
+                return adapterFiles
+            }
+        }
+
+        return []
     }
 
     private func refreshedInstalledConfig(from deployed: AdapterConfig, template: AdapterTemplate) throws -> AdapterConfig {

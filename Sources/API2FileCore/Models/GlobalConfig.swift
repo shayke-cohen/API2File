@@ -36,7 +36,12 @@ public struct GlobalConfig: Codable, Sendable {
 
     /// Resolve the sync folder path, expanding ~ to home directory
     public var resolvedSyncFolder: URL {
-        let path = syncFolder.replacingOccurrences(of: "~", with: FileManager.default.homeDirectoryForCurrentUser.path)
+        resolvedSyncFolder(using: .current)
+    }
+
+    public func resolvedSyncFolder(using locations: StorageLocations) -> URL {
+        let homePath = locations.homeDirectory.path
+        let path = syncFolder.replacingOccurrences(of: "~", with: homePath)
         return URL(fileURLWithPath: path)
     }
 
@@ -47,9 +52,9 @@ public struct GlobalConfig: Codable, Sendable {
         return try JSONDecoder().decode(GlobalConfig.self, from: data)
     }
 
-    public static func loadOrDefault(syncFolder: URL) -> GlobalConfig {
+    public static func loadOrDefault(syncFolder: URL, defaultConfig: @autoclosure () -> GlobalConfig = GlobalConfig()) -> GlobalConfig {
         let configURL = syncFolder.appendingPathComponent(".api2file.json")
-        return (try? load(from: configURL)) ?? GlobalConfig()
+        return (try? load(from: configURL)) ?? defaultConfig()
     }
 
     public func save(to url: URL) throws {

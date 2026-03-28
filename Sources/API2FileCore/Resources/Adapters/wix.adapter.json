@@ -5,7 +5,7 @@
   "icon": "globe",
   "wizardDescription": "Contacts, products, orders, forms, members, blog, bookings, groups, media",
   "siteUrl": "YOUR_SITE_URL_HERE",
-  "dashboardUrl": "https://manage.wix.com/dashboard/YOUR_SITE_ID_HERE/home",
+  "dashboardUrl": "https://www.wix.com/dashboard/YOUR_SITE_ID_HERE/home/",
   "setupFields": [
     {
       "key": "wix-site-id",
@@ -44,7 +44,7 @@
     {
       "name": "contacts",
       "description": "Wix CRM contacts as a CSV spreadsheet",
-      "dashboardUrl": "https://manage.wix.com/dashboard/YOUR_SITE_ID_HERE/contacts",
+      "dashboardUrl": "https://www.wix.com/my-account/sites/YOUR_SITE_ID_HERE/contacts",
 
       "pull": {
         "method": "POST",
@@ -114,7 +114,7 @@
       "name": "blog-posts",
       "description": "Wix blog posts as Markdown files",
       "siteUrl": "YOUR_SITE_URL_HERE/blog",
-      "dashboardUrl": "https://manage.wix.com/dashboard/YOUR_SITE_ID_HERE/blog",
+      "dashboardUrl": "https://www.wix.com/dashboard/YOUR_SITE_ID_HERE/blog",
 
       "pull": {
         "method": "POST",
@@ -200,7 +200,7 @@
       "name": "products",
       "description": "Wix Store products as a CSV catalog",
       "siteUrl": "YOUR_SITE_URL_HERE/shop",
-      "dashboardUrl": "https://manage.wix.com/dashboard/YOUR_SITE_ID_HERE/store/products",
+      "dashboardUrl": "https://www.wix.com/dashboard/YOUR_SITE_ID_HERE/store/products",
 
       "pull": {
         "method": "POST",
@@ -265,7 +265,7 @@
     {
       "name": "orders",
       "description": "Wix eCommerce orders as a CSV spreadsheet",
-      "dashboardUrl": "https://manage.wix.com/dashboard/YOUR_SITE_ID_HERE/store/orders",
+      "dashboardUrl": "https://www.wix.com/dashboard/YOUR_SITE_ID_HERE/store/orders",
 
       "pull": {
         "method": "POST",
@@ -378,7 +378,7 @@
     {
       "name": "forms",
       "description": "Wix form schemas as a CSV spreadsheet",
-      "dashboardUrl": "https://manage.wix.com/dashboard/YOUR_SITE_ID_HERE/forms",
+      "dashboardUrl": "https://www.wix.com/dashboard/YOUR_SITE_ID_HERE/wix-forms-and-payments",
 
       "pull": {
         "method": "POST",
@@ -527,7 +527,7 @@
     {
       "name": "members",
       "description": "Wix site members as a CSV spreadsheet",
-      "dashboardUrl": "https://manage.wix.com/dashboard/YOUR_SITE_ID_HERE/contacts",
+      "dashboardUrl": "https://www.wix.com/dashboard/YOUR_SITE_ID_HERE/member-permissions/members",
 
       "pull": {
         "method": "POST",
@@ -846,7 +846,7 @@
     {
       "name": "bookings-services",
       "description": "Wix Bookings services as a CSV spreadsheet",
-      "dashboardUrl": "https://manage.wix.com/dashboard/YOUR_SITE_ID_HERE/bookings/services",
+      "dashboardUrl": "https://www.wix.com/dashboard/YOUR_SITE_ID_HERE/bookings/services",
 
       "pull": {
         "method": "POST",
@@ -912,7 +912,7 @@
     {
       "name": "bookings-appointments",
       "description": "Wix Bookings customer appointments and bookings",
-      "dashboardUrl": "https://manage.wix.com/dashboard/YOUR_SITE_ID_HERE/bookings/calendar",
+      "dashboardUrl": "https://www.wix.com/dashboard/YOUR_SITE_ID_HERE/bookings/calendar",
 
       "pull": {
         "method": "POST",
@@ -960,7 +960,7 @@
     {
       "name": "groups",
       "description": "Wix Groups as a CSV spreadsheet",
-      "dashboardUrl": "https://manage.wix.com/dashboard/YOUR_SITE_ID_HERE/groups",
+      "dashboardUrl": "https://www.wix.com/dashboard/YOUR_SITE_ID_HERE/social-groups-dashboard",
 
       "pull": {
         "method": "POST",
@@ -1080,7 +1080,7 @@
     {
       "name": "bookings",
       "description": "Wix Bookings services as JSON files",
-      "dashboardUrl": "https://manage.wix.com/dashboard/YOUR_SITE_ID_HERE/bookings/services",
+      "dashboardUrl": "https://www.wix.com/dashboard/YOUR_SITE_ID_HERE/bookings/services",
 
       "pull": {
         "method": "POST",
@@ -1140,7 +1140,7 @@
     {
       "name": "collections",
       "description": "Wix CMS data collections catalog",
-      "dashboardUrl": "https://manage.wix.com/dashboard/YOUR_SITE_ID_HERE/wix-cms/data",
+      "dashboardUrl": "https://www.wix.com/dashboard/YOUR_SITE_ID_HERE/cms/collections",
 
       "pull": {
         "method": "GET",

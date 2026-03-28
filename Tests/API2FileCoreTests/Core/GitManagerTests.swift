@@ -166,6 +166,19 @@ final class GitManagerTests: XCTestCase {
         XCTAssertNil(hash)
     }
 
+    func testEmbeddedBackendCreatesSnapshotMetadata() async throws {
+        let embedded = GitManager(repoPath: tempDir, backendFactory: .embedded)
+        try await embedded.initRepo()
+        try await embedded.createGitignore()
+
+        let filePath = tempDir.appendingPathComponent("embedded.txt")
+        try "one".write(to: filePath, atomically: true, encoding: .utf8)
+        try await embedded.commitAll(message: "Initial snapshot")
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: tempDir.appendingPathComponent(".git").path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: tempDir.appendingPathComponent(".api2file-git/manifest.json").path))
+    }
+
     // MARK: - Test Helpers
 
     private func configureGitUser() throws {

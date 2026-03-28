@@ -258,6 +258,8 @@ public struct TemplateEngine {
 /// - `omit` — remove specified fields
 /// - `rename` — rename a field (supports dot-path for nested extraction)
 /// - `flatten` — extract a field from nested array elements into a flat array
+/// - `spread` — merge a nested object into the top-level record
+/// - `nestRemaining` — move non-kept top-level fields into a nested object
 /// - `keyBy` — convert an array of key-value objects into a dictionary
 /// - `match` — keep only records whose field exactly matches the provided value
 public struct TransformPipeline {
@@ -289,12 +291,21 @@ public struct TransformPipeline {
         case "flatten":
             guard let path = op.path, let to = op.to else { return records }
             return records.map { flatten(path: path, to: to, select: op.select, in: $0) }
+        case "spread":
+            guard let path = op.path else { return records }
+            return records.map { spread(path: path, in: $0) }
+        case "nestRemaining":
+            guard let to = op.to else { return records }
+            return records.map { nestRemaining(to: to, keep: op.fields ?? [], in: $0) }
         case "keyBy":
             guard let path = op.path, let key = op.key, let value = op.value, let to = op.to else { return records }
             return records.map { keyBy(path: path, key: key, value: value, to: to, in: $0) }
         case "match":
             guard let field = op.field, let value = op.value else { return records }
             return records.filter { matches(field: field, value: value, record: $0) }
+        case "excludeRegex":
+            guard let field = op.field, let value = op.value else { return records }
+            return records.filter { !matchesRegex(field: field, pattern: value, record: $0) }
         case "set":
             guard let field = op.field, let value = op.value else { return records }
             return records.map { set(field: field, value: value, in: $0) }
@@ -408,6 +419,36 @@ public struct TransformPipeline {
         return result
     }
 
+    private static func spread(path: String, in record: [String: Any]) -> [String: Any] {
+        var result = record
+        guard let nested = resolveDotPath(path, in: record) as? [String: Any] else { return result }
+        for (key, value) in nested {
+            result[key] = value
+        }
+
+        let topKey = String(path.split(separator: ".").first ?? "")
+        if !topKey.isEmpty {
+            result.removeValue(forKey: topKey)
+        }
+        return result
+    }
+
+    private static func nestRemaining(to path: String, keep: [String], in record: [String: Any]) -> [String: Any] {
+        let keepSet = Set(keep)
+        var topLevel: [String: Any] = [:]
+        var nested: [String: Any] = [:]
+
+        for (key, value) in record {
+            if keepSet.contains(key) {
+                topLevel[key] = value
+            } else {
+                nested[key] = value
+            }
+        }
+
+        return setDotPath(path, value: nested, in: topLevel)
+    }
+
     // MARK: - KeyBy
 
     private static func keyBy(path: String, key: String, value: String, to: String, in record: [String: Any]) -> [String: Any] {
@@ -471,6 +512,26 @@ public struct TransformPipeline {
         default:
             return false
         }
+    }
+
+    private static func matchesRegex(field: String, pattern: String, record: [String: Any]) -> Bool {
+        let actual = resolveDotPath(field, in: record) ?? record[field]
+        let candidate: String
+        switch actual {
+        case let string as String:
+            candidate = string
+        case let number as NSNumber:
+            candidate = number.stringValue
+        case let bool as Bool:
+            candidate = String(bool)
+        case nil:
+            candidate = ""
+        default:
+            candidate = "\(actual!)"
+        }
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return false }
+        let range = NSRange(candidate.startIndex..<candidate.endIndex, in: candidate)
+        return regex.firstMatch(in: candidate, range: range) != nil
     }
 
     // MARK: - Dot-path resolution

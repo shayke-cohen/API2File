@@ -372,7 +372,8 @@ public actor AdapterEngine {
     }
 
     /// Push a single record with a specific action (create or update)
-    public func pushRecord(_ record: [String: Any], resource: ResourceConfig, action: PushAction) async throws {
+    @discardableResult
+    public func pushRecord(_ record: [String: Any], resource: ResourceConfig, action: PushAction) async throws -> String? {
         guard let pushConfig = resource.push else {
             throw AdapterError.noPushConfig(resource.name)
         }
@@ -380,24 +381,24 @@ public actor AdapterEngine {
         // Apply push transforms
         let transforms = resource.fileMapping.transforms?.push ?? []
         let transformed = transforms.isEmpty ? [record] : TransformPipeline.apply(transforms, to: [record])
-        guard let rec = transformed.first else { return }
+        guard let rec = transformed.first else { return nil }
 
         switch action {
         case .create:
-            try await pushRecord(rec, pushConfig: pushConfig, remoteId: nil, isUpdate: false)
+            return try await pushRecord(rec, pushConfig: pushConfig, remoteId: nil, isUpdate: false)
         case .update(let id):
-            try await pushRecord(rec, pushConfig: pushConfig, remoteId: id, isUpdate: true)
+            return try await pushRecord(rec, pushConfig: pushConfig, remoteId: id, isUpdate: true)
         }
     }
 
     /// Delete a record from the API by its remote ID
-    public func delete(remoteId: String, resource: ResourceConfig) async throws {
+    public func delete(remoteId: String, resource: ResourceConfig, extraTemplateVars: [String: Any] = [:]) async throws {
         guard let pushConfig = resource.push, let deleteConfig = pushConfig.delete else {
             print("[AdapterEngine] No delete config for \(resource.name)")
             return
         }
 
-        var urlVars: [String: Any] = [:]
+        var urlVars: [String: Any] = extraTemplateVars
         if let baseUrl = config.globals?.baseUrl { urlVars["baseUrl"] = baseUrl }
         urlVars["id"] = remoteId
         let url = TemplateEngine.render(deleteConfig.url, with: urlVars)
@@ -613,7 +614,7 @@ public actor AdapterEngine {
         repeat {
             // Build the request URL with template variables and pagination params
             var url = resolveURL(pullConfig.url)
-            let method = HTTPMethod(rawValue: pullConfig.method?.uppercased() ?? "GET") ?? .GET
+            let method = resolvedPullMethod(for: pullConfig)
             var headers = config.globals?.headers ?? [:]
             headers["Content-Type"] = headers["Content-Type"] ?? "application/json"
 
@@ -769,6 +770,21 @@ public actor AdapterEngine {
         return FetchResult(records: allRecords, responseETag: responseETag, notModified: false)
     }
 
+    private func resolvedPullMethod(for pullConfig: PullConfig) -> HTTPMethod {
+        if let explicitMethod = pullConfig.method?.uppercased(),
+           let method = HTTPMethod(rawValue: explicitMethod) {
+            return method
+        }
+        if let globalMethod = config.globals?.method?.uppercased(),
+           let method = HTTPMethod(rawValue: globalMethod) {
+            return method
+        }
+        if pullConfig.type == .graphql || pullConfig.query != nil || pullConfig.pagination?.queryTemplate != nil {
+            return .POST
+        }
+        return .GET
+    }
+
     // MARK: - Private — Pushing
 
     /// Push a single record to the API via create or update endpoint.
@@ -808,7 +824,15 @@ public actor AdapterEngine {
 
         // Build request body
         var bodyDict: Any = record
-        if endpoint.type == .graphql, let mutation = endpoint.mutation {
+        if let bodyType = endpoint.bodyType,
+           let customBody = buildCustomPushBody(
+            bodyType: bodyType,
+            record: record,
+            remoteId: remoteId,
+            isUpdate: isUpdate
+           ) {
+            bodyDict = customBody
+        } else if endpoint.type == .graphql, let mutation = endpoint.mutation {
             // GraphQL mutation: render template vars inline, send as {"query": "mutation ..."}
             // Values are resolved directly into the mutation string via TemplateEngine,
             // so no separate "variables" object is needed.
@@ -845,17 +869,7 @@ public actor AdapterEngine {
         var createdId: String?
         if !isUpdate {
             if let json = try? JSONSerialization.jsonObject(with: response.body) as? [String: Any] {
-                // Direct: { "id": "..." }
-                createdId = json["id"] as? String
-                // Wrapped: { "draftPost": { "id": "..." } } or { "contact": { "id": "..." } }
-                if createdId == nil {
-                    for (_, value) in json {
-                        if let nested = value as? [String: Any], let id = nested["id"] as? String {
-                            createdId = id
-                            break
-                        }
-                    }
-                }
+                createdId = extractCreatedId(from: json)
             }
         }
 
@@ -873,6 +887,531 @@ public actor AdapterEngine {
         }
 
         return createdId
+    }
+
+    private func extractCreatedId(from json: [String: Any]) -> String? {
+        if let id = json["id"] as? String {
+            return id
+        }
+        if let id = json["id"] as? Int {
+            return String(id)
+        }
+
+        for (_, value) in json {
+            if let nested = value as? [String: Any],
+               let id = extractCreatedId(from: nested) {
+                return id
+            }
+            if let array = value as? [[String: Any]] {
+                for nested in array {
+                    if let id = extractCreatedId(from: nested) {
+                        return id
+                    }
+                }
+            }
+        }
+        return nil
+    }
+
+    private func buildCustomPushBody(
+        bodyType: String,
+        record: [String: Any],
+        remoteId: String?,
+        isUpdate: Bool
+    ) -> Any? {
+        switch bodyType {
+        case "monday-item-create":
+            return buildMondayItemCreateBody(record: record)
+        case "monday-item-update":
+            return buildMondayItemUpdateBody(record: record, remoteId: remoteId)
+        case "wix-contact-create":
+            return buildWixContactBody(record: record, isUpdate: false)
+        case "wix-contact-update":
+            return buildWixContactBody(record: record, isUpdate: true)
+        case "wix-product-create":
+            return buildWixProductCreateBody(record: record)
+        case "wix-product-update":
+            return buildWixProductUpdateBody(record: record)
+        default:
+            return nil
+        }
+    }
+
+    private func buildMondayItemCreateBody(record: [String: Any]) -> [String: Any] {
+        let boardId = stringifyValue(record["boardId"]) ?? ""
+        let name = stringifyValue(record["name"]) ?? ""
+        let itemName = name.isEmpty ? "Untitled Item" : name
+        var variables: [String: Any] = [
+            "boardId": boardId,
+            "itemName": itemName
+        ]
+
+        if let columnValues = mondayColumnValuesJSONString(from: record["columns"]) {
+            variables["columnValues"] = columnValues
+        }
+
+        return [
+            "query": """
+            mutation($boardId: ID!, $itemName: String!, $columnValues: JSON) {
+              create_item(board_id: $boardId, item_name: $itemName, column_values: $columnValues) { id }
+            }
+            """,
+            "variables": variables
+        ]
+    }
+
+    private func buildMondayItemUpdateBody(record: [String: Any], remoteId: String?) -> [String: Any] {
+        let boardId = stringifyValue(record["boardId"]) ?? ""
+        let itemId = remoteId ?? stringifyValue(record["id"]) ?? ""
+        let itemName = stringifyValue(record["name"]) ?? ""
+        let columnPayload = mondayColumnMap(from: record["column_values"])
+            ?? mondayColumnMap(from: record["columns"])
+
+        var variables: [String: Any] = [
+            "boardId": boardId,
+            "itemId": itemId
+        ]
+        var variableDefinitions = [
+            "$boardId: ID!",
+            "$itemId: ID!"
+        ]
+        var mutationLines: [String] = []
+
+        if !itemName.isEmpty {
+            variableDefinitions.append("$itemName: String!")
+            variables["itemName"] = itemName
+            mutationLines.append(
+                #"rename: change_simple_column_value(board_id: $boardId, item_id: $itemId, column_id: "name", value: $itemName) { id }"#
+            )
+        }
+
+        if let columnPayload, !columnPayload.isEmpty {
+            var simpleColumns: [(String, String)] = []
+            var complexColumns: [String: Any] = [:]
+
+            for key in columnPayload.keys.sorted() {
+                guard let value = columnPayload[key] else { continue }
+                if let simpleValue = mondaySimpleColumnValue(value) {
+                    simpleColumns.append((key, simpleValue))
+                } else {
+                    complexColumns[key] = value
+                }
+            }
+
+            for (index, column) in simpleColumns.enumerated() {
+                let variableName = "columnValue\(index)"
+                variableDefinitions.append("$\(variableName): String!")
+                variables[variableName] = column.1
+                let columnID = escapeGraphQLStringLiteral(column.0)
+                mutationLines.append(
+                    #"c\#(index): change_simple_column_value(board_id: $boardId, item_id: $itemId, column_id: "\#(columnID)", value: $\#(variableName)) { id }"#
+                )
+            }
+
+            if let complexJSON = mondayColumnValuesJSONString(from: complexColumns) {
+                variableDefinitions.append("$columnValues: JSON")
+                variables["columnValues"] = complexJSON
+                mutationLines.append(
+                    "bulk: change_multiple_column_values(board_id: $boardId, item_id: $itemId, column_values: $columnValues) { id }"
+                )
+            }
+        }
+
+        if mutationLines.isEmpty {
+            variableDefinitions.append("$itemName: String!")
+            variables["itemName"] = itemName
+            mutationLines.append(
+                #"rename: change_simple_column_value(board_id: $boardId, item_id: $itemId, column_id: "name", value: $itemName) { id }"#
+            )
+        }
+
+        let query = """
+        mutation(\(variableDefinitions.joined(separator: ", "))) {
+          \(mutationLines.joined(separator: "\n  "))
+        }
+        """
+
+        return [
+            "query": query,
+            "variables": variables
+        ]
+    }
+
+    private func mondayColumnMap(from value: Any?) -> [String: Any]? {
+        switch value {
+        case let array as [[String: Any]]:
+            var result: [String: Any] = [:]
+            for column in array {
+                guard let id = column["id"] as? String, !id.isEmpty else { continue }
+                if let text = column["text"] as? String {
+                    result[id] = text
+                } else if let nestedValue = column["value"] {
+                    result[id] = nestedValue
+                }
+            }
+            return result.isEmpty ? nil : result
+        case let dict as [String: Any]:
+            return dict.isEmpty ? nil : dict
+        case let raw as NSDictionary:
+            var swiftDict: [String: Any] = [:]
+            for (key, value) in raw {
+                guard let key = key as? String else { continue }
+                swiftDict[key] = value
+            }
+            return swiftDict.isEmpty ? nil : swiftDict
+        default:
+            return nil
+        }
+    }
+
+    private func mondaySimpleColumnValue(_ value: Any) -> String? {
+        switch value {
+        case let string as String:
+            return string
+        case let bool as Bool:
+            return bool ? "true" : "false"
+        case let number as NSNumber:
+            return number.stringValue
+        default:
+            return nil
+        }
+    }
+
+    private func mondayColumnValuesJSONString(from value: Any?) -> String? {
+        func serializeColumnArray(_ values: [[String: Any]]) -> String? {
+            var byId: [String: Any] = [:]
+            for value in values {
+                guard let id = value["id"] as? String, !id.isEmpty else { continue }
+                byId[id] = value["text"]
+            }
+            return serialize(byId)
+        }
+
+        func serialize(_ dict: [String: Any]) -> String? {
+            guard !dict.isEmpty,
+                  JSONSerialization.isValidJSONObject(dict),
+                  let data = try? JSONSerialization.data(withJSONObject: dict, options: [.sortedKeys]),
+                  let string = String(data: data, encoding: .utf8)
+            else {
+                return nil
+            }
+            return string
+        }
+
+        switch value {
+        case let array as [[String: Any]]:
+            return serializeColumnArray(array)
+        case let dict as [String: Any]:
+            return serialize(dict)
+        case let raw as NSDictionary:
+            var swiftDict: [String: Any] = [:]
+            for (key, value) in raw {
+                guard let key = key as? String else { continue }
+                swiftDict[key] = value
+            }
+            return serialize(swiftDict)
+        case let string as String:
+            let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty, trimmed != "[:]", trimmed != "{}" else { return nil }
+            guard let data = trimmed.data(using: .utf8),
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+            else {
+                return nil
+            }
+            return serialize(json)
+        default:
+            return nil
+        }
+    }
+
+    private func escapeGraphQLStringLiteral(_ string: String) -> String {
+        string
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+    }
+
+    private func buildWixProductCreateBody(record: [String: Any]) -> [String: Any] {
+        let name = stringifyValue(record["name"]) ?? "Untitled Product"
+        let productType = stringifyValue(record["productType"]) ?? "PHYSICAL"
+        let visible = boolValue(record["visible"]) ?? true
+        let slug = stringifyValue(record["slug"]) ?? TemplateEngine.render("{name|slugify}", with: ["name": name])
+
+        var product: [String: Any] = [
+            "name": name,
+            "productType": productType,
+            "visible": visible,
+            "slug": slug,
+            "variantsInfo": [
+                "variants": [
+                    [
+                        "choices": [] as [[String: Any]],
+                        "price": [
+                            "actualPrice": [
+                                "amount": amountString(record["priceAmount"])
+                            ]
+                        ]
+                    ]
+                ]
+            ]
+        ]
+
+        if productType.uppercased() == "PHYSICAL" {
+            product["physicalProperties"] = [:] as [String: Any]
+        }
+
+        if let ribbon = stringifyValue(record["ribbon"]), !ribbon.isEmpty {
+            product["ribbon"] = ribbon
+        }
+
+        return ["product": product]
+    }
+
+    private func buildWixProductUpdateBody(record: [String: Any]) -> [String: Any] {
+        var product: [String: Any] = [:]
+
+        if let name = stringifyValue(record["name"]), !name.isEmpty {
+            product["name"] = name
+        }
+        if let slug = stringifyValue(record["slug"]), !slug.isEmpty {
+            product["slug"] = slug
+        }
+        if let ribbon = stringifyValue(record["ribbon"]), !ribbon.isEmpty {
+            product["ribbon"] = ribbon
+        }
+        if let visible = boolValue(record["visible"]) {
+            product["visible"] = visible
+        }
+        if let revision = stringifyValue(record["revision"]) ?? stringifyValue(record["_revision"]), !revision.isEmpty {
+            product["revision"] = revision
+        }
+
+        return ["product": product]
+    }
+
+    private func buildWixContactBody(record: [String: Any], isUpdate: Bool) -> [String: Any]? {
+        var info = (record["info"] as? [String: Any]) ?? [:]
+        var name = (info["name"] as? [String: Any]) ?? [:]
+        let currentDisplayName = [nonEmptyString(name["first"]), nonEmptyString(name["last"])]
+            .compactMap { $0 }
+            .joined(separator: " ")
+
+        if let first = nonEmptyString(record["first"]) {
+            name["first"] = first
+        }
+        if let last = nonEmptyString(record["last"]) {
+            name["last"] = last
+        }
+        if nonEmptyString(record["first"]) == nil,
+           nonEmptyString(record["last"]) == nil,
+           let displayName = nestedString(record, path: ["info", "extendedFields", "items", "contacts", "displayByFirstName"]),
+           displayName != currentDisplayName,
+           let parsedName = splitDisplayName(displayName) {
+            name["first"] = parsedName.first
+            name["last"] = parsedName.last
+        }
+        if !name.isEmpty {
+            info["name"] = name
+        }
+
+        if info["emails"] == nil,
+           let email = nonEmptyString(record["primaryEmail"]) ?? firstEmailString(from: record["emails"]) {
+            info["emails"] = [
+                "items": [
+                    [
+                        "email": email,
+                        "primary": true
+                    ]
+                ]
+            ]
+        }
+
+        if info["phones"] == nil,
+           let phone = firstPhoneString(from: record["phones"]) {
+            info["phones"] = [
+                "items": [
+                    [
+                        "phone": phone,
+                        "primary": true
+                    ]
+                ]
+            ]
+        }
+
+        guard !info.isEmpty else { return nil }
+
+        if isUpdate {
+            var body: [String: Any] = ["info": info]
+            if let revision = numericJSONValue(record["revision"]) ?? numericJSONValue(record["_revision"]) {
+                body["revision"] = revision
+            } else if let revision = record["revision"] ?? record["_revision"] {
+                body["revision"] = revision
+            }
+            return body
+        }
+
+        return ["info": info]
+    }
+
+    private func nonEmptyString(_ value: Any?) -> String? {
+        guard let string = stringifyValue(value)?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !string.isEmpty else {
+            return nil
+        }
+        return string
+    }
+
+    private func firstEmailString(from value: Any?) -> String? {
+        switch value {
+        case let email as String:
+            return nonEmptyString(email)
+        case let dict as [String: Any]:
+            if let items = dict["items"] as? [[String: Any]] {
+                for item in items {
+                    if let email = nonEmptyString(item["email"]) {
+                        return email
+                    }
+                }
+            }
+            return nonEmptyString(dict["email"])
+        case let items as [[String: Any]]:
+            for item in items {
+                if let email = nonEmptyString(item["email"]) {
+                    return email
+                }
+            }
+            return nil
+        case let values as [Any]:
+            for item in values {
+                if let dict = item as? [String: Any],
+                   let email = nonEmptyString(dict["email"]) {
+                    return email
+                }
+                if let email = item as? String,
+                   let normalized = nonEmptyString(email) {
+                    return normalized
+                }
+            }
+            return nil
+        default:
+            return nil
+        }
+    }
+
+    private func firstPhoneString(from value: Any?) -> String? {
+        switch value {
+        case let phone as String:
+            return nonEmptyString(phone)
+        case let dict as [String: Any]:
+            if let items = dict["items"] as? [[String: Any]] {
+                for item in items {
+                    if let phone = nonEmptyString(item["phone"]) {
+                        return phone
+                    }
+                }
+            }
+            return nonEmptyString(dict["phone"])
+        case let items as [[String: Any]]:
+            for item in items {
+                if let phone = nonEmptyString(item["phone"]) {
+                    return phone
+                }
+            }
+            return nil
+        case let values as [Any]:
+            for item in values {
+                if let dict = item as? [String: Any],
+                   let phone = nonEmptyString(dict["phone"]) {
+                    return phone
+                }
+                if let phone = item as? String,
+                   let normalized = nonEmptyString(phone) {
+                    return normalized
+                }
+            }
+            return nil
+        default:
+            return nil
+        }
+    }
+
+    private func numericJSONValue(_ value: Any?) -> Any? {
+        switch value {
+        case let int as Int:
+            return int
+        case let number as NSNumber:
+            return number
+        case let string as String:
+            let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let int = Int(trimmed) {
+                return int
+            }
+            return trimmed.isEmpty ? nil : trimmed
+        default:
+            return nil
+        }
+    }
+
+    private func nestedString(_ value: Any?, path: [String]) -> String? {
+        guard !path.isEmpty else { return nonEmptyString(value) }
+        guard let dict = value as? [String: Any] else { return nil }
+        var current: Any? = dict
+        for segment in path {
+            guard let nextDict = current as? [String: Any] else { return nil }
+            current = nextDict[segment]
+        }
+        return nonEmptyString(current)
+    }
+
+    private func splitDisplayName(_ displayName: String) -> (first: String, last: String)? {
+        let parts = displayName
+            .split(whereSeparator: { $0.isWhitespace })
+            .map(String.init)
+            .filter { !$0.isEmpty }
+        guard let first = parts.first else { return nil }
+        let last = parts.dropFirst().joined(separator: " ")
+        return (first: first, last: last)
+    }
+
+    private func boolValue(_ value: Any?) -> Bool? {
+        switch value {
+        case let bool as Bool:
+            return bool
+        case let number as NSNumber:
+            if CFBooleanGetTypeID() == CFGetTypeID(number) {
+                return number.boolValue
+            }
+            return nil
+        case let string as String:
+            let normalized = string.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            if normalized == "true" { return true }
+            if normalized == "false" { return false }
+            return nil
+        default:
+            return nil
+        }
+    }
+
+    private func amountString(_ value: Any?) -> String {
+        switch value {
+        case let string as String:
+            let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? "1.00" : trimmed
+        case let int as Int:
+            return "\(int)"
+        case let double as Double:
+            if double == double.rounded() {
+                return "\(Int(double))"
+            }
+            return String(format: "%.2f", double)
+        case let number as NSNumber:
+            let double = number.doubleValue
+            if double == double.rounded() {
+                return "\(Int(double))"
+            }
+            return String(format: "%.2f", double)
+        default:
+            return "1.00"
+        }
     }
 
     // MARK: - Private — File Mapping
@@ -1017,9 +1556,10 @@ public actor AdapterEngine {
         let transforms = child.fileMapping.transforms?.pull ?? []
         let transformed = transforms.isEmpty ? records : TransformPipeline.apply(transforms, to: records)
 
-        // Resolve directory template from parent record for child files
+        // Resolve directory and filename templates from parent record for child files
         let resolvedDirectory = TemplateEngine.render(child.fileMapping.directory, with: templateVars)
-        let resolvedChild = child.withDirectory(resolvedDirectory)
+        let resolvedFilename = child.fileMapping.filename.map { TemplateEngine.render($0, with: templateVars) }
+        let resolvedChild = child.withResolvedFileMapping(directory: resolvedDirectory, filename: resolvedFilename)
         let files = try mapToFiles(records: transformed, resource: resolvedChild)
 
         // Build raw records mapping (include computed system fields from transforms)
@@ -1173,6 +1713,7 @@ public actor AdapterEngine {
             query: pullConfig.query,
             body: newBody,
             dataPath: pullConfig.dataPath,
+            detail: pullConfig.detail,
             pagination: pullConfig.pagination,
             mediaConfig: pullConfig.mediaConfig,
             updatedSinceField: pullConfig.updatedSinceField,

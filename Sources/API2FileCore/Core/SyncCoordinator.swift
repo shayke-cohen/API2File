@@ -1,5 +1,10 @@
 import Foundation
 
+enum DeferredSyncError: Error {
+    case authLoading
+    case credentialsUnavailable
+}
+
 /// Coordinates sync operations across services — handles queuing, debouncing, and scheduling
 public actor SyncCoordinator {
     private var services: [String: ServiceSyncContext] = [:]
@@ -7,6 +12,8 @@ public actor SyncCoordinator {
     private var syncTimers: [String: Task<Void, Never>] = [:]
     private var isPaused = false
     private var isFlushingPushes: [String: Bool] = [:]
+    private var isSyncing: [String: Bool] = [:]
+    private var pendingSyncRequests: Set<String> = []
     private var pushFailureCounts: [String: [String: Int]] = [:] // serviceId -> [filePath -> failureCount]
 
     /// Max consecutive push failures before a file is dropped from the queue
@@ -27,6 +34,8 @@ public actor SyncCoordinator {
         syncTimers[serviceId]?.cancel()
         syncTimers.removeValue(forKey: serviceId)
         pendingPushes.removeValue(forKey: serviceId)
+        isSyncing.removeValue(forKey: serviceId)
+        pendingSyncRequests.remove(serviceId)
     }
 
     // MARK: - Sync Control
@@ -67,7 +76,7 @@ public actor SyncCoordinator {
     /// Trigger an immediate sync for a service
     public func syncNow(serviceId: String) async {
         guard let context = services[serviceId] else { return }
-        await performSync(serviceId: serviceId, context: context)
+        await performSync(serviceId: serviceId, context: context, queueIfBusy: true)
     }
 
     /// Queue a push for a local file change (debounced)
@@ -89,7 +98,7 @@ public actor SyncCoordinator {
         guard isFlushingPushes[serviceId] != true else { return }
         guard let context = services[serviceId] else { return }
         isFlushingPushes[serviceId] = true
-        await performSync(serviceId: serviceId, context: context)
+        await performSync(serviceId: serviceId, context: context, queueIfBusy: true)
         isFlushingPushes[serviceId] = false
     }
 
@@ -124,46 +133,75 @@ public actor SyncCoordinator {
                 guard !Task.isCancelled else { break }
                 guard let self else { break }
                 guard let context = await self.services[serviceId] else { break }
-                await self.performSync(serviceId: serviceId, context: context)
+                await self.performSync(serviceId: serviceId, context: context, queueIfBusy: false)
             }
         }
     }
 
-    private func performSync(serviceId: String, context: ServiceSyncContext) async {
-        await context.onSyncStart?()
+    func syncNow(serviceId: String, queueIfBusy: Bool) async {
+        guard let context = services[serviceId] else { return }
+        await performSync(serviceId: serviceId, context: context, queueIfBusy: queueIfBusy)
+    }
 
-        // Process pushes individually — a single push failure must not block others or the pull
-        let pushes = pendingPushes[serviceId] ?? [:]
-        for (filePath, _) in pushes {
-            do {
-                try await context.pushHandler?(filePath)
-                pendingPushes[serviceId]?.removeValue(forKey: filePath)
-                pushFailureCounts[serviceId]?.removeValue(forKey: filePath)
-            } catch {
-                // Track consecutive failures per file
-                if pushFailureCounts[serviceId] == nil {
-                    pushFailureCounts[serviceId] = [:]
-                }
-                let count = (pushFailureCounts[serviceId]?[filePath] ?? 0) + 1
-                pushFailureCounts[serviceId]?[filePath] = count
+    private func performSync(serviceId: String, context: ServiceSyncContext, queueIfBusy: Bool) async {
+        if isSyncing[serviceId] == true {
+            if queueIfBusy {
+                pendingSyncRequests.insert(serviceId)
+            }
+            return
+        }
 
-                if count >= Self.maxPushRetries {
-                    // Give up on this file — remove from queue so it doesn't block the service
+        isSyncing[serviceId] = true
+        var currentContext: ServiceSyncContext? = context
+
+        while let activeContext = currentContext {
+            await activeContext.onSyncStart?()
+
+            // Process pushes individually — a single push failure must not block others or the pull
+            let pushes = pendingPushes[serviceId] ?? [:]
+            for (filePath, _) in pushes {
+                do {
+                    try await activeContext.pushHandler?(filePath)
                     pendingPushes[serviceId]?.removeValue(forKey: filePath)
                     pushFailureCounts[serviceId]?.removeValue(forKey: filePath)
-                    await context.onPushAbandoned?(serviceId, filePath, error)
+                } catch {
+                    if error is DeferredSyncError {
+                        continue
+                    }
+
+                    // Track consecutive failures per file
+                    if pushFailureCounts[serviceId] == nil {
+                        pushFailureCounts[serviceId] = [:]
+                    }
+                    let count = (pushFailureCounts[serviceId]?[filePath] ?? 0) + 1
+                    pushFailureCounts[serviceId]?[filePath] = count
+
+                    if count >= Self.maxPushRetries {
+                        // Give up on this file — remove from queue so it doesn't block the service
+                        pendingPushes[serviceId]?.removeValue(forKey: filePath)
+                        pushFailureCounts[serviceId]?.removeValue(forKey: filePath)
+                        await activeContext.onPushAbandoned?(serviceId, filePath, error)
+                    }
                 }
+            }
+
+            // Always attempt pull, even if some pushes failed
+            do {
+                try await activeContext.pullHandler?()
+                // Service is healthy if the pull succeeded (push errors are per-file, not service-wide)
+                await activeContext.onSyncComplete?(nil)
+            } catch {
+                await activeContext.onSyncComplete?(error)
+            }
+
+            if pendingSyncRequests.remove(serviceId) != nil {
+                currentContext = services[serviceId]
+            } else {
+                currentContext = nil
             }
         }
 
-        // Always attempt pull, even if some pushes failed
-        do {
-            try await context.pullHandler?()
-            // Service is healthy if the pull succeeded (push errors are per-file, not service-wide)
-            await context.onSyncComplete?(nil)
-        } catch {
-            await context.onSyncComplete?(error)
-        }
+        isSyncing[serviceId] = false
     }
 }
 

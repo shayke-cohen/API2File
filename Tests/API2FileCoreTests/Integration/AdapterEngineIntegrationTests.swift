@@ -333,6 +333,336 @@ final class AdapterEngineIntegrationTests: XCTestCase {
         XCTAssertNil(json["revision"], "Wix V3 expects revision nested inside product, not hoisted to the root body")
     }
 
+    func testWixContactsCreateBuildsInfoBodyFromHumanFields() async throws {
+        let repoRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let data = try Data(contentsOf: repoRoot.appendingPathComponent("Sources/API2FileCore/Resources/Adapters/wix.adapter.json"))
+        let config = try JSONDecoder().decode(AdapterConfig.self, from: data)
+        let resource = try XCTUnwrap(config.resources.first(where: { $0.name == "contacts" }))
+
+        let sessionConfig = URLSessionConfiguration.ephemeral
+        sessionConfig.protocolClasses = [MockURLProtocol.self]
+        let session = URLSession(configuration: sessionConfig)
+        let client = HTTPClient(session: session)
+        let engine = AdapterEngine(config: config, serviceDir: tempDir, httpClient: client)
+
+        let capture = RequestCapture()
+        MockURLProtocol.requestHandler = { request in
+            capture.request = request
+            let response = HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 200, httpVersion: nil, headerFields: [:])!
+            return (response, Data(#"{"contact":{"id":"contact-123"}}"#.utf8))
+        }
+
+        let createdId = try await engine.pushRecord(
+            [
+                "first": "Codex",
+                "last": "Agent",
+                "primaryEmail": "codex@example.com"
+            ],
+            resource: resource,
+            action: .create
+        )
+
+        XCTAssertEqual(createdId, "contact-123")
+
+        let request = try XCTUnwrap(capture.request)
+        XCTAssertEqual(request.httpMethod, "POST")
+        XCTAssertEqual(request.url?.absoluteString, "https://www.wixapis.com/contacts/v4/contacts")
+
+        let body = try XCTUnwrap(Self.bodyData(from: request))
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+        let info = try XCTUnwrap(json["info"] as? [String: Any])
+        let name = try XCTUnwrap(info["name"] as? [String: Any])
+        let emails = try XCTUnwrap(info["emails"] as? [String: Any])
+        let items = try XCTUnwrap(emails["items"] as? [[String: Any]])
+
+        XCTAssertEqual(name["first"] as? String, "Codex")
+        XCTAssertEqual(name["last"] as? String, "Agent")
+        XCTAssertEqual(items.first?["email"] as? String, "codex@example.com")
+        XCTAssertNil(json["revision"], "Contact create should not send revision at the root")
+    }
+
+    func testWixContactsUpdateKeepsRevisionAtRootAndInfoNested() async throws {
+        let repoRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let data = try Data(contentsOf: repoRoot.appendingPathComponent("Sources/API2FileCore/Resources/Adapters/wix.adapter.json"))
+        let config = try JSONDecoder().decode(AdapterConfig.self, from: data)
+        let resource = try XCTUnwrap(config.resources.first(where: { $0.name == "contacts" }))
+
+        let sessionConfig = URLSessionConfiguration.ephemeral
+        sessionConfig.protocolClasses = [MockURLProtocol.self]
+        let session = URLSession(configuration: sessionConfig)
+        let client = HTTPClient(session: session)
+        let engine = AdapterEngine(config: config, serviceDir: tempDir, httpClient: client)
+
+        let capture = RequestCapture()
+        MockURLProtocol.requestHandler = { request in
+            capture.request = request
+            let response = HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 200, httpVersion: nil, headerFields: [:])!
+            return (response, Data("{}".utf8))
+        }
+
+        try await engine.pushRecord(
+            [
+                "id": "contact-123",
+                "revision": 7,
+                "info": [
+                    "name": [
+                        "first": "CodexUpdated",
+                        "last": "Agent"
+                    ]
+                ],
+                "primaryEmail": "codex@example.com"
+            ],
+            resource: resource,
+            action: .update(id: "contact-123")
+        )
+
+        let request = try XCTUnwrap(capture.request)
+        XCTAssertEqual(request.httpMethod, "PATCH")
+        XCTAssertEqual(request.url?.absoluteString, "https://www.wixapis.com/contacts/v4/contacts/contact-123")
+
+        let body = try XCTUnwrap(Self.bodyData(from: request))
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+        let info = try XCTUnwrap(json["info"] as? [String: Any])
+        let name = try XCTUnwrap(info["name"] as? [String: Any])
+
+        XCTAssertEqual(json["revision"] as? Int, 7)
+        XCTAssertEqual(name["first"] as? String, "CodexUpdated")
+        XCTAssertEqual(name["last"] as? String, "Agent")
+        XCTAssertNil(info["revision"], "Contact update should keep revision at the root, not nested inside info")
+    }
+
+    func testWixContactsUpdatePromotesEditedDisplayNameWhenRawNameWasNotChanged() async throws {
+        let repoRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let data = try Data(contentsOf: repoRoot.appendingPathComponent("Sources/API2FileCore/Resources/Adapters/wix.adapter.json"))
+        let config = try JSONDecoder().decode(AdapterConfig.self, from: data)
+        let resource = try XCTUnwrap(config.resources.first(where: { $0.name == "contacts" }))
+
+        let sessionConfig = URLSessionConfiguration.ephemeral
+        sessionConfig.protocolClasses = [MockURLProtocol.self]
+        let session = URLSession(configuration: sessionConfig)
+        let client = HTTPClient(session: session)
+        let engine = AdapterEngine(config: config, serviceDir: tempDir, httpClient: client)
+
+        let capture = RequestCapture()
+        MockURLProtocol.requestHandler = { request in
+            capture.request = request
+            let response = HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 200, httpVersion: nil, headerFields: [:])!
+            return (response, Data("{}".utf8))
+        }
+
+        try await engine.pushRecord(
+            [
+                "id": "contact-123",
+                "revision": 8,
+                "info": [
+                    "name": [
+                        "first": "Codex",
+                        "last": "Contact"
+                    ],
+                    "extendedFields": [
+                        "items": [
+                            "contacts": [
+                                "displayByFirstName": "Sarah Mitchell"
+                            ]
+                        ]
+                    ]
+                ]
+            ],
+            resource: resource,
+            action: .update(id: "contact-123")
+        )
+
+        let request = try XCTUnwrap(capture.request)
+        let body = try XCTUnwrap(Self.bodyData(from: request))
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+        let info = try XCTUnwrap(json["info"] as? [String: Any])
+        let name = try XCTUnwrap(info["name"] as? [String: Any])
+
+        XCTAssertEqual(name["first"] as? String, "Sarah")
+        XCTAssertEqual(name["last"] as? String, "Mitchell")
+    }
+
+    func testMondayCreateBuildsGraphQLVariablesBody() async throws {
+        let repoRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let data = try Data(contentsOf: repoRoot.appendingPathComponent("Sources/API2FileCore/Resources/Adapters/monday.adapter.json"))
+        let config = try JSONDecoder().decode(AdapterConfig.self, from: data)
+        let resource = try XCTUnwrap(config.resources.first(where: { $0.name == "boards" }))
+
+        let sessionConfig = URLSessionConfiguration.ephemeral
+        sessionConfig.protocolClasses = [MockURLProtocol.self]
+        let session = URLSession(configuration: sessionConfig)
+        let client = HTTPClient(session: session)
+        let engine = AdapterEngine(config: config, serviceDir: tempDir, httpClient: client)
+
+        let capture = RequestCapture()
+        MockURLProtocol.requestHandler = { request in
+            capture.request = request
+            let response = HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 200, httpVersion: nil, headerFields: [:])!
+            return (response, Data(#"{"data":{"create_item":{"id":"12345"}}}"#.utf8))
+        }
+
+        let createdId = try await engine.pushRecord(
+            [
+                "boardId": "5093652867",
+                "name": "Launch spring campaign",
+                "columns": ["project_status": "Working on it"]
+            ],
+            resource: resource,
+            action: .create
+        )
+
+        XCTAssertEqual(createdId, "12345")
+
+        let request = try XCTUnwrap(capture.request)
+        XCTAssertEqual(request.httpMethod, "POST")
+        let body = try XCTUnwrap(Self.bodyData(from: request))
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+        XCTAssertTrue((json["query"] as? String)?.contains("create_item") == true)
+
+        let variables = try XCTUnwrap(json["variables"] as? [String: Any])
+        XCTAssertEqual(variables["boardId"] as? String, "5093652867")
+        XCTAssertEqual(variables["itemName"] as? String, "Launch spring campaign")
+        XCTAssertEqual(
+            variables["columnValues"] as? String,
+            #"{"project_status":"Working on it"}"#
+        )
+    }
+
+    func testMondayUpdateBuildsGraphQLVariablesBody() async throws {
+        let repoRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let data = try Data(contentsOf: repoRoot.appendingPathComponent("Sources/API2FileCore/Resources/Adapters/monday.adapter.json"))
+        let config = try JSONDecoder().decode(AdapterConfig.self, from: data)
+        let resource = try XCTUnwrap(config.resources.first(where: { $0.name == "boards" }))
+
+        let sessionConfig = URLSessionConfiguration.ephemeral
+        sessionConfig.protocolClasses = [MockURLProtocol.self]
+        let session = URLSession(configuration: sessionConfig)
+        let client = HTTPClient(session: session)
+        let engine = AdapterEngine(config: config, serviceDir: tempDir, httpClient: client)
+
+        let capture = RequestCapture()
+        MockURLProtocol.requestHandler = { request in
+            capture.request = request
+            let response = HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 200, httpVersion: nil, headerFields: [:])!
+            return (response, Data(#"{"data":{"change_simple_column_value":{"id":"2800121775"}}}"#.utf8))
+        }
+
+        try await engine.pushRecord(
+            [
+                "id": "2800121775",
+                "boardId": "5093652867",
+                "name": "Launch summer campaign",
+                "columns": ["project_status": "Done"]
+            ],
+            resource: resource,
+            action: .update(id: "2800121775")
+        )
+
+        let request = try XCTUnwrap(capture.request)
+        XCTAssertEqual(request.httpMethod, "POST")
+        let body = try XCTUnwrap(Self.bodyData(from: request))
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+        let query = try XCTUnwrap(json["query"] as? String)
+        XCTAssertTrue(query.contains("change_simple_column_value"))
+        XCTAssertTrue(query.contains(#"column_id: "project_status""#))
+        XCTAssertFalse(query.contains("change_multiple_column_values"))
+
+        let variables = try XCTUnwrap(json["variables"] as? [String: Any])
+        XCTAssertEqual(variables["boardId"] as? String, "5093652867")
+        XCTAssertEqual(variables["itemId"] as? String, "2800121775")
+        XCTAssertEqual(variables["itemName"] as? String, "Launch summer campaign")
+        XCTAssertEqual(variables["columnValue0"] as? String, "Done")
+    }
+
+    func testGraphQLPullUsesGlobalPOSTMethodWhenResourceMethodIsOmitted() async throws {
+        let api2fileDir = tempDir.appendingPathComponent(".api2file")
+        try FileManager.default.createDirectory(at: api2fileDir, withIntermediateDirectories: true)
+
+        let configJSON = """
+        {
+          "service": "monday-like",
+          "displayName": "Monday-like",
+          "version": "1.0",
+          "auth": { "type": "bearer", "keychainKey": "test-key" },
+          "globals": {
+            "baseUrl": "https://api.example.com/graphql",
+            "method": "POST",
+            "headers": { "Content-Type": "application/json" }
+          },
+          "resources": [
+            {
+              "name": "boards",
+              "pull": {
+                "url": "{baseUrl}",
+                "type": "graphql",
+                "query": "{ boards { id name } }",
+                "dataPath": "$.data.boards"
+              },
+              "fileMapping": {
+                "strategy": "collection",
+                "directory": ".",
+                "filename": "boards.csv",
+                "format": "csv",
+                "idField": "id"
+              },
+              "sync": { "interval": 60 }
+            }
+          ]
+        }
+        """
+        try Data(configJSON.utf8).write(to: api2fileDir.appendingPathComponent("adapter.json"))
+
+        let config = try AdapterEngine.loadConfig(from: tempDir)
+        let resource = try XCTUnwrap(config.resources.first)
+
+        let sessionConfig = URLSessionConfiguration.ephemeral
+        sessionConfig.protocolClasses = [MockURLProtocol.self]
+        let session = URLSession(configuration: sessionConfig)
+        let client = HTTPClient(session: session)
+        let engine = AdapterEngine(config: config, serviceDir: tempDir, httpClient: client)
+
+        let capture = RequestCapture()
+        MockURLProtocol.requestHandler = { request in
+            capture.request = request
+            let response = HTTPURLResponse(
+                url: try XCTUnwrap(request.url),
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: [:]
+            )!
+            let payload = #"{"data":{"boards":[]}}"#
+            return (response, Data(payload.utf8))
+        }
+
+        _ = try await engine.pull(resource: resource)
+
+        let request = try XCTUnwrap(capture.request)
+        XCTAssertEqual(request.httpMethod, "POST")
+        let body = try XCTUnwrap(Self.bodyData(from: request))
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+        XCTAssertEqual(json["query"] as? String, "{ boards { id name } }")
+    }
+
     func testPushPipeline_JSONDecode_TransformToAPIJSON() throws {
         // Simulate a JSON file that a user edited
         let jsonContent = """

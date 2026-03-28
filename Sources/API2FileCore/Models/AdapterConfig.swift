@@ -169,6 +169,24 @@ public struct ResourceConfig: Codable, Sendable {
         )
         return ResourceConfig(name: name, description: description, pull: pull, push: push, fileMapping: newMapping, children: children, sync: sync)
     }
+
+    public func withResolvedFileMapping(directory: String, filename: String?) -> ResourceConfig {
+        let newMapping = FileMappingConfig(
+            strategy: fileMapping.strategy,
+            directory: directory,
+            filename: filename,
+            format: fileMapping.format,
+            formatOptions: fileMapping.formatOptions,
+            idField: fileMapping.idField,
+            contentField: fileMapping.contentField,
+            readOnly: fileMapping.readOnly,
+            preserveExtension: fileMapping.preserveExtension,
+            transforms: fileMapping.transforms,
+            pushMode: fileMapping.pushMode,
+            deleteFromAPI: fileMapping.deleteFromAPI
+        )
+        return ResourceConfig(name: name, description: description, pull: pull, push: push, fileMapping: newMapping, children: children, sync: sync)
+    }
 }
 
 // MARK: - Pull
