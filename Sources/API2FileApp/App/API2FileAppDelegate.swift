@@ -1,5 +1,6 @@
 import AppKit
 
+@MainActor
 final class API2FileAppDelegate: NSObject, NSApplicationDelegate {
     func application(_ application: NSApplication, open urls: [URL]) {
         openSupportedFiles(urls)
