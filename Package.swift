@@ -4,7 +4,8 @@ import PackageDescription
 let package = Package(
     name: "API2File",
     platforms: [
-        .macOS(.v13)
+        .macOS(.v13),
+        .iOS(.v17)
     ],
     products: [
         .library(
@@ -35,7 +36,10 @@ let package = Package(
         .target(
             name: "API2FileCore",
             path: "Sources/API2FileCore",
-            resources: [.copy("Resources")]
+            resources: [.copy("Resources")],
+            linkerSettings: [
+                .linkedLibrary("sqlite3")
+            ]
         ),
         .executableTarget(
             name: "API2FileApp",

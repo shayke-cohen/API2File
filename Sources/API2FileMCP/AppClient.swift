@@ -14,8 +14,8 @@ struct AppClient {
 
     /// Perform a synchronous GET request.
     /// Returns (HTTP status code, response body data).
-    func get(_ path: String) throws -> (Int, Data) {
-        let url = baseURL.appendingPathComponent(path)
+    func get(_ path: String, queryItems: [URLQueryItem] = []) throws -> (Int, Data) {
+        let url = try makeURL(path: path, queryItems: queryItems)
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         request.timeoutInterval = 30
@@ -25,20 +25,42 @@ struct AppClient {
     /// Perform a synchronous POST request with an optional JSON body.
     /// Returns (HTTP status code, response body data).
     func post(_ path: String, body: [String: Any]? = nil) throws -> (Int, Data) {
-        let url = baseURL.appendingPathComponent(path)
+        let bodyData = try body.map { try JSONSerialization.data(withJSONObject: $0, options: []) }
+        return try post(path, bodyData: bodyData)
+    }
+
+    /// Perform a synchronous POST request with an optional raw body.
+    /// Returns (HTTP status code, response body data).
+    func post(_ path: String, bodyData: Data?) throws -> (Int, Data) {
+        let url = try makeURL(path: path)
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.timeoutInterval = 30
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-
-        if let body = body {
-            request.httpBody = try JSONSerialization.data(withJSONObject: body, options: [])
-        }
+        request.httpBody = bodyData
 
         return try performRequest(request)
     }
 
     // MARK: - Private
+
+    private func makeURL(path: String, queryItems: [URLQueryItem] = []) throws -> URL {
+        guard var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false) else {
+            throw AppClientError.invalidResponse
+        }
+
+        let normalizedPath = path.hasPrefix("/") ? path : "/\(path)"
+        let basePath = components.path == "/" ? "" : components.path
+        components.path = basePath + normalizedPath
+        if !queryItems.isEmpty {
+            components.queryItems = queryItems
+        }
+
+        guard let url = components.url else {
+            throw AppClientError.invalidResponse
+        }
+        return url
+    }
 
     private func performRequest(_ request: URLRequest) throws -> (Int, Data) {
         var resultData: Data?

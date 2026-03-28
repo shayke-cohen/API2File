@@ -32,6 +32,7 @@ public enum AgentGuideGenerator {
         lines.append("- Files sync bidirectionally with cloud APIs")
         lines.append("- Hidden `.*.objects.json` files store the structured canonical records for each resource")
         lines.append("- `.api2file/file-links.json` maps human-facing files to their canonical object files")
+        lines.append("- `.api2file/cache/service.sqlite` exposes a read-only query mirror for analysis and agents")
         lines.append("- Human-facing files (CSV, MD, ICS, etc.) are projections optimized for native apps and browsing")
         lines.append("- Changes are git-committed automatically")
         lines.append("- Server is source of truth for conflicts")
@@ -41,6 +42,10 @@ public enum AgentGuideGenerator {
         lines.append("- GET /api/services — list all services + status + siteUrls")
         lines.append("- POST /api/services/:id/sync — force sync")
         lines.append("- GET /api/services/:id/conflicts — list conflicts")
+        lines.append("- GET /api/services/:id/sql/tables — list queryable SQLite tables")
+        lines.append("- POST /api/services/:id/sql/query — run read-only SQL against the local mirror")
+        lines.append("- GET /api/services/:id/sql/record?resource=...&recordId=... — resolve a record to file paths")
+        lines.append("- GET /api/services/:id/sql/open?resource=...&recordId=...&surface=canonical|projection — open a record file")
         lines.append("")
         lines.append("## MCP Browser Tools")
         lines.append("")
@@ -51,6 +56,8 @@ public enum AgentGuideGenerator {
         lines.append("4. `navigate({siteUrl})` → open the site in the browser")
         lines.append("5. `screenshot()` → capture the page (saves to file, use Read to view)")
         lines.append("6. `get_dom({selector})` → inspect specific elements")
+        lines.append("")
+        lines.append("For data lookup workflows, prefer `list_sql_tables`, `query_sql`, `get_record_by_id`, `open_record_file`, or `query_and_open_first` before editing.")
         lines.append("")
 
         return lines.joined(separator: "\n")
@@ -71,6 +78,7 @@ public enum AgentGuideGenerator {
         lines.append("Edit files locally → changes push to \(config.displayName) automatically.")
         lines.append("Hidden `.*.objects.json` files hold the structured canonical records; user-facing files are projections for apps and easy browsing.")
         lines.append("`.api2file/file-links.json` links each projection to its canonical object file.")
+        lines.append("`.api2file/cache/service.sqlite` is a derived, read-only SQLite mirror for search, SQL, and agent analysis.")
         lines.append("")
         lines.append("## Resources")
 
@@ -121,6 +129,7 @@ public enum AgentGuideGenerator {
         lines.append("- Local changes push within 500ms of saving")
         lines.append("- Canonical object files are the intended local source of truth for structured edits")
         lines.append("- Human-facing files are decoded back into canonical records before push")
+        lines.append("- The SQLite mirror updates after pull/push cycles and is read-only in v1")
         if config.service == "wix" {
             lines.append("- Wix blog Markdown files are converted to and from Wix Ricos rich content during sync")
         }
@@ -133,7 +142,12 @@ public enum AgentGuideGenerator {
         lines.append("```")
         lines.append("curl localhost:\(serverPort)/api/services/\(config.service)/sync    # Force immediate sync")
         lines.append("curl localhost:\(serverPort)/api/services/\(config.service)/status   # Check sync status")
+        lines.append("curl localhost:\(serverPort)/api/services/\(config.service)/sql/tables")
+        lines.append("curl -X POST localhost:\(serverPort)/api/services/\(config.service)/sql/query -H 'Content-Type: application/json' -d '{\"query\":\"SELECT * FROM table_name LIMIT 5\"}'")
+        lines.append("curl localhost:\(serverPort)/api/services/\(config.service)/sql/record?resource=table_name\\&recordId=123")
+        lines.append("curl localhost:\(serverPort)/api/services/\(config.service)/sql/open?resource=table_name\\&recordId=123\\&surface=canonical")
         lines.append("```")
+        lines.append("Use MCP `query_and_open_first` when you want to jump from a SQL match straight to the synced file in one step.")
 
         // MCP Browser section
         lines.append("")
@@ -156,6 +170,7 @@ public enum AgentGuideGenerator {
         lines.append("")
         lines.append("## Constraints")
         lines.append("- Don't modify files in `.api2file/` — these are internal")
+        lines.append("- Treat `.api2file/cache/service.sqlite` as read-only; edit canonical object files or human-facing projections instead")
         lines.append("- Prefer the hidden `.*.objects.json` files for high-fidelity agent edits; avoid editing both an object file and its human-facing projection before the same sync cycle")
         for constraint in Self.formatConstraints(for: config) {
             lines.append("- \(constraint)")

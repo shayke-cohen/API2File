@@ -20,6 +20,8 @@ final class MCPIntegrationTests: XCTestCase {
     private var syncRoot: URL!
     private var serviceDir: URL!
     private var tempDir: URL!
+    private let keychain = KeychainManager.shared
+    private let keychainKey = "api2file.demo.mcp-test"
 
     private var harness: MCPTestHarness!
 
@@ -68,7 +70,7 @@ final class MCPIntegrationTests: XCTestCase {
           "displayName": "Demo API",
           "version": "1.0",
           "siteUrl": "\(demoBaseURL)",
-          "auth": { "type": "bearer", "keychainKey": "api2file.demo.mcp-test" },
+          "auth": { "type": "bearer", "keychainKey": "\(keychainKey)" },
           "globals": { "baseUrl": "\(demoBaseURL)" },
           "resources": [
             {
@@ -97,6 +99,7 @@ final class MCPIntegrationTests: XCTestCase {
             atomically: true,
             encoding: .utf8
         )
+        _ = await keychain.save(key: keychainKey, value: "demo-token")
 
         // 3. Start SyncEngine + LocalServer on a random port
         localPort = UInt16.random(in: 25000...29999)
@@ -109,6 +112,9 @@ final class MCPIntegrationTests: XCTestCase {
         )
         syncEngine = SyncEngine(config: globalConfig)
         try await syncEngine.start()
+        try await waitUntil("initial task pull") {
+            FileManager.default.fileExists(atPath: self.serviceDir.appendingPathComponent("tasks.csv").path)
+        }
 
         localServer = LocalServer(port: localPort, syncEngine: syncEngine)
         try await localServer.start()
@@ -167,6 +173,8 @@ final class MCPIntegrationTests: XCTestCase {
         await demoServer?.stop()
         demoServer = nil
 
+        _ = await keychain.delete(key: keychainKey)
+
         if let dir = tempDir {
             try? FileManager.default.removeItem(at: dir)
         }
@@ -218,6 +226,20 @@ final class MCPIntegrationTests: XCTestCase {
     private func isToolError(_ response: [String: Any]) -> Bool {
         guard let result = response["result"] as? [String: Any] else { return false }
         return result["isError"] as? Bool == true
+    }
+
+    private func waitUntil(
+        _ label: String,
+        timeout: TimeInterval = 20,
+        pollInterval: UInt64 = 250_000_000,
+        condition: @escaping () -> Bool
+    ) async throws {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if condition() { return }
+            try await Task.sleep(nanoseconds: pollInterval)
+        }
+        XCTFail("Timed out waiting for \(label)")
     }
 
     // MARK: - Tests
@@ -292,6 +314,11 @@ final class MCPIntegrationTests: XCTestCase {
         let toolNames = Set(tools?.compactMap { $0["name"] as? String } ?? [])
         XCTAssertTrue(toolNames.contains("get_services"), "Should have get_services tool")
         XCTAssertTrue(toolNames.contains("sync"), "Should have sync tool")
+        XCTAssertTrue(toolNames.contains("list_sql_tables"), "Should have list_sql_tables tool")
+        XCTAssertTrue(toolNames.contains("query_sql"), "Should have query_sql tool")
+        XCTAssertTrue(toolNames.contains("get_record_by_id"), "Should have get_record_by_id tool")
+        XCTAssertTrue(toolNames.contains("open_record_file"), "Should have open_record_file tool")
+        XCTAssertTrue(toolNames.contains("query_and_open_first"), "Should have query_and_open_first tool")
         XCTAssertTrue(toolNames.contains("navigate"), "Should have navigate tool")
         XCTAssertTrue(toolNames.contains("screenshot"), "Should have screenshot tool")
 
@@ -306,6 +333,206 @@ final class MCPIntegrationTests: XCTestCase {
         XCTAssertFalse(isToolError(syncResponse), "sync should succeed")
         let syncText = extractToolText(syncResponse)
         XCTAssertNotNil(syncText, "sync should return text")
+    }
+
+    func testSQLToolsRoundtrip() async throws {
+        _ = try initializeMCP()
+
+        let tablesResponse = try callTool("list_sql_tables", arguments: ["serviceId": "demo"])
+        XCTAssertFalse(isToolError(tablesResponse), "list_sql_tables should succeed")
+        let tablesText = extractToolText(tablesResponse)
+        XCTAssertNotNil(tablesText)
+        XCTAssertTrue(tablesText!.contains("tasks"))
+
+        let describeResponse = try callTool("describe_sql_table", arguments: ["serviceId": "demo", "table": "tasks"])
+        XCTAssertFalse(isToolError(describeResponse), "describe_sql_table should succeed")
+        let describeText = extractToolText(describeResponse)
+        XCTAssertNotNil(describeText)
+        XCTAssertTrue(describeText!.contains("_json_payload"))
+
+        let queryResponse = try callTool(
+            "query_sql",
+            arguments: [
+                "serviceId": "demo",
+                "query": "SELECT name FROM tasks ORDER BY id LIMIT 2"
+            ]
+        )
+        XCTAssertFalse(isToolError(queryResponse), "query_sql should succeed")
+        let queryText = extractToolText(queryResponse)
+        XCTAssertNotNil(queryText)
+        XCTAssertTrue(queryText!.contains("Buy groceries"))
+
+        let searchResponse = try callTool(
+            "search_records",
+            arguments: [
+                "serviceId": "demo",
+                "text": "Fix login bug",
+                "resources": "tasks"
+            ]
+        )
+        XCTAssertFalse(isToolError(searchResponse), "search_records should succeed")
+        let searchText = extractToolText(searchResponse)
+        XCTAssertNotNil(searchText)
+        XCTAssertTrue(searchText!.contains("Fix login bug"))
+    }
+
+    func testGetRecordByIDReturnsCanonicalMetadata() async throws {
+        _ = try initializeMCP()
+
+        let response = try callTool(
+            "get_record_by_id",
+            arguments: [
+                "serviceId": "demo",
+                "resource": "tasks",
+                "recordId": "2"
+            ]
+        )
+        XCTAssertFalse(isToolError(response), "get_record_by_id should succeed")
+        let text = try XCTUnwrap(extractToolText(response))
+        XCTAssertTrue(text.contains("\"recordId\" : \"2\""))
+        XCTAssertTrue(text.contains("\"projectionPath\" : \"tasks.csv\""))
+        XCTAssertTrue(text.contains("Fix login bug"))
+    }
+
+    func testOpenRecordFileReturnsCanonicalAndProjectionContent() async throws {
+        _ = try initializeMCP()
+
+        let canonicalResponse = try callTool(
+            "open_record_file",
+            arguments: [
+                "serviceId": "demo",
+                "resource": "tasks",
+                "recordId": "1",
+                "surface": "canonical"
+            ]
+        )
+        XCTAssertFalse(isToolError(canonicalResponse), "open_record_file canonical should succeed")
+        let canonicalText = try XCTUnwrap(extractToolText(canonicalResponse))
+        XCTAssertTrue(canonicalText.contains("\"surface\" : \"canonical\""))
+        XCTAssertTrue(canonicalText.contains(".tasks.objects.json"))
+        XCTAssertTrue(canonicalText.contains("Buy groceries"))
+
+        let projectionResponse = try callTool(
+            "open_record_file",
+            arguments: [
+                "serviceId": "demo",
+                "resource": "tasks",
+                "recordId": "1",
+                "surface": "projection"
+            ]
+        )
+        XCTAssertFalse(isToolError(projectionResponse), "open_record_file projection should succeed")
+        let projectionText = try XCTUnwrap(extractToolText(projectionResponse))
+        XCTAssertTrue(projectionText.contains("\"surface\" : \"projection\""))
+        XCTAssertTrue(projectionText.contains("tasks.csv"))
+        XCTAssertTrue(projectionText.contains("Buy groceries"))
+    }
+
+    func testGetRecordByIDMissingRecordReturnsError() async throws {
+        _ = try initializeMCP()
+
+        let response = try callTool(
+            "get_record_by_id",
+            arguments: [
+                "serviceId": "demo",
+                "resource": "tasks",
+                "recordId": "999"
+            ]
+        )
+        XCTAssertTrue(isToolError(response), "get_record_by_id should error for a missing record")
+        let text = try XCTUnwrap(extractToolText(response))
+        XCTAssertTrue(text.contains("No record with id '999'") || text.contains("No record with id \\\"999\\\""))
+    }
+
+    func testOpenRecordFileRejectsInvalidSurface() async throws {
+        _ = try initializeMCP()
+
+        let response = try callTool(
+            "open_record_file",
+            arguments: [
+                "serviceId": "demo",
+                "resource": "tasks",
+                "recordId": "1",
+                "surface": "sideways"
+            ]
+        )
+        XCTAssertTrue(isToolError(response), "open_record_file should reject an invalid surface")
+        let text = try XCTUnwrap(extractToolText(response))
+        XCTAssertTrue(text.contains("Invalid 'surface' query parameter"))
+    }
+
+    func testQueryAndOpenFirstReturnsSelectedFile() async throws {
+        _ = try initializeMCP()
+
+        let response = try callTool(
+            "query_and_open_first",
+            arguments: [
+                "serviceId": "demo",
+                "resource": "tasks",
+                "query": "SELECT _remote_id, name, status FROM tasks WHERE status = 'todo' ORDER BY id LIMIT 1",
+                "surface": "canonical"
+            ]
+        )
+        XCTAssertFalse(isToolError(response), "query_and_open_first should succeed")
+        let text = try XCTUnwrap(extractToolText(response))
+        XCTAssertTrue(text.contains("\"resolvedRecordId\" : \"1\""))
+        XCTAssertTrue(text.contains("\"surface\" : \"canonical\""))
+        XCTAssertTrue(text.contains("\"selectedRow\""))
+        XCTAssertTrue(text.contains("Buy groceries"))
+    }
+
+    func testQueryAndOpenFirstRejectsEmptyQueryResult() async throws {
+        _ = try initializeMCP()
+
+        let response = try callTool(
+            "query_and_open_first",
+            arguments: [
+                "serviceId": "demo",
+                "resource": "tasks",
+                "query": "SELECT _remote_id FROM tasks WHERE id = 999"
+            ]
+        )
+        XCTAssertTrue(isToolError(response), "query_and_open_first should fail when the query returns no rows")
+        let text = try XCTUnwrap(extractToolText(response))
+        XCTAssertTrue(text.contains("query returned no rows"))
+    }
+
+    func testQueryAndOpenFirstRequiresResolvableRecordID() async throws {
+        _ = try initializeMCP()
+
+        let response = try callTool(
+            "query_and_open_first",
+            arguments: [
+                "serviceId": "demo",
+                "resource": "tasks",
+                "query": "SELECT name FROM tasks ORDER BY id LIMIT 1"
+            ]
+        )
+        XCTAssertTrue(isToolError(response), "query_and_open_first should fail when the query omits a record ID")
+        let text = try XCTUnwrap(extractToolText(response))
+        XCTAssertTrue(text.contains("must include '_remote_id'") || text.contains("or 'id'"))
+    }
+
+    func testQuerySQLRejectsMutations() async throws {
+        _ = try initializeMCP()
+
+        let response = try callTool(
+            "query_sql",
+            arguments: [
+                "serviceId": "demo",
+                "query": "UPDATE tasks SET name = 'nope'"
+            ]
+        )
+        XCTAssertTrue(isToolError(response), "query_sql should reject mutating SQL")
+        let text = extractToolText(response)
+        XCTAssertNotNil(text)
+        XCTAssertTrue(
+            text!.contains("read-only")
+                || text!.contains("SELECT-style")
+                || text!.contains("Only read-only SQL queries are allowed")
+                || text!.contains("Only a single SQL statement is allowed"),
+            "Unexpected query_sql error: \(text ?? "")"
+        )
     }
 
     func testGetServicesSiteUrlPresent() async throws {

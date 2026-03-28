@@ -41,9 +41,83 @@ struct API2FileApp: App {
         }
 
         Window("Dashboard", id: "dashboard") {
-            PreferencesView(appState: appState)
+            DashboardRootView(appState: appState)
         }
-        .defaultSize(width: 900, height: 600)
+        .defaultSize(width: 1280, height: 820)
+        .windowResizability(.contentMinSize)
+    }
+}
+
+struct SQLMirrorTableSummary: Decodable, Identifiable {
+    let tableName: String
+    let resourceName: String
+    let rowCount: Int
+
+    var id: String { tableName }
+
+    private enum CodingKeys: String, CodingKey {
+        case tableName = "table_name"
+        case resourceName = "resource_name"
+        case rowCount = "row_count"
+    }
+}
+
+struct SQLMirrorTableColumn: Decodable, Identifiable {
+    let cid: Int
+    let name: String
+    let type: String
+    let notNull: Int
+    let defaultValue: String?
+    let primaryKey: Int
+
+    var id: String { name }
+
+    private enum CodingKeys: String, CodingKey {
+        case cid
+        case name
+        case type
+        case notNull = "notnull"
+        case defaultValue = "dflt_value"
+        case primaryKey = "pk"
+    }
+}
+
+struct SQLMirrorTableDescription: Decodable {
+    let databasePath: String
+    let table: String
+    let resourceName: String
+    let rowCount: Int
+    let columns: [SQLMirrorTableColumn]
+}
+
+struct SQLMirrorQueryRow: Identifiable {
+    let id = UUID()
+    let values: [String: String]
+    let recordId: String?
+}
+
+struct SQLMirrorQueryResult {
+    let databasePath: String?
+    let query: String
+    let rowCount: Int
+    let columns: [String]
+    let rows: [SQLMirrorQueryRow]
+}
+
+enum SQLExplorerError: LocalizedError {
+    case unavailable
+    case invalidResponse
+    case missingFilePath(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .unavailable:
+            return "The sync engine is not available yet."
+        case .invalidResponse:
+            return "API2File returned an unexpected SQLite response."
+        case .missingFilePath(let path):
+            return "The resolved file does not exist: \(path)"
+        }
     }
 }
 
@@ -61,7 +135,6 @@ final class AppState: ObservableObject {
     private(set) var syncEngine: SyncEngine?
     private(set) var localServer: LocalServer?
     private var refreshTask: Task<Void, Never>?
-    private let finderOpenURLObserver = FinderOpenURLObserver()
     private var engineStarted = false
     private var addServiceWindow: NSWindow?
     private var webViewBridge: WebViewBridge?
@@ -70,13 +143,6 @@ final class AppState: ObservableObject {
     private var lastSyncTimes: [String: Date] = [:]
 
     init() {
-        finderOpenURLObserver.handler = { [weak self] url, preferredBrowser in
-            guard let self else { return }
-            Task { @MainActor in
-                self.openExternalURL(url, preferredBrowser: preferredBrowser)
-            }
-        }
-
         // Auto-start engine on creation
         Task { @MainActor [weak self] in
             self?.startEngine()
@@ -91,10 +157,10 @@ final class AppState: ObservableObject {
     }
 
     func startEngine() {
-        print("[AppState] startEngine called")
+        NSLog("AppState startEngine called")
         guard !engineStarted else { return }
         engineStarted = true
-        print("[API2File] Starting sync engine...")
+        NSLog("AppState starting sync engine")
         let config = GlobalConfig.loadOrDefault(syncFolder: GlobalConfig().resolvedSyncFolder)
         self.config = config
         publishFinderBadgeSnapshot()
@@ -116,23 +182,28 @@ final class AppState: ObservableObject {
                 // Seed bundled adapters into ~/.api2file/adapters/ before starting
                 try? await AdapterStore.shared.seedIfNeeded()
 
+                NSLog("AppState starting SyncEngine")
                 try await engine.start()
+                NSLog("AppState SyncEngine started")
 
                 // Start local REST server
                 let server = LocalServer(port: UInt16(config.serverPort), syncEngine: engine)
+                NSLog("AppState starting LocalServer on port %ld", config.serverPort)
                 try await server.start()
                 self.localServer = server
+                NSLog("AppState LocalServer started on port %ld", config.serverPort)
 
                 // Register shared WebViewStore as browser delegate for MCP
                 await server.setBrowserDelegate(self.sharedWebViewStore)
 
                 // Write port discovery file for MCP binary
                 Self.writeServerInfo(port: config.serverPort)
+                NSLog("AppState wrote server info for port %ld", config.serverPort)
 
                 // Refresh services list
                 await refreshServices()
             } catch {
-                print("[API2File] Failed to start: \(error)")
+                NSLog("AppState failed to start: %@", error.localizedDescription)
             }
         }
 
@@ -149,9 +220,11 @@ final class AppState: ObservableObject {
     func stopEngine() {
         refreshTask?.cancel()
         Self.removeServerInfo()
+        NSLog("AppState stopEngine called")
         Task {
             await syncEngine?.stop()
             await localServer?.stop()
+            NSLog("AppState stopEngine finished")
         }
     }
 
@@ -271,6 +344,88 @@ final class AppState: ObservableObject {
         return await engine.getHistory(serviceId: serviceId, limit: limit)
     }
 
+    // MARK: - SQLite Explorer
+
+    func listSQLTables(serviceId: String) async -> [SQLMirrorTableSummary] {
+        guard let engine = syncEngine else { return [] }
+        do {
+            let data = try await engine.listSQLTables(serviceId: serviceId)
+            let payload = try JSONDecoder().decode(SQLTablesPayload.self, from: data)
+            return payload.tables
+        } catch {
+            print("[API2File] Failed to list SQL tables for \(serviceId): \(error)")
+            return []
+        }
+    }
+
+    func describeSQLTable(serviceId: String, table: String) async -> SQLMirrorTableDescription? {
+        guard let engine = syncEngine else { return nil }
+        do {
+            let data = try await engine.describeSQLTable(serviceId: serviceId, table: table)
+            return try JSONDecoder().decode(SQLMirrorTableDescription.self, from: data)
+        } catch {
+            print("[API2File] Failed to describe SQL table \(table) for \(serviceId): \(error)")
+            return nil
+        }
+    }
+
+    func runSQLQuery(serviceId: String, query: String) async throws -> SQLMirrorQueryResult {
+        guard let engine = syncEngine else {
+            throw SQLExplorerError.unavailable
+        }
+
+        let data = try await engine.querySQL(serviceId: serviceId, query: query)
+        guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw SQLExplorerError.invalidResponse
+        }
+
+        let rawRows = object["rows"] as? [[String: Any]] ?? []
+        let columns = resolvedColumns(from: object, rows: rawRows)
+        let rows = rawRows.map { row in
+            SQLMirrorQueryRow(
+                values: Dictionary(uniqueKeysWithValues: columns.map { column in
+                    (column, Self.sqlDisplayString(row[column]))
+                }),
+                recordId: Self.sqlRecordIdentifier(from: row)
+            )
+        }
+
+        return SQLMirrorQueryResult(
+            databasePath: object["databasePath"] as? String,
+            query: object["query"] as? String ?? query,
+            rowCount: object["rowCount"] as? Int ?? rows.count,
+            columns: columns,
+            rows: rows
+        )
+    }
+
+    func openSQLRecordInEditor(
+        serviceId: String,
+        resource: String,
+        recordId: String,
+        surface: String
+    ) async throws {
+        guard let engine = syncEngine else {
+            throw SQLExplorerError.unavailable
+        }
+
+        let data = try await engine.getRecordByID(serviceId: serviceId, resource: resource, recordId: recordId)
+        guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw SQLExplorerError.invalidResponse
+        }
+
+        let key = surface == "canonical" ? "canonicalFile" : "projectionFile"
+        guard let path = object[key] as? String else {
+            throw SQLExplorerError.invalidResponse
+        }
+        let fileURL = URL(fileURLWithPath: path)
+        guard FileManager.default.fileExists(atPath: fileURL.path) else {
+            throw SQLExplorerError.missingFilePath(path)
+        }
+
+        openFileInEditor(fileURL)
+    }
+
     // MARK: - Browser Window
 
     func openBrowserWindow() {
@@ -312,24 +467,6 @@ final class AppState: ObservableObject {
             fallbackURL.appendPathComponent(serviceId)
         }
         NSWorkspace.shared.open(fallbackURL)
-    }
-
-    private func openExternalURL(_ url: URL, preferredBrowser: String?) {
-        let workspace = NSWorkspace.shared
-
-        if preferredBrowser == "chrome",
-           let chromeURL = workspace.urlForApplication(withBundleIdentifier: "com.google.Chrome") {
-            let configuration = NSWorkspace.OpenConfiguration()
-            workspace.open([url], withApplicationAt: chromeURL, configuration: configuration) { _, error in
-                if let error {
-                    NSLog("AppState failed opening Chrome for %@: %@", url.absoluteString, error.localizedDescription)
-                    workspace.open(url)
-                }
-            }
-            return
-        }
-
-        workspace.open(url)
     }
 
     // MARK: - Live Reload
@@ -653,34 +790,65 @@ final class AppState: ObservableObject {
         return bundlePath.hasPrefix("/Applications/")
             || bundlePath.hasPrefix(homeApplicationsPath + "/")
     }
-}
 
-private final class FinderOpenURLObserver: NSObject {
-    var handler: ((URL, String?) -> Void)?
-
-    override init() {
-        super.init()
-        DistributedNotificationCenter.default().addObserver(
-            self,
-            selector: #selector(handleNotification(_:)),
-            name: FinderBadgeSupport.openURLNotificationName,
-            object: nil,
-            suspensionBehavior: .deliverImmediately
-        )
+    private struct SQLTablesPayload: Decodable {
+        let tables: [SQLMirrorTableSummary]
     }
 
-    deinit {
-        DistributedNotificationCenter.default().removeObserver(self)
-    }
-
-    @objc private func handleNotification(_ notification: Notification) {
-        guard let rawURL = notification.userInfo?["url"] as? String,
-              let url = URL(string: rawURL) else {
-            return
+    private func resolvedColumns(from object: [String: Any], rows: [[String: Any]]) -> [String] {
+        if let columns = object["columns"] as? [String], !columns.isEmpty {
+            return columns
         }
+        return rows.first.map { $0.keys.sorted() } ?? []
+    }
 
-        let preferredBrowser = notification.userInfo?["preferredBrowser"] as? String
-        NSLog("AppState received finder open-url notification for %@", url.absoluteString)
-        handler?(url, preferredBrowser)
+    private static func sqlDisplayString(_ value: Any?) -> String {
+        switch value {
+        case nil, is NSNull:
+            return ""
+        case let string as String:
+            return string
+        case let int as Int:
+            return String(int)
+        case let double as Double:
+            return double.rounded() == double ? String(Int(double)) : String(double)
+        case let bool as Bool:
+            return bool ? "true" : "false"
+        case let number as NSNumber:
+            return number.stringValue
+        case let array as [Any]:
+            if let data = try? JSONSerialization.data(withJSONObject: array, options: [.sortedKeys]),
+               let string = String(data: data, encoding: .utf8) {
+                return string
+            }
+            return "\(array)"
+        case let dictionary as [String: Any]:
+            if let data = try? JSONSerialization.data(withJSONObject: dictionary, options: [.sortedKeys]),
+               let string = String(data: data, encoding: .utf8) {
+                return string
+            }
+            return "\(dictionary)"
+        default:
+            return String(describing: value ?? "")
+        }
+    }
+
+    private static func sqlRecordIdentifier(from row: [String: Any]) -> String? {
+        for key in ["_remote_id", "id", "_id"] {
+            if let string = row[key] as? String {
+                let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty { return trimmed }
+            }
+            if let int = row[key] as? Int {
+                return String(int)
+            }
+            if let double = row[key] as? Double {
+                return double.rounded() == double ? String(Int(double)) : String(double)
+            }
+            if let number = row[key] as? NSNumber {
+                return number.stringValue
+            }
+        }
+        return nil
     }
 }

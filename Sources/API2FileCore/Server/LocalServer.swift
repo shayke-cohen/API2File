@@ -1,6 +1,9 @@
 import Foundation
 import Network
 import UniformTypeIdentifiers
+#if os(macOS)
+import AppKit
+#endif
 
 /// Lightweight HTTP server using NWListener for local control API.
 /// Designed for AI agents and scripts to query and control the sync engine.
@@ -22,6 +25,7 @@ public actor LocalServer {
     // MARK: - Lifecycle
 
     public func start() throws {
+        NSLog("LocalServer start requested on port %hu", port)
         let params = NWParameters.tcp
         let nwPort = NWEndpoint.Port(rawValue: port)!
         let listener = try NWListener(using: params, on: nwPort)
@@ -34,10 +38,14 @@ public actor LocalServer {
         listener.stateUpdateHandler = { state in
             switch state {
             case .ready:
+                NSLog("LocalServer listener ready on port %hu", self.port)
                 break
             case .failed(let error):
-                print("[LocalServer] Listener failed: \(error)")
+                NSLog("LocalServer listener failed on port %hu: %@", self.port, error.localizedDescription)
+            case .cancelled:
+                NSLog("LocalServer listener cancelled on port %hu", self.port)
             default:
+                NSLog("LocalServer listener state on port %hu: %@", self.port, String(describing: state))
                 break
             }
         }
@@ -47,6 +55,7 @@ public actor LocalServer {
     }
 
     public func stop() {
+        NSLog("LocalServer stop requested on port %hu", port)
         listener?.cancel()
         listener = nil
     }
@@ -191,6 +200,36 @@ public actor LocalServer {
             return await handleGetHistory(serviceId: serviceId, limit: limit)
         }
 
+        // GET /api/services/:id/sql/tables
+        if method == "GET", let serviceId = matchRoute(path: path, pattern: "/api/services/", suffix: "/sql/tables") {
+            return await handleListSQLTables(serviceId: serviceId)
+        }
+
+        // GET /api/services/:id/sql/describe?table=...
+        if method == "GET", let serviceId = matchRoute(path: path, pattern: "/api/services/", suffix: "/sql/describe") {
+            return await handleDescribeSQLTable(serviceId: serviceId, queryItems: request.queryItems)
+        }
+
+        // POST /api/services/:id/sql/query
+        if method == "POST", let serviceId = matchRoute(path: path, pattern: "/api/services/", suffix: "/sql/query") {
+            return await handleQuerySQL(serviceId: serviceId, body: request.body)
+        }
+
+        // GET /api/services/:id/sql/search?text=...&resources=a,b
+        if method == "GET", let serviceId = matchRoute(path: path, pattern: "/api/services/", suffix: "/sql/search") {
+            return await handleSearchSQL(serviceId: serviceId, queryItems: request.queryItems)
+        }
+
+        // GET /api/services/:id/sql/record?resource=...&recordId=...
+        if method == "GET", let serviceId = matchRoute(path: path, pattern: "/api/services/", suffix: "/sql/record") {
+            return await handleGetSQLRecord(serviceId: serviceId, queryItems: request.queryItems)
+        }
+
+        // GET /api/services/:id/sql/open?resource=...&recordId=...&surface=canonical|projection
+        if method == "GET", let serviceId = matchRoute(path: path, pattern: "/api/services/", suffix: "/sql/open") {
+            return await handleOpenSQLRecordFile(serviceId: serviceId, queryItems: request.queryItems)
+        }
+
         // POST /api/services/:id/sync
         if method == "POST", let serviceId = matchRoute(path: path, pattern: "/api/services/", suffix: "/sync") {
             return await handleTriggerSync(serviceId: serviceId)
@@ -199,6 +238,11 @@ public actor LocalServer {
         // POST /api/adapters/validate
         if method == "POST" && path == "/api/adapters/validate" {
             return handleValidateAdapter(body: request.body)
+        }
+
+        // POST /api/open-url
+        if method == "POST" && path == "/api/open-url" {
+            return handleOpenURL(body: request.body)
         }
 
         // --- Browser control routes ---
@@ -522,12 +566,15 @@ public actor LocalServer {
 
     private func handleTriggerSync(serviceId: String) async -> HTTPResponse {
         guard await syncEngine.getServiceStatus(serviceId) != nil else {
+            NSLog("LocalServer triggerSync missing service %@", serviceId)
             return HTTPResponse(statusCode: 404, body: [
                 "error": "Service not found",
                 "serviceId": serviceId
             ])
         }
+        NSLog("LocalServer triggerSync requested for %@", serviceId)
         await syncEngine.triggerSync(serviceId: serviceId)
+        NSLog("LocalServer triggerSync dispatched for %@", serviceId)
         return HTTPResponse(statusCode: 200, body: ["triggered": "true"])
     }
 
@@ -546,6 +593,145 @@ public actor LocalServer {
             return HTTPResponse(statusCode: 500, body: ["error": "Failed to encode history"])
         }
         return HTTPResponse(statusCode: 200, bodyRaw: data)
+    }
+
+    private func handleListSQLTables(serviceId: String) async -> HTTPResponse {
+        guard await syncEngine.getServiceStatus(serviceId) != nil else {
+            return HTTPResponse(statusCode: 404, body: [
+                "error": "Service not found",
+                "serviceId": serviceId
+            ])
+        }
+
+        do {
+            let data = try await syncEngine.listSQLTables(serviceId: serviceId)
+            return HTTPResponse(statusCode: 200, bodyRaw: data)
+        } catch {
+            return sqlErrorResponse(error)
+        }
+    }
+
+    private func handleDescribeSQLTable(serviceId: String, queryItems: [String: String]) async -> HTTPResponse {
+        guard await syncEngine.getServiceStatus(serviceId) != nil else {
+            return HTTPResponse(statusCode: 404, body: [
+                "error": "Service not found",
+                "serviceId": serviceId
+            ])
+        }
+        guard let table = queryItems["table"], !table.isEmpty else {
+            return HTTPResponse(statusCode: 400, body: ["error": "Missing 'table' query parameter"])
+        }
+
+        do {
+            let data = try await syncEngine.describeSQLTable(serviceId: serviceId, table: table)
+            return HTTPResponse(statusCode: 200, bodyRaw: data)
+        } catch {
+            return sqlErrorResponse(error)
+        }
+    }
+
+    private func handleQuerySQL(serviceId: String, body: Data?) async -> HTTPResponse {
+        guard await syncEngine.getServiceStatus(serviceId) != nil else {
+            return HTTPResponse(statusCode: 404, body: [
+                "error": "Service not found",
+                "serviceId": serviceId
+            ])
+        }
+        guard let query = parseJSONString(body, key: "query"), !query.isEmpty else {
+            return HTTPResponse(statusCode: 400, body: ["error": "Missing 'query' in request body"])
+        }
+
+        do {
+            let data = try await syncEngine.querySQL(serviceId: serviceId, query: query)
+            return HTTPResponse(statusCode: 200, bodyRaw: data)
+        } catch {
+            return sqlErrorResponse(error)
+        }
+    }
+
+    private func handleSearchSQL(serviceId: String, queryItems: [String: String]) async -> HTTPResponse {
+        guard await syncEngine.getServiceStatus(serviceId) != nil else {
+            return HTTPResponse(statusCode: 404, body: [
+                "error": "Service not found",
+                "serviceId": serviceId
+            ])
+        }
+        guard let text = queryItems["text"], !text.isEmpty else {
+            return HTTPResponse(statusCode: 400, body: ["error": "Missing 'text' query parameter"])
+        }
+        let resources = queryItems["resources"]?
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+
+        do {
+            let data = try await syncEngine.searchSQL(
+                serviceId: serviceId,
+                text: text,
+                resources: resources?.isEmpty == false ? resources : nil
+            )
+            return HTTPResponse(statusCode: 200, bodyRaw: data)
+        } catch {
+            return sqlErrorResponse(error)
+        }
+    }
+
+    private func handleGetSQLRecord(serviceId: String, queryItems: [String: String]) async -> HTTPResponse {
+        guard await syncEngine.getServiceStatus(serviceId) != nil else {
+            return HTTPResponse(statusCode: 404, body: [
+                "error": "Service not found",
+                "serviceId": serviceId
+            ])
+        }
+        guard let resource = queryItems["resource"], !resource.isEmpty else {
+            return HTTPResponse(statusCode: 400, body: ["error": "Missing 'resource' query parameter"])
+        }
+        guard let recordId = queryItems["recordId"], !recordId.isEmpty else {
+            return HTTPResponse(statusCode: 400, body: ["error": "Missing 'recordId' query parameter"])
+        }
+
+        do {
+            let data = try await syncEngine.getRecordByID(
+                serviceId: serviceId,
+                resource: resource,
+                recordId: recordId
+            )
+            return HTTPResponse(statusCode: 200, bodyRaw: data)
+        } catch {
+            return sqlErrorResponse(error)
+        }
+    }
+
+    private func handleOpenSQLRecordFile(serviceId: String, queryItems: [String: String]) async -> HTTPResponse {
+        guard await syncEngine.getServiceStatus(serviceId) != nil else {
+            return HTTPResponse(statusCode: 404, body: [
+                "error": "Service not found",
+                "serviceId": serviceId
+            ])
+        }
+        guard let resource = queryItems["resource"], !resource.isEmpty else {
+            return HTTPResponse(statusCode: 400, body: ["error": "Missing 'resource' query parameter"])
+        }
+        guard let recordId = queryItems["recordId"], !recordId.isEmpty else {
+            return HTTPResponse(statusCode: 400, body: ["error": "Missing 'recordId' query parameter"])
+        }
+
+        let surfaceValue = queryItems["surface"] ?? SQLiteMirror.FileSurface.canonical.rawValue
+        guard let surface = SQLiteMirror.FileSurface(rawValue: surfaceValue) else {
+            return HTTPResponse(statusCode: 400, body: ["error": "Invalid 'surface' query parameter"])
+        }
+
+        do {
+            let data = try await syncEngine.openRecordFile(
+                serviceId: serviceId,
+                resource: resource,
+                recordId: recordId,
+                surface: surface
+            )
+            return HTTPResponse(statusCode: 200, bodyRaw: data)
+        } catch {
+            return sqlErrorResponse(error)
+        }
     }
 
     private func handleValidateAdapter(body: Data?) -> HTTPResponse {
@@ -782,6 +968,20 @@ public actor LocalServer {
         return HTTPResponse(statusCode: 500, body: ["error": error.localizedDescription])
     }
 
+    private func sqlErrorResponse(_ error: Error) -> HTTPResponse {
+        if let mirrorError = error as? SQLiteMirror.MirrorError {
+            switch mirrorError {
+            case .missingDatabase, .notFound:
+                return HTTPResponse(statusCode: 404, body: ["error": mirrorError.localizedDescription])
+            case .invalidQuery:
+                return HTTPResponse(statusCode: 400, body: ["error": mirrorError.localizedDescription])
+            case .openDatabase, .sqlite:
+                return HTTPResponse(statusCode: 500, body: ["error": mirrorError.localizedDescription])
+            }
+        }
+        return HTTPResponse(statusCode: 500, body: ["error": error.localizedDescription])
+    }
+
     // MARK: - JSON Body Parsing Helpers
 
     private func parseJSONString(_ body: Data?, key: String) -> String? {
@@ -792,6 +992,40 @@ public actor LocalServer {
     private func parseJSONInt(_ body: Data?, key: String) -> Int? {
         guard let body, let json = try? JSONSerialization.jsonObject(with: body) as? [String: Any] else { return nil }
         return json[key] as? Int
+    }
+
+    private func handleOpenURL(body: Data?) -> HTTPResponse {
+        guard let rawURL = parseJSONString(body, key: "url"),
+              let url = URL(string: rawURL) else {
+            NSLog("LocalServer openURL missing or invalid url payload")
+            return HTTPResponse(statusCode: 400, body: ["error": "Missing or invalid url"])
+        }
+
+        let preferredBrowser = parseJSONString(body, key: "preferredBrowser")
+        NSLog("LocalServer openURL requested url=%@ preferredBrowser=%@", url.absoluteString, preferredBrowser ?? "<default>")
+
+        #if os(macOS)
+        let workspace = NSWorkspace.shared
+        if preferredBrowser == "chrome",
+           let chromeURL = workspace.urlForApplication(withBundleIdentifier: "com.google.Chrome") {
+            let configuration = NSWorkspace.OpenConfiguration()
+            workspace.open([url], withApplicationAt: chromeURL, configuration: configuration) { _, error in
+                if let error {
+                    NSLog("LocalServer failed opening Chrome for %@: %@", url.absoluteString, error.localizedDescription)
+                    workspace.open(url)
+                } else {
+                    NSLog("LocalServer opened Chrome for %@", url.absoluteString)
+                }
+            }
+            return HTTPResponse(statusCode: 200, body: ["status": "ok"])
+        }
+
+        workspace.open(url)
+        NSLog("LocalServer opened default browser for %@", url.absoluteString)
+        return HTTPResponse(statusCode: 200, body: ["status": "ok"])
+        #else
+        return HTTPResponse(statusCode: 503, body: ["error": "Opening external URLs is not supported on this platform"])
+        #endif
     }
 
     // MARK: - Route Matching
