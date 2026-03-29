@@ -494,6 +494,179 @@ final class AdapterEngineIntegrationTests: XCTestCase {
         XCTAssertEqual(name["last"] as? String, "Mitchell")
     }
 
+    func testWixCMSItemCreateBuildsDataCollectionBodyFromHumanRecord() async throws {
+        let repoRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let data = try Data(contentsOf: repoRoot.appendingPathComponent("Sources/API2FileCore/Resources/Adapters/wix.adapter.json"))
+        let config = try JSONDecoder().decode(AdapterConfig.self, from: data)
+        let collections = try XCTUnwrap(config.resources.first(where: { $0.name == "collections" }))
+        let resource = try XCTUnwrap(collections.children?.first(where: { $0.name == "items" }))
+
+        let sessionConfig = URLSessionConfiguration.ephemeral
+        sessionConfig.protocolClasses = [MockURLProtocol.self]
+        let session = URLSession(configuration: sessionConfig)
+        let client = HTTPClient(session: session)
+        let engine = AdapterEngine(config: config, serviceDir: tempDir, httpClient: client)
+
+        let capture = RequestCapture()
+        MockURLProtocol.requestHandler = { request in
+            capture.request = request
+            let response = HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 200, httpVersion: nil, headerFields: [:])!
+            return (response, Data(#"{"dataItem":{"id":"todo-123"}}"#.utf8))
+        }
+
+        let createdId = try await engine.pushRecord(
+            [
+                "dataCollectionId": "Todos",
+                "title": "Codex Todo",
+                "status": "To Do"
+            ],
+            resource: resource,
+            action: .create
+        )
+
+        XCTAssertEqual(createdId, "todo-123")
+
+        let request = try XCTUnwrap(capture.request)
+        XCTAssertEqual(request.httpMethod, "POST")
+        XCTAssertEqual(request.url?.absoluteString, "https://www.wixapis.com/wix-data/v2/items")
+
+        let body = try XCTUnwrap(Self.bodyData(from: request))
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+        XCTAssertEqual(json["dataCollectionId"] as? String, "Todos")
+        let dataItem = try XCTUnwrap(json["dataItem"] as? [String: Any])
+        XCTAssertNil(dataItem["id"], "Create should not force an id into the CMS dataItem payload")
+        let itemData = try XCTUnwrap(dataItem["data"] as? [String: Any])
+        XCTAssertEqual(itemData["title"] as? String, "Codex Todo")
+        XCTAssertEqual(itemData["status"] as? String, "To Do")
+    }
+
+    func testWixCMSItemUpdateBuildsDataCollectionBodyFromHumanRecord() async throws {
+        let repoRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let data = try Data(contentsOf: repoRoot.appendingPathComponent("Sources/API2FileCore/Resources/Adapters/wix.adapter.json"))
+        let config = try JSONDecoder().decode(AdapterConfig.self, from: data)
+        let collections = try XCTUnwrap(config.resources.first(where: { $0.name == "collections" }))
+        let resource = try XCTUnwrap(collections.children?.first(where: { $0.name == "items" }))
+
+        let sessionConfig = URLSessionConfiguration.ephemeral
+        sessionConfig.protocolClasses = [MockURLProtocol.self]
+        let session = URLSession(configuration: sessionConfig)
+        let client = HTTPClient(session: session)
+        let engine = AdapterEngine(config: config, serviceDir: tempDir, httpClient: client)
+
+        let capture = RequestCapture()
+        MockURLProtocol.requestHandler = { request in
+            capture.request = request
+            let response = HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 200, httpVersion: nil, headerFields: [:])!
+            return (response, Data("{}".utf8))
+        }
+
+        try await engine.pushRecord(
+            [
+                "id": "todo-123",
+                "dataCollectionId": "Todos",
+                "title": "Codex Todo Updated",
+                "status": "Done"
+            ],
+            resource: resource,
+            action: .update(id: "todo-123")
+        )
+
+        let request = try XCTUnwrap(capture.request)
+        XCTAssertEqual(request.httpMethod, "PUT")
+        XCTAssertEqual(request.url?.absoluteString, "https://www.wixapis.com/wix-data/v2/items/todo-123")
+
+        let body = try XCTUnwrap(Self.bodyData(from: request))
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+        XCTAssertEqual(json["dataCollectionId"] as? String, "Todos")
+        let dataItem = try XCTUnwrap(json["dataItem"] as? [String: Any])
+        XCTAssertEqual(dataItem["id"] as? String, "todo-123")
+        let itemData = try XCTUnwrap(dataItem["data"] as? [String: Any])
+        XCTAssertEqual(itemData["title"] as? String, "Codex Todo Updated")
+        XCTAssertEqual(itemData["status"] as? String, "Done")
+    }
+
+    func testWixCMSCollectionPullStoresCollectionContextAsFileRemoteId() async throws {
+        let repoRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let data = try Data(contentsOf: repoRoot.appendingPathComponent("Sources/API2FileCore/Resources/Adapters/wix.adapter.json"))
+        let config = try JSONDecoder().decode(AdapterConfig.self, from: data)
+        let collections = try XCTUnwrap(config.resources.first(where: { $0.name == "collections" }))
+        let child = try XCTUnwrap(collections.children?.first(where: { $0.name == "items" }))
+
+        let resolvedPull = PullConfig(
+            method: child.pull?.method,
+            url: child.pull?.url ?? "",
+            type: child.pull?.type,
+            query: child.pull?.query,
+            body: .object([
+                "dataCollectionId": .string("Todos"),
+                "query": .object([
+                    "paging": .object(["limit": .number(50)])
+                ])
+            ]),
+            dataPath: child.pull?.dataPath,
+            detail: child.pull?.detail,
+            pagination: child.pull?.pagination,
+            mediaConfig: child.pull?.mediaConfig,
+            updatedSinceField: child.pull?.updatedSinceField,
+            updatedSinceBodyPath: child.pull?.updatedSinceBodyPath,
+            updatedSinceDateFormat: child.pull?.updatedSinceDateFormat,
+            supportsETag: child.pull?.supportsETag
+        )
+        let resource = ResourceConfig(
+            name: "collections.items.Todos",
+            description: child.description,
+            capabilityClass: child.capabilityClass,
+            pull: resolvedPull,
+            push: child.push,
+            fileMapping: FileMappingConfig(
+                strategy: child.fileMapping.strategy,
+                directory: "cms",
+                filename: "todos.csv",
+                format: child.fileMapping.format,
+                formatOptions: child.fileMapping.formatOptions,
+                idField: child.fileMapping.idField,
+                contentField: child.fileMapping.contentField,
+                readOnly: child.fileMapping.readOnly,
+                preserveExtension: child.fileMapping.preserveExtension,
+                transforms: child.fileMapping.transforms,
+                pushMode: child.fileMapping.pushMode,
+                deleteFromAPI: child.fileMapping.deleteFromAPI
+            ),
+            children: nil,
+            sync: child.sync,
+            siteUrl: child.siteUrl,
+            dashboardUrl: child.dashboardUrl
+        )
+
+        let sessionConfig = URLSessionConfiguration.ephemeral
+        sessionConfig.protocolClasses = [MockURLProtocol.self]
+        let session = URLSession(configuration: sessionConfig)
+        let client = HTTPClient(session: session)
+        let engine = AdapterEngine(config: config, serviceDir: tempDir, httpClient: client)
+
+        MockURLProtocol.requestHandler = { request in
+            let response = HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 200, httpVersion: nil, headerFields: [:])!
+            return (response, Data(#"{"dataItems":[{"id":"todo-123","data":{"title":"Ship it","status":"To Do"}}]}"#.utf8))
+        }
+
+        let result = try await engine.pull(resource: resource)
+        XCTAssertEqual(result.files.count, 1)
+        XCTAssertEqual(result.files.first?.relativePath, "cms/todos.csv")
+        XCTAssertEqual(result.files.first?.remoteId, "Todos")
+    }
+
     func testMondayCreateBuildsGraphQLVariablesBody() async throws {
         let repoRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
