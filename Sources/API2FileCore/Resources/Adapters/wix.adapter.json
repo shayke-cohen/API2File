@@ -87,7 +87,7 @@
 
       "fileMapping": {
         "strategy": "collection",
-        "directory": ".",
+        "directory": "contacts",
         "filename": "contacts.csv",
         "format": "csv",
         "idField": "id",
@@ -247,7 +247,7 @@
 
       "fileMapping": {
         "strategy": "collection",
-        "directory": ".",
+        "directory": "products",
         "filename": "products.csv",
         "format": "csv",
         "idField": "id",
@@ -313,7 +313,7 @@
 
       "fileMapping": {
         "strategy": "collection",
-        "directory": ".",
+        "directory": "orders",
         "filename": "orders.csv",
         "format": "csv",
         "idField": "id",
@@ -420,7 +420,7 @@
 
       "fileMapping": {
         "strategy": "collection",
-        "directory": ".",
+        "directory": "coupons",
         "filename": "coupons.csv",
         "format": "csv",
         "idField": "id",
@@ -460,7 +460,7 @@
 
       "fileMapping": {
         "strategy": "collection",
-        "directory": ".",
+        "directory": "pricing-plans",
         "filename": "pricing-plans.csv",
         "format": "csv",
         "idField": "id",
@@ -497,7 +497,7 @@
 
       "fileMapping": {
         "strategy": "collection",
-        "directory": ".",
+        "directory": "gift-cards",
         "filename": "gift-cards.csv",
         "format": "csv",
         "idField": "id",
@@ -568,7 +568,7 @@
 
       "fileMapping": {
         "strategy": "collection",
-        "directory": ".",
+        "directory": "forms",
         "filename": "forms.csv",
         "format": "csv",
         "idField": "id",
@@ -704,7 +704,7 @@
 
       "fileMapping": {
         "strategy": "collection",
-        "directory": ".",
+        "directory": "members",
         "filename": "members.csv",
         "format": "csv",
         "idField": "id",
@@ -754,7 +754,7 @@
 
       "fileMapping": {
         "strategy": "collection",
-        "directory": ".",
+        "directory": "site-properties",
         "filename": "site-properties.json",
         "format": "json",
         "readOnly": true
@@ -1193,7 +1193,7 @@
 
       "fileMapping": {
         "strategy": "collection",
-        "directory": ".",
+        "directory": "groups",
         "filename": "groups.csv",
         "format": "csv",
         "idField": "id",
@@ -1477,7 +1477,7 @@
 
       "fileMapping": {
         "strategy": "collection",
-        "directory": ".",
+        "directory": "comments",
         "filename": "comments.csv",
         "format": "csv",
         "idField": "id",
@@ -1530,7 +1530,7 @@
 
       "fileMapping": {
         "strategy": "collection",
-        "directory": ".",
+        "directory": "events",
         "filename": "events.csv",
         "format": "csv",
         "idField": "id",
