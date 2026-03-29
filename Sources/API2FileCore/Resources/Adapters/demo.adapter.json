@@ -51,7 +51,7 @@
 
       "fileMapping": {
         "strategy": "collection",
-        "directory": ".",
+        "directory": "tasks",
         "filename": "tasks.csv",
         "format": "csv",
         "idField": "id"
@@ -239,7 +239,7 @@
 
       "fileMapping": {
         "strategy": "collection",
-        "directory": ".",
+        "directory": "config",
         "filename": "config.json",
         "format": "json",
         "idField": "id"
@@ -294,7 +294,7 @@
 
       "fileMapping": {
         "strategy": "collection",
-        "directory": ".",
+        "directory": "incidents",
         "filename": "incidents.csv",
         "format": "csv",
         "idField": "id"
@@ -399,7 +399,7 @@
 
       "fileMapping": {
         "strategy": "collection",
-        "directory": ".",
+        "directory": "spreadsheets",
         "filename": "inventory.xlsx",
         "format": "xlsx",
         "idField": "id"
@@ -452,7 +452,7 @@
 
       "fileMapping": {
         "strategy": "collection",
-        "directory": ".",
+        "directory": "presentations",
         "filename": "deck.pptx",
         "format": "pptx",
         "idField": "id"
@@ -531,7 +531,7 @@
 
       "fileMapping": {
         "strategy": "collection",
-        "directory": ".",
+        "directory": "settings",
         "filename": "settings.yaml",
         "format": "yaml",
         "idField": "id"
