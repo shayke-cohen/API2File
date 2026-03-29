@@ -1117,7 +1117,7 @@
 
       "pull": {
         "method": "POST",
-        "url": "https://www.wixapis.com/social-groups-proxy/groups/v2/groups/query",
+        "url": "https://www.wixapis.com/social-groups/v2/groups/query",
         "body": {
           "paging": {
             "limit": 100
