@@ -1845,7 +1845,7 @@
 
       "fileMapping": {
         "strategy": "collection",
-        "directory": ".",
+        "directory": "collections",
         "filename": "collections.json",
         "format": "json",
         "idField": "id",
@@ -1909,7 +1909,7 @@
 
           "fileMapping": {
             "strategy": "collection",
-            "directory": "cms",
+            "directory": "items",
             "filename": "{displayName|slugify}.csv",
             "format": "csv",
             "idField": "id",
@@ -1980,7 +1980,7 @@
 
       "fileMapping": {
         "strategy": "collection",
-        "directory": "portfolio",
+        "directory": "portfolio-collections",
         "filename": "collections.csv",
         "format": "csv",
         "idField": "id",
@@ -2046,7 +2046,7 @@
 
       "fileMapping": {
         "strategy": "collection",
-        "directory": "portfolio",
+        "directory": "portfolio-projects",
         "filename": "projects.csv",
         "format": "csv",
         "idField": "id",
@@ -2112,7 +2112,7 @@
 
           "fileMapping": {
             "strategy": "one-per-record",
-            "directory": "portfolio/projects/{title|slugify}/items",
+            "directory": "portfolio-projects/projects/{title|slugify}/items",
             "filename": "{id}.json",
             "format": "json",
             "idField": "id",
