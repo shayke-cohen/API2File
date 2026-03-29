@@ -228,6 +228,24 @@ final class AppState: ObservableObject {
 
                 NSLog("AppState starting SyncEngine")
                 try await engine.start()
+
+                // Auto-apply any newer bundled adapter versions to installed services
+                // Scan the sync folder directly since services are populated asynchronously
+                let syncFolder = config.resolvedSyncFolder
+                var updatedCount = 0
+                if let items = try? FileManager.default.contentsOfDirectory(
+                    at: syncFolder, includingPropertiesForKeys: [.isDirectoryKey]) {
+                    for item in items {
+                        let adapterPath = item.appendingPathComponent(".api2file/adapter.json")
+                        guard FileManager.default.fileExists(atPath: adapterPath.path) else { continue }
+                        if (try? await AdapterStore.shared.refreshInstalledAdapterIfNeeded(serviceDir: item)) == true {
+                            updatedCount += 1
+                        }
+                    }
+                }
+                if updatedCount > 0 {
+                    NSLog("AppState auto-updated %d installed adapter(s)", updatedCount)
+                }
                 NSLog("AppState SyncEngine started")
 
                 // Start local REST server

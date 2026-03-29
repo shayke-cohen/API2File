@@ -1804,14 +1804,28 @@ public actor SyncEngine {
     // MARK: - Incremental Sync Helpers
 
     /// Determine if this resource needs a full sync or can do incremental.
-    /// Full sync if: never synced before, or enough intervals have passed since last full sync.
+    /// Full sync if: never synced before, or enough intervals have passed since last full sync,
+    /// or the resource has companion configs but no companion files yet (e.g. first sync after upgrade).
     private func shouldDoFullSync(serviceId: String, resource: ResourceConfig) -> Bool {
         let fullSyncEvery = resource.sync?.fullSyncEvery ?? 10
         let count = syncStates[serviceId]?.syncCounts[resource.name] ?? 0
         let hasLastSync = syncStates[serviceId]?.resourceSyncTimes[resource.name] != nil
 
         // Full sync if: never synced, or it's time for periodic full re-sync
-        return !hasLastSync || count >= fullSyncEvery
+        if !hasLastSync || count >= fullSyncEvery { return true }
+
+        // Full sync if resource has companion configs but no companion files exist yet
+        // (catches the first sync after companion support is added to an existing resource)
+        if let companionConfigs = resource.fileMapping.companionFiles, !companionConfigs.isEmpty {
+            let companionDirs = Set(companionConfigs.map(\.directory).filter { !$0.isEmpty && $0 != "." })
+            let files = syncStates[serviceId]?.files ?? [:]
+            let hasCompanionForResource = files.contains(where: { path, state in
+                state.isCompanion == true && (companionDirs.isEmpty || companionDirs.contains(where: { path.hasPrefix($0 + "/") }))
+            })
+            if !hasCompanionForResource { return true }
+        }
+
+        return false
     }
 
     // MARK: - Sync Optimizations

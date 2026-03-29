@@ -1,7 +1,7 @@
 {
   "service": "wix",
   "displayName": "Wix — Website & Business Platform",
-  "version": "3.0",
+  "version": "3.2",
   "icon": "globe",
   "wizardDescription": "Contacts, blog, products, orders, coupons, pricing plans, gift cards, events, restaurants, bookings, groups, media, portfolio",
   "siteUrl": "YOUR_SITE_URL_HERE",
@@ -104,9 +104,9 @@
         },
         "companionFiles": [
           {
-            "filename": "{firstName|lower}-{lastName|lower}.md",
+            "filename": "{first|lower}-{last|lower}.md",
             "directory": "contacts",
-            "template": "# {firstName} {lastName}\n\n**Email:** {primaryEmail}\n**Phone:** {primaryPhone}",
+            "template": "# {first} {last}\n\n**Email:** {primaryEmail}\n**Phone:** {primaryPhone}",
             "readOnly": true
           }
         ]
@@ -727,9 +727,9 @@
         },
         "companionFiles": [
           {
-            "filename": "{slug|default:{id}}.md",
+            "filename": "{slug}.md",
             "directory": "members",
-            "template": "# {firstName} {lastName}\n\n**Nickname:** {nickname}\n**Login:** {loginEmail}",
+            "template": "# {nickname}\n\n**Slug:** {slug}\n**Login:** {loginEmail}",
             "readOnly": true
           }
         ]
@@ -1212,7 +1212,7 @@
         },
         "companionFiles": [
           {
-            "filename": "{name|slugify|default:{id}}.md",
+            "filename": "{name|slugify}.md",
             "directory": "groups",
             "template": "# {name}\n\n**ID:** {id}",
             "readOnly": true
