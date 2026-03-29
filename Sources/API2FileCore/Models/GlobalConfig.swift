@@ -11,6 +11,7 @@ public struct GlobalConfig: Codable, Sendable {
     public var serverPort: Int
     public var launchAtLogin: Bool
     public var deleteFromAPI: Bool
+    public var enableSnapshots: Bool
 
     public init(
         syncFolder: String = "~/API2File-Data",
@@ -21,7 +22,8 @@ public struct GlobalConfig: Codable, Sendable {
         finderBadges: Bool = true,
         serverPort: Int = 21567,
         launchAtLogin: Bool = false,
-        deleteFromAPI: Bool = false
+        deleteFromAPI: Bool = false,
+        enableSnapshots: Bool = true
     ) {
         self.syncFolder = syncFolder
         self.gitAutoCommit = gitAutoCommit
@@ -32,6 +34,7 @@ public struct GlobalConfig: Codable, Sendable {
         self.serverPort = serverPort
         self.launchAtLogin = launchAtLogin
         self.deleteFromAPI = deleteFromAPI
+        self.enableSnapshots = enableSnapshots
     }
 
     /// Resolve the sync folder path, expanding ~ to home directory

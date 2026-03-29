@@ -226,6 +226,8 @@ struct GeneralPane: View {
                     .testId("general-show-notifications")
                 Toggle("Finder badges", isOn: $config.finderBadges)
                     .testId("general-finder-badges")
+                Toggle("Generate snapshots", isOn: $config.enableSnapshots)
+                    .testId("general-enable-snapshots")
                 LabeledContent("Server port") {
                     Stepper(value: $config.serverPort, in: 1024...65535) {
                         Text(String(config.serverPort))

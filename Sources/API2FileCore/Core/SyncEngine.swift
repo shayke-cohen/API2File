@@ -100,7 +100,8 @@ public actor SyncEngine {
                 guard !lastHash.isEmpty else { continue }
                 // Skip files in hidden directories (.api2file, .objects, etc.)
                 if filePath.hasPrefix(".") || filePath.contains("/.") { continue }
-                // Skip read-only resources
+                // Skip companion files and read-only resources
+                if fileState.isCompanion == true { continue }
                 if let resource = findResource(for: filePath, in: engine.config),
                    resource.fileMapping.effectivePushMode == .readOnly { continue }
                 let fileURL = serviceDir.appendingPathComponent(filePath)
@@ -493,10 +494,11 @@ public actor SyncEngine {
                 guard let resource = engine.config.resources.first(where: { $0.name == resourceName }) else { continue }
                 let isOnePerRecord = resource.fileMapping.strategy == .onePerRecord
                 let childNames = Set((resource.children ?? []).map(\.name))
-                guard isOnePerRecord || !childNames.isEmpty else { continue }
+                let hasCompanions = resource.fileMapping.companionFiles?.isEmpty == false
+                guard isOnePerRecord || !childNames.isEmpty || hasCompanions else { continue }
 
                 var staleFilePaths: [String] = []
-                for (filePath, _) in localState.files {
+                for (filePath, fileState) in localState.files {
                     if !newFilePaths.contains(filePath),
                        let matchedResource = findResource(for: filePath, in: engine.config) {
                         if isOnePerRecord,
@@ -504,6 +506,9 @@ public actor SyncEngine {
                            matchedResource.fileMapping.strategy == .onePerRecord {
                             staleFilePaths.append(filePath)
                         } else if childNames.contains(matchedResource.name) {
+                            staleFilePaths.append(filePath)
+                        } else if hasCompanions, fileState.isCompanion == true {
+                            // Companion file for a deleted record
                             staleFilePaths.append(filePath)
                         }
                     }
@@ -656,6 +661,22 @@ public actor SyncEngine {
 
             let filePath = serviceDir.appendingPathComponent(file.relativePath)
             try FileManager.default.createDirectory(at: filePath.deletingLastPathComponent(), withIntermediateDirectories: true)
+
+            // Companion files — write if changed, mark as companion in state, never push
+            if file.isCompanion {
+                if file.contentHash != localState.files[file.relativePath]?.lastSyncedHash {
+                    suppressPath(file.relativePath)
+                    try file.content.write(to: filePath, options: .atomic)
+                }
+                localState.files[file.relativePath] = FileSyncState(
+                    remoteId: file.remoteId ?? "",
+                    lastSyncedHash: file.contentHash,
+                    lastSyncTime: Date(),
+                    status: .synced,
+                    isCompanion: true
+                )
+                continue
+            }
 
             // Skip files with very recent local changes so the queued push runs first.
             if let lastSyncedHash = localState.files[file.relativePath]?.lastSyncedHash,
@@ -821,6 +842,9 @@ public actor SyncEngine {
 
         // Skip excluded files
         if syncStates[serviceId]?.files[filePath]?.excluded == true { return }
+
+        // Skip companion files — they are generated from templates and never pushed
+        if syncStates[serviceId]?.files[filePath]?.isCompanion == true { return }
 
         // Skip read-only resources
         if resource.fileMapping.effectivePushMode == .readOnly { return }
@@ -1023,6 +1047,9 @@ public actor SyncEngine {
                 Task { await self.performObjectPush(serviceId: serviceId, objectFilePath: filePath) }
                 continue
             }
+
+            // Skip companion files — they are generated from templates, not user-editable
+            if syncStates[serviceId]?.files[filePath]?.isCompanion == true { continue }
 
             if filePath.hasPrefix(".") || filePath.contains("/.") { continue } // hidden files
 
@@ -1961,6 +1988,8 @@ public actor SyncEngine {
 
     /// Write object file with raw API records for a pulled file.
     private func writeObjectFile(file: SyncableFile, pullResult: PullResult, serviceId: String, serviceDir: URL, engine: AdapterEngine) {
+        // Companion files have no object files — they are generated from templates
+        guard !file.isCompanion else { return }
         guard let rawRecords = pullResult.rawRecordsByFile[file.relativePath],
               let resource = findResource(for: file.relativePath, in: engine.config) else { return }
 
@@ -2137,6 +2166,17 @@ public actor SyncEngine {
         let targets = WixSiteSnapshotSupport.snapshotTargets(config: config, catalogRecord: catalogRecord)
         let previousManifest = WixSiteSnapshotSupport.loadManifest(from: serviceDir)
         let now = Date()
+
+        guard self.config.enableSnapshots else {
+            return previousManifest.map {
+                Array(
+                    Set(
+                        WixSiteSnapshotSupport.manifestFilePaths($0) +
+                        WixSiteSnapshotSupport.exposedManifestFilePaths($0)
+                    )
+                ).sorted()
+            } ?? []
+        }
 
         guard let snapshotService = platformServices.renderedPageSnapshotService else {
             return previousManifest.map {
