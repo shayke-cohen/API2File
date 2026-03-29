@@ -101,7 +101,15 @@
           "push": [
             { "op": "omit", "fields": ["_url", "createdDate", "updatedDate", "memberInfo", "picture", "primaryInfo"] }
           ]
-        }
+        },
+        "companionFiles": [
+          {
+            "filename": "{firstName|lower}-{lastName|lower}.md",
+            "directory": "contacts",
+            "template": "# {firstName} {lastName}\n\n**Email:** {primaryEmail}\n**Phone:** {primaryPhone}",
+            "readOnly": true
+          }
+        ]
       },
 
       "sync": {
@@ -254,7 +262,15 @@
           "push": [
             { "op": "omit", "fields": ["createdDate", "updatedDate", "compareAtPriceRange", "imageUrl", "inventoryStatus", "compareAtPrice"] }
           ]
-        }
+        },
+        "companionFiles": [
+          {
+            "filename": "{name|slugify}.md",
+            "directory": "products",
+            "template": "# {name}\n\n**Price:** {priceAmount}\n**SKU:** {sku}\n**In Stock:** {inventoryStatus}\n\n{description}\n\n![Product]({imageUrl})",
+            "readOnly": true
+          }
+        ]
       },
 
       "sync": {
@@ -367,7 +383,15 @@
             { "op": "rename", "from": "shippingCountry", "to": "shippingInfo.logistics.shippingDestination.address.country" },
             { "op": "omit", "fields": ["orderNumber", "status", "paymentStatus", "fulfillmentStatus", "totalAmount", "currency", "updatedDate"] }
           ]
-        }
+        },
+        "companionFiles": [
+          {
+            "filename": "{orderNumber}.md",
+            "directory": "orders",
+            "template": "# Order #{orderNumber}\n\n**Status:** {status}\n**Payment:** {paymentStatus}\n**Fulfillment:** {fulfillmentStatus}\n**Total:** {totalAmount} {currency}\n\n**Buyer:** {buyerEmail}\n\n**Ship to:** {recipientFirstName} {recipientLastName}\n{shippingAddressLine1}, {shippingCity}, {shippingCountry}",
+            "readOnly": true
+          }
+        ]
       },
 
       "sync": {
@@ -700,7 +724,15 @@
             { "op": "rename", "from": "slug", "to": "profile.slug" },
             { "op": "omit", "fields": ["contactId", "activityStatus", "privacyStatus", "status", "createdDate", "updatedDate", "lastLoginDate", "loginEmailVerified"] }
           ]
-        }
+        },
+        "companionFiles": [
+          {
+            "filename": "{slug|default:{id}}.md",
+            "directory": "members",
+            "template": "# {firstName} {lastName}\n\n**Nickname:** {nickname}\n**Login:** {loginEmail}",
+            "readOnly": true
+          }
+        ]
       },
 
       "sync": {
@@ -1046,14 +1078,22 @@
           "pull": [
             { "op": "rename", "from": "defaultCapacity", "to": "capacity" },
             { "op": "rename", "from": "onlineBooking.enabled", "to": "onlineBookingEnabled" },
-            { "op": "omit", "fields": ["onlineBooking", "staffMemberIds", "schedule", "payment", "form", "locations", "category", "media", "links", "sortOrder", "tagLine", "description", "bookingPolicy", "extendedFields", "revision", "appId", "createdByAppId", "createdDate", "updatedDate", "hidden", "mainSlug", "resourceGroups", "serviceResources", "staffMembers", "supportedSlugs", "tags", "urls", "addOnDetails", "addOnGroups", "conferencing", "taxableAddress"] }
+            { "op": "omit", "fields": ["onlineBooking", "staffMemberIds", "schedule", "payment", "form", "locations", "category", "media", "links", "sortOrder", "bookingPolicy", "extendedFields", "revision", "appId", "createdByAppId", "createdDate", "updatedDate", "hidden", "mainSlug", "resourceGroups", "serviceResources", "staffMembers", "supportedSlugs", "tags", "urls", "addOnDetails", "addOnGroups", "conferencing", "taxableAddress"] }
           ],
           "push": [
             { "op": "rename", "from": "capacity", "to": "defaultCapacity" },
             { "op": "rename", "from": "onlineBookingEnabled", "to": "onlineBooking.enabled" },
             { "op": "omit", "fields": ["id", "createdDate", "updatedDate"] }
           ]
-        }
+        },
+        "companionFiles": [
+          {
+            "filename": "{name|slugify}.md",
+            "directory": "bookings/services",
+            "template": "# {name}\n\n**Type:** {type}\n**Capacity:** {capacity}\n**Online Booking:** {onlineBookingEnabled}\n\n{tagLine}\n\n{description}",
+            "readOnly": true
+          }
+        ]
       },
 
       "sync": {
@@ -1102,7 +1142,15 @@
             { "op": "rename", "from": "contactDetails.email", "to": "guestEmail" },
             { "op": "omit", "fields": ["bookedEntity", "contactDetails", "paymentDetails", "additionalFields", "extendedFields"] }
           ]
-        }
+        },
+        "companionFiles": [
+          {
+            "filename": "{id}.md",
+            "directory": "bookings/appointments",
+            "template": "# {serviceName}\n\n**Guest:** {guestFirstName} {guestLastName}\n**Email:** {guestEmail}\n**Status:** {status}",
+            "readOnly": true
+          }
+        ]
       },
 
       "sync": {
@@ -1161,7 +1209,15 @@
             { "op": "set", "field": "createdBy.identityType", "value": "MEMBER" },
             { "op": "omit", "fields": ["id", "slug", "createdDate", "updatedDate", "memberCount", "membersCount", "welcomeMessage", "ownerId", "privacyLevel"] }
           ]
-        }
+        },
+        "companionFiles": [
+          {
+            "filename": "{name|slugify|default:{id}}.md",
+            "directory": "groups",
+            "template": "# {name}\n\n**ID:** {id}",
+            "readOnly": true
+          }
+        ]
       },
 
       "sync": {
@@ -1483,7 +1539,7 @@
             { "op": "rename", "from": "dateAndTimeSettings.startDate", "to": "startDate" },
             { "op": "rename", "from": "dateAndTimeSettings.endDate", "to": "endDate" },
             { "op": "rename", "from": "timeZone", "to": "timeZone" },
-            { "op": "omit", "fields": ["dateAndTimeSettings", "registration", "scheduling", "location", "form", "participants", "extendedFields", "createdDate", "updatedDate", "instanceId", "userId", "eventDisplaySettings", "contactLabel", "guestListSettings", "labellingSettings", "onlineConferencing", "publishedDate", "description", "detailedDescription", "eventPageUrl", "calendarUrls", "slug"] }
+            { "op": "omit", "fields": ["dateAndTimeSettings", "registration", "scheduling", "location", "form", "participants", "extendedFields", "createdDate", "updatedDate", "instanceId", "userId", "eventDisplaySettings", "contactLabel", "guestListSettings", "labellingSettings", "onlineConferencing", "publishedDate", "detailedDescription", "eventPageUrl", "calendarUrls", "slug"] }
           ],
           "push": [
             { "op": "rename", "from": "startDate", "to": "dateAndTimeSettings.startDate" },
@@ -1491,7 +1547,15 @@
             { "op": "rename", "from": "timeZone", "to": "timeZone" },
             { "op": "omit", "fields": ["createdDate", "updatedDate", "status", "instanceId", "userId", "eventDisplaySettings", "contactLabel", "guestListSettings", "labellingSettings", "onlineConferencing", "publishedDate", "description", "detailedDescription", "eventPageUrl", "calendarUrls", "slug"] }
           ]
-        }
+        },
+        "companionFiles": [
+          {
+            "filename": "{title|slugify}.md",
+            "directory": "events",
+            "template": "# {title}\n\n**Start:** {startDate}\n**End:** {endDate}\n**Timezone:** {timeZone}\n**Status:** {status}\n\n{description}",
+            "readOnly": true
+          }
+        ]
       },
 
       "sync": {
@@ -2009,8 +2073,9 @@
 
           "pull": {
             "method": "POST",
-            "url": "https://www.wixapis.com/portfolio/v1/projects/{id}/items/query",
+            "url": "https://www.wixapis.com/portfolio/v1/items/query",
             "body": {
+              "projectId": "{id}",
               "query": {
                 "paging": {
                   "limit": 100
@@ -2031,17 +2096,17 @@
           "push": {
             "create": {
               "method": "POST",
-              "url": "https://www.wixapis.com/portfolio/v1/projects/{id}/items",
+              "url": "https://www.wixapis.com/portfolio/v1/items",
               "bodyWrapper": "item"
             },
             "update": {
               "method": "PATCH",
-              "url": "https://www.wixapis.com/portfolio/v1/projects/{id}/items/{itemId}",
+              "url": "https://www.wixapis.com/portfolio/v1/items/{id}",
               "bodyWrapper": "item"
             },
             "delete": {
               "method": "DELETE",
-              "url": "https://www.wixapis.com/portfolio/v1/projects/{id}/items/{itemId}"
+              "url": "https://www.wixapis.com/portfolio/v1/items/{id}"
             }
           },
 

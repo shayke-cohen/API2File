@@ -5897,10 +5897,10 @@ final class WixLiveE2ETests: XCTestCase {
     }
 
     private func queryPortfolioProjectItems(projectId: String) async throws -> [[String: Any]] {
-        let body: [String: Any] = ["query": ["paging": ["limit": 100]]]
+        let body: [String: Any] = ["projectId": projectId, "query": ["paging": ["limit": 100]]]
         let result = try await wixAPI(
             method: .POST,
-            path: "/portfolio/v1/projects/\(projectId)/items/query",
+            path: "/portfolio/v1/items/query",
             body: body
         )
         return result["items"] as? [[String: Any]] ?? []
