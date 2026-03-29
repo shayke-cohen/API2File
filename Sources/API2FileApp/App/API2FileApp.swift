@@ -55,6 +55,16 @@ struct API2FileApp: App {
         }
         .defaultSize(width: 1280, height: 820)
         .windowResizability(.contentMinSize)
+        .commands {
+            CommandGroup(after: .appInfo) {
+                Divider()
+                Button("Settings...") {
+                    appState.showingSettings = true
+                    appState.openDashboardWindow()
+                }
+                .keyboardShortcut(",", modifiers: .command)
+            }
+        }
     }
 
     private static func activateExistingInstanceIfNeeded() -> Bool {
@@ -77,7 +87,7 @@ struct API2FileApp: App {
             return false
         }
 
-        guard let existingInstance else { return false }
+        guard existingInstance != nil else { return false }
 
         DistributedNotificationCenter.default().postNotificationName(
             AppState.activateDashboardNotification,
@@ -85,7 +95,6 @@ struct API2FileApp: App {
             userInfo: nil,
             deliverImmediately: true
         )
-        existingInstance.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
         return true
     }
 }
@@ -98,6 +107,7 @@ final class AppState: ObservableObject {
     /// Set when Finder extension requests "Open in API2File"; Dashboard observes and navigates.
     @Published var pendingOpenPath: (serviceId: String, relativePath: String?)?
     @Published var isPaused: Bool = false
+    @Published var showingSettings: Bool = false
     @Published var config: GlobalConfig = .init() {
         didSet {
             publishFinderBadgeSnapshot()
@@ -129,30 +139,14 @@ final class AppState: ObservableObject {
             }
         }
 
-        // Handle "Open in API2File" from Finder extension (posted by API2FileAppDelegate)
+        // Handle "Open in API2File" from Finder extension via Apple Event / URL scheme
         NotificationCenter.default.addObserver(
             forName: .api2fileOpenURL,
             object: nil,
             queue: .main
         ) { [weak self] notification in
             guard let self, let url = notification.object as? URL else { return }
-            self.handleOpenURL(url)
-        }
-
-        // Also keep distributed notification as fallback for older builds
-        DistributedNotificationCenter.default().addObserver(
-            forName: FinderBadgeSupport.openPathNotificationName,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                NSLog("AppState received openPath distributed notification (fallback)")
-                guard let target = FinderBadgeSupport.openPath() else { return }
-                FinderBadgeSupport.clearOpenPath()
-                self.pendingOpenPath = (serviceId: target.serviceId, relativePath: target.relativePath)
-                self.openDashboardWindow()
-            }
+            Task { @MainActor [weak self] in self?.handleOpenURL(url) }
         }
 
         if autoStart {
@@ -245,6 +239,15 @@ final class AppState: ObservableObject {
 
                 // Register the visible browser bridge for browser routes and debugging flows.
                 await server.setBrowserDelegate(self.webViewBridge)
+
+                // Wire "Open in API2File" from Finder — HTTP POST, no TCC triggers.
+                await server.setOpenAppCallback { [weak self] serviceId, relativePath in
+                    Task { @MainActor [weak self] in
+                        guard let self else { return }
+                        self.pendingOpenPath = (serviceId: serviceId, relativePath: relativePath)
+                        self.openDashboardWindow()
+                    }
+                }
 
                 // Write port discovery file for MCP binary
                 Self.writeServerInfo(port: config.serverPort)
@@ -400,6 +403,18 @@ final class AppState: ObservableObject {
             }
             await refreshServices()
         }
+    }
+
+    func updateInstalledAdapters() async -> Int {
+        let syncFolder = config.resolvedSyncFolder
+        var updated = 0
+        for service in services {
+            let serviceDir = syncFolder.appendingPathComponent(service.serviceId)
+            if (try? await AdapterStore.shared.refreshInstalledAdapterIfNeeded(serviceDir: serviceDir)) == true {
+                updated += 1
+            }
+        }
+        return updated
     }
 
     func refreshHistory(serviceId: String? = nil) async {
@@ -798,7 +813,12 @@ final class AppState: ObservableObject {
             return
         }
 
-        guard let defaults = FinderBadgeSupport.sharedDefaults() else { return }
+        // Route all plist writes to {syncRoot}/.api2file/finder-badges.plist instead of the
+        // app group container. containerURL(forSecurityApplicationGroupIdentifier:) triggers
+        // macOS TCC "access data from other apps" on every call. The sync folder is already
+        // accessible to both the main app and the extension (which monitors it), so no TCC.
+        FinderBadgeSupport.syncRootOverride = config.resolvedSyncFolder
+        let defaults: UserDefaults? = nil
 
         FinderBadgeSupport.setSyncRootURL(config.resolvedSyncFolder, in: defaults)
         if let bookmarkData = try? config.resolvedSyncFolder.bookmarkData(
@@ -830,13 +850,13 @@ final class AppState: ObservableObject {
                 FinderBadgeSupport.setBadgeState(serviceStatus, forRelativePath: service.serviceId, in: defaults)
             }
 
-            publishFileBadgeStates(for: service, defaults: defaults)
+            publishFileBadgeStates(for: service)
         }
 
         postFinderBadgeRefresh()
     }
 
-    private func publishFileBadgeStates(for service: ServiceInfo, defaults: UserDefaults) {
+    private func publishFileBadgeStates(for service: ServiceInfo) {
         let stateURL = config.resolvedSyncFolder
             .appendingPathComponent(service.serviceId, isDirectory: true)
             .appendingPathComponent(".api2file/state.json", isDirectory: false)
@@ -847,7 +867,7 @@ final class AppState: ObservableObject {
             let normalizedStatus = FinderBadgeSupport.normalizeStatus(fileState.status.rawValue)
             guard !normalizedStatus.isEmpty else { continue }
             let badgePath = "\(service.serviceId)/\(FinderBadgeSupport.normalizeRelativePath(relativePath))"
-            FinderBadgeSupport.setBadgeState(normalizedStatus, forRelativePath: badgePath, in: defaults)
+            FinderBadgeSupport.setBadgeState(normalizedStatus, forRelativePath: badgePath, in: nil)
         }
     }
 

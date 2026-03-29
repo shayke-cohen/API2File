@@ -26,7 +26,6 @@ struct DashboardRootView: View {
 private struct Dashboard3WorkspaceView: View {
     @ObservedObject var appState: AppState
     @State private var selectedTab: Dashboard3Tab = .fileExplorer
-    @State private var showingSettings = false
 
     private let background = LinearGradient(
         colors: [
@@ -62,14 +61,6 @@ private struct Dashboard3WorkspaceView: View {
                     .pickerStyle(.segmented)
                     .labelsHidden()
                     .frame(width: 420)
-
-                    Button {
-                        showingSettings = true
-                    } label: {
-                        Label("Settings", systemImage: "gearshape")
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
                 }
                 .padding(20)
                 .background(dashboardShellPanel(cornerRadius: 28))
@@ -100,13 +91,13 @@ private struct Dashboard3WorkspaceView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .sheet(isPresented: $showingSettings) {
+        .sheet(isPresented: $appState.showingSettings) {
             NavigationStack {
                 GeneralPane(config: $appState.config)
                     .navigationTitle("Settings")
                     .toolbar {
                         ToolbarItem(placement: .confirmationAction) {
-                            Button("Done") { showingSettings = false }
+                            Button("Done") { appState.showingSettings = false }
                         }
                     }
             }
