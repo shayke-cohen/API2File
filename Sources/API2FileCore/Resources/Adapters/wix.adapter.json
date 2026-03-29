@@ -87,7 +87,7 @@
 
       "fileMapping": {
         "strategy": "collection",
-        "directory": ".",
+        "directory": "contacts",
         "filename": "contacts.csv",
         "format": "csv",
         "idField": "id",
@@ -177,7 +177,7 @@
 
       "fileMapping": {
         "strategy": "one-per-record",
-        "directory": "blog",
+        "directory": "blog-posts",
         "filename": "{slug|slugify}.md",
         "format": "md",
         "formatOptions": {
@@ -247,7 +247,7 @@
 
       "fileMapping": {
         "strategy": "collection",
-        "directory": ".",
+        "directory": "products",
         "filename": "products.csv",
         "format": "csv",
         "idField": "id",
@@ -313,7 +313,7 @@
 
       "fileMapping": {
         "strategy": "collection",
-        "directory": ".",
+        "directory": "orders",
         "filename": "orders.csv",
         "format": "csv",
         "idField": "id",
@@ -420,7 +420,7 @@
 
       "fileMapping": {
         "strategy": "collection",
-        "directory": ".",
+        "directory": "coupons",
         "filename": "coupons.csv",
         "format": "csv",
         "idField": "id",
@@ -460,7 +460,7 @@
 
       "fileMapping": {
         "strategy": "collection",
-        "directory": ".",
+        "directory": "pricing-plans",
         "filename": "pricing-plans.csv",
         "format": "csv",
         "idField": "id",
@@ -497,7 +497,7 @@
 
       "fileMapping": {
         "strategy": "collection",
-        "directory": ".",
+        "directory": "gift-cards",
         "filename": "gift-cards.csv",
         "format": "csv",
         "idField": "id",
@@ -568,7 +568,7 @@
 
       "fileMapping": {
         "strategy": "collection",
-        "directory": ".",
+        "directory": "forms",
         "filename": "forms.csv",
         "format": "csv",
         "idField": "id",
@@ -704,7 +704,7 @@
 
       "fileMapping": {
         "strategy": "collection",
-        "directory": ".",
+        "directory": "members",
         "filename": "members.csv",
         "format": "csv",
         "idField": "id",
@@ -754,7 +754,7 @@
 
       "fileMapping": {
         "strategy": "collection",
-        "directory": ".",
+        "directory": "site-properties",
         "filename": "site-properties.json",
         "format": "json",
         "readOnly": true
@@ -778,7 +778,7 @@
 
       "fileMapping": {
         "strategy": "collection",
-        "directory": "site",
+        "directory": "site-urls",
         "filename": "site-urls.json",
         "format": "json",
         "readOnly": true
@@ -1069,7 +1069,7 @@
 
       "fileMapping": {
         "strategy": "collection",
-        "directory": "bookings",
+        "directory": "bookings-services",
         "filename": "services.csv",
         "format": "csv",
         "idField": "id",
@@ -1089,7 +1089,7 @@
         "companionFiles": [
           {
             "filename": "{name|slugify}.md",
-            "directory": "bookings/services",
+            "directory": "bookings-services",
             "template": "# {name}\n\n**Type:** {type}\n**Capacity:** {capacity}\n**Online Booking:** {onlineBookingEnabled}\n\n{tagLine}\n\n{description}",
             "readOnly": true
           }
@@ -1129,7 +1129,7 @@
 
       "fileMapping": {
         "strategy": "collection",
-        "directory": "bookings",
+        "directory": "bookings-appointments",
         "filename": "appointments.csv",
         "format": "csv",
         "idField": "id",
@@ -1146,7 +1146,7 @@
         "companionFiles": [
           {
             "filename": "{id}.md",
-            "directory": "bookings/appointments",
+            "directory": "bookings-appointments",
             "template": "# {serviceName}\n\n**Guest:** {guestFirstName} {guestLastName}\n**Email:** {guestEmail}\n**Status:** {status}",
             "readOnly": true
           }
@@ -1193,7 +1193,7 @@
 
       "fileMapping": {
         "strategy": "collection",
-        "directory": ".",
+        "directory": "groups",
         "filename": "groups.csv",
         "format": "csv",
         "idField": "id",
@@ -1359,7 +1359,7 @@
 
       "fileMapping": {
         "strategy": "collection",
-        "directory": "inbox",
+        "directory": "inbox-conversations",
         "filename": "conversations.csv",
         "format": "csv",
         "idField": "id",
@@ -1413,7 +1413,7 @@
           },
           "fileMapping": {
             "strategy": "collection",
-            "directory": "inbox/{contactName|slugify}",
+            "directory": "inbox-conversations/{contactName|slugify}",
             "filename": "messages.csv",
             "format": "csv",
             "idField": "id",
@@ -1477,7 +1477,7 @@
 
       "fileMapping": {
         "strategy": "collection",
-        "directory": ".",
+        "directory": "comments",
         "filename": "comments.csv",
         "format": "csv",
         "idField": "id",
@@ -1530,7 +1530,7 @@
 
       "fileMapping": {
         "strategy": "collection",
-        "directory": ".",
+        "directory": "events",
         "filename": "events.csv",
         "format": "csv",
         "idField": "id",
@@ -1583,7 +1583,7 @@
 
       "fileMapping": {
         "strategy": "collection",
-        "directory": "events",
+        "directory": "events-rsvps",
         "filename": "rsvps.csv",
         "format": "csv",
         "idField": "id",
@@ -1620,7 +1620,7 @@
 
       "fileMapping": {
         "strategy": "collection",
-        "directory": "events",
+        "directory": "events-tickets",
         "filename": "tickets.csv",
         "format": "csv",
         "idField": "id",
@@ -1679,7 +1679,7 @@
 
       "fileMapping": {
         "strategy": "collection",
-        "directory": "restaurant",
+        "directory": "restaurant-menus",
         "filename": "menus.csv",
         "format": "csv",
         "idField": "id",
@@ -1715,7 +1715,7 @@
 
       "fileMapping": {
         "strategy": "collection",
-        "directory": "restaurant",
+        "directory": "restaurant-reservations",
         "filename": "reservations.csv",
         "format": "csv",
         "idField": "id",
@@ -1747,7 +1747,7 @@
 
       "fileMapping": {
         "strategy": "collection",
-        "directory": "restaurant",
+        "directory": "restaurant-orders",
         "filename": "orders.csv",
         "format": "csv",
         "idField": "id",
@@ -1845,7 +1845,7 @@
 
       "fileMapping": {
         "strategy": "collection",
-        "directory": ".",
+        "directory": "collections",
         "filename": "collections.json",
         "format": "json",
         "idField": "id",
@@ -1909,7 +1909,7 @@
 
           "fileMapping": {
             "strategy": "collection",
-            "directory": "cms",
+            "directory": "items",
             "filename": "{displayName|slugify}.csv",
             "format": "csv",
             "idField": "id",
@@ -1980,7 +1980,7 @@
 
       "fileMapping": {
         "strategy": "collection",
-        "directory": "portfolio",
+        "directory": "portfolio-collections",
         "filename": "collections.csv",
         "format": "csv",
         "idField": "id",
@@ -2046,7 +2046,7 @@
 
       "fileMapping": {
         "strategy": "collection",
-        "directory": "portfolio",
+        "directory": "portfolio-projects",
         "filename": "projects.csv",
         "format": "csv",
         "idField": "id",
@@ -2112,7 +2112,7 @@
 
           "fileMapping": {
             "strategy": "one-per-record",
-            "directory": "portfolio/projects/{title|slugify}/items",
+            "directory": "portfolio-projects/projects/{title|slugify}/items",
             "filename": "{id}.json",
             "format": "json",
             "idField": "id",

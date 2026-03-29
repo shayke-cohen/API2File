@@ -44,7 +44,7 @@
 
       "fileMapping": {
         "strategy": "collection",
-        "directory": ".",
+        "directory": "repos",
         "filename": "repos.csv",
         "format": "csv",
         "idField": "id",
@@ -97,7 +97,7 @@
 
       "fileMapping": {
         "strategy": "collection",
-        "directory": ".",
+        "directory": "issues",
         "filename": "issues.csv",
         "format": "csv",
         "idField": "id",
@@ -185,7 +185,7 @@
 
       "fileMapping": {
         "strategy": "collection",
-        "directory": ".",
+        "directory": "notifications",
         "filename": "notifications.csv",
         "format": "csv",
         "idField": "id",
@@ -222,7 +222,7 @@
 
       "fileMapping": {
         "strategy": "collection",
-        "directory": ".",
+        "directory": "starred",
         "filename": "starred.csv",
         "format": "csv",
         "idField": "id",

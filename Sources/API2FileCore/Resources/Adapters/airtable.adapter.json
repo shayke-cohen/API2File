@@ -111,7 +111,7 @@
 
       "fileMapping": {
         "strategy": "collection",
-        "directory": ".",
+        "directory": "bases",
         "filename": "bases.json",
         "format": "json",
         "idField": "id",
