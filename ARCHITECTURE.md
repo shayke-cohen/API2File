@@ -210,6 +210,38 @@ Maps API records to filesystem paths based on the adapter's `fileMapping` config
 - `collection` — all records written to a single file (`tasks.csv`)
 - `mirror` — preserves remote directory structure
 
+### Companion Files
+
+Companion files are per-record Markdown sidecars generated alongside the primary collection or one-per-record file. They give native apps and AI agents a rich, human-readable view of each record without changing the push surface.
+
+**Config (`fileMapping.companionFiles`):**
+
+```json
+"companionFiles": [
+  {
+    "filename": "{name|slugify}.md",
+    "directory": "products",
+    "template": "# {name}\n\n**Price:** {priceAmount}\n\n{description}",
+    "readOnly": true
+  }
+]
+```
+
+Fields:
+
+- `filename` — template for the per-record filename; uses the same `{field|filter}` syntax as `TemplateEngine`
+- `directory` — subdirectory where companion files are written (e.g., `products/blue-widget.md` alongside `products.csv`)
+- `template` — Markdown body template; `{field}` placeholders are expanded from the record
+- `readOnly` — always `true`; companions are display-only projections
+
+**Runtime behaviour:**
+
+- `SyncableFile.isCompanion = true` and `FileSyncState.isCompanion = true` are set on every companion entry
+- Companions are written during pull but are **never enqueued for push** — all push-path guards in `SyncEngine` and `AdapterEngine` skip files where `isCompanion == true`
+- No canonical object file is created for companion files
+- Stale companion cleanup is scoped to each resource's declared companion directories, so a companion for a deleted record is removed only when it falls under a matching directory prefix
+- A resource forces a full sync when it has `companionFiles` configured but no companion entries exist in the current sync state, enabling automatic companion generation after an adapter upgrade
+
 ### ObjectFileManager
 
 **File:** `Sources/API2FileCore/Adapters/ObjectFileManager.swift`
@@ -268,6 +300,16 @@ Persists `.api2file/file-links.json`, which records the relationship between:
 - the resource name and remote ID
 
 This explicit link index lets the engine route edits on either surface back to the same canonical record safely.
+
+### AdapterStore
+
+**File:** `Sources/API2FileCore/AdapterStore.swift`
+
+Manages the user-editable adapter definitions in `~/.api2file/adapters/` and keeps installed service adapters up to date.
+
+- `seedIfNeeded()` — called on every launch; copies new bundled adapters into the user folder and overwrites existing ones when the bundled version is strictly newer (semver component comparison)
+- `refreshInstalledAdapterIfNeeded(serviceDir:)` — called by `SyncEngine` at service registration; rewrites `.api2file/adapter.json` in an installed service directory when the latest template (bundled or user-folder) is newer than the deployed copy, preserving user-supplied credential placeholders and setup-field values
+- Version comparison is purely numeric component-wise (e.g. `3.3` > `3.2`), with no external semver library
 
 ### PlatformServices and StorageLocations
 
@@ -413,7 +455,7 @@ adapter.json
 └── resources[] → What to sync
     ├── pull    → How to fetch (URL, method, JSONPath, pagination)
     ├── push    → How to create/update/delete (endpoints per operation)
-    ├── fileMapping → How to write files (strategy, format, transforms)
+    ├── fileMapping → How to write files (strategy, format, transforms, companionFiles)
     ├── capabilityClass → full_crud / partial_writable / read_only
     └── sync    → When to sync (interval, debounce)
 ```
@@ -509,7 +551,7 @@ Located at `Sources/API2FileCore/Resources/Adapters/`:
 | --- | --- | --- | --- |
 | `demo.adapter.json` | REST (localhost) | Bearer | 11 resources across all formats |
 | `monday.adapter.json` | GraphQL | Bearer | boards with items → CSV |
-| `wix.adapter.json` | REST (POST queries + media pulls) | API key + Site ID header | contacts, blog, products, media assets, bookings, groups, comments, collections |
+| `wix.adapter.json` v3.3 | REST (POST queries + media pulls) | API key + Site ID header | contacts, blog, products, orders, members, bookings (services + appointments), groups, events, media, collections; 8 resources have companion file configs |
 | `github.adapter.json` | REST | Bearer (PAT) | repos, issues, gists, notifications, starred |
 | `airtable.adapter.json` | REST | Bearer (PAT) | records, bases |
 | 6 demo adapters | REST (localhost) | Bearer | teamboard, peoplehub, calsync, pagecraft, devops, mediamanager |

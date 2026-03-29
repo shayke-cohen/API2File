@@ -34,6 +34,7 @@ AI agents should prefer the canonical structured files for high-fidelity edits a
 - Bundled adapter configs ship with the app; users can create custom ones
 - Each service config lives at `~/API2File-Data/{service}/.api2file/adapter.json` by default
 - Multiple installed services may reuse the same adapter template while keeping separate instance IDs, folders, and credentials
+- On startup, `AdapterStore` automatically overwrites the installed service `adapter.json` when the bundled (or user-folder) adapter version is strictly newer, preserving all user-supplied credentials and setup-field values
 
 ### FR-2: Bidirectional Sync
 
@@ -95,6 +96,17 @@ All format converters are bidirectional — they encode records to files and dec
 | `one-per-record` | Each API record → its own file. Filename from template: `{name\|slugify}.json` |
 | `collection` | All records → single file. E.g., all tasks in `tasks.csv` |
 | `mirror` | Preserve remote directory structure exactly |
+
+### FR-4A: Companion Files
+
+A resource may declare `fileMapping.companionFiles` — an array of per-record Markdown sidecars written alongside the primary collection or one-per-record file.
+
+- Each companion config has `filename` (template), `directory`, `template` (Markdown body), and `readOnly: true`
+- Filenames and template bodies are expanded per-record using the `{field|filter}` TemplateEngine syntax (same filters as `fileMapping.filename`)
+- Example: `products.csv` + `products/blue-widget.md`
+- `isCompanion: true` is stored on both `SyncableFile` and `FileSyncState` — companions are **never pushed to the API**
+- When a resource has companion configs but no companion entries yet exist in state (e.g. after an adapter upgrade), the engine forces a full sync to generate them
+- Stale companions for deleted records are cleaned up, scoped to each resource's declared companion directories
 
 ### FR-5: Data Transforms
 
@@ -176,7 +188,7 @@ Five bundled adapter configs for real external services:
 | Service | Auth | Resources | Formats |
 | --- | --- | --- | --- |
 | Monday.com | Bearer token (GraphQL) | boards with items | CSV |
-| Wix | API key + Site ID header | contacts, products, blog posts, bookings, collections | CSV, Markdown, JSON |
+| Wix (v3.3) | API key + Site ID header | contacts, products, orders, members, blog posts, bookings (services + appointments), groups, events, collections | CSV, Markdown, JSON; 8 resources generate per-record companion Markdown files |
 | GitHub | Bearer token (PAT) | repos, issues, gists, notifications, starred | CSV, JSON |
 | Airtable | Bearer token (PAT) | records, bases | JSON |
 
@@ -293,7 +305,15 @@ Canonical object files live alongside user-facing files and store the structured
         "transforms": {
           "pull": [{ "op": "pick | omit | rename | flatten | keyBy", "...": "..." }],
           "push": [{ "op": "...", "...": "..." }]
-        }
+        },
+        "companionFiles": [
+          {
+            "filename": "string (template, e.g. \"{name|slugify}.md\")",
+            "directory": "string (e.g. \"products\")",
+            "template": "string (Markdown body with {field} placeholders)",
+            "readOnly": true
+          }
+        ]
       },
       "sync": {
         "interval": "number (seconds)",
