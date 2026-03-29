@@ -1,6 +1,156 @@
 # API2File
 
-Native Apple-platform app that bidirectionally syncs cloud API data to local files. Like Dropbox but for APIs -- edit a CSV in Numbers and it pushes to Monday.com; change data on Wix and it appears as local files. Config-driven adapters mean no code is needed to add new cloud services.
+> **Dropbox for APIs** — your cloud data lives as local files. Edit a CSV in Numbers, it pushes to Monday.com. New contact in Wix, it appears as a `.vcf`. No code required to add new services.
+
+---
+
+## TL;DR
+
+| What | How |
+| ---- | --- |
+| **Sync cloud data locally** | Pull from any REST/GraphQL API → files in `~/API2File-Data/` |
+| **Push edits back** | Edit CSV/MD/VCF/ICS locally → changes flow to the cloud |
+| **15 file formats** | CSV, JSON, Markdown, HTML, ICS, VCF, XLSX, DOCX, PPTX, SVG, EML, YAML, WEBLOC, Text, Raw |
+| **12 bundled adapters** | Monday.com, Wix, GitHub, Airtable, + 7 demo-themed adapters |
+| **No-code configuration** | Drop an `.adapter.json` file — engine picks it up automatically |
+| **Always-on macOS app** | Menu bar icon, dashboard (File Explorer + Data Explorer + Activity) |
+| **iOS app** | Browse, preview, edit, and share synced files from iPhone/iPad |
+| **AI-native** | SQLite mirror, MCP tools, auto-generated `CLAUDE.md` per service |
+| **Git history** | Every sync cycle auto-committed with descriptive messages |
+
+**Get started in 4 commands:**
+
+```bash
+swift run api2file init       # ~/API2File-Data/ created
+swift run api2file add demo   # configure demo adapter
+swift run api2file sync demo  # pull cloud data → local files
+swift run API2FileApp         # menu bar app
+```
+
+---
+
+## System Overview
+
+```mermaid
+graph TB
+    subgraph Cloud["☁️  Cloud APIs"]
+        M[Monday.com<br/>GraphQL]
+        W[Wix<br/>REST]
+        G[GitHub<br/>REST]
+        A[Airtable<br/>REST]
+        D[Demo Server<br/>localhost:8089]
+    end
+
+    subgraph Core["🔧  API2FileCore (Swift)"]
+        AE[AdapterEngine]
+        TP[TransformPipeline]
+        CD[CollectionDiffer]
+        FC[FormatConverters ×15]
+        SE[SyncEngine]
+        GM[GitManager]
+        DB[(SQLite Mirror)]
+    end
+
+    subgraph Files["📁  ~/API2File-Data/"]
+        CSV[contacts.csv]
+        MD[post.md]
+        VCF[alice.vcf]
+        ICS[standup.ics]
+        OBJ[.objects.json<br/>canonical]
+    end
+
+    subgraph Apps["🖥️  Apps"]
+        MB[macOS Menu Bar App]
+        iOS[iOS App]
+        CLI[CLI api2file]
+        MCP[MCP Server]
+        WEB[Web Dashboard<br/>localhost:8089]
+    end
+
+    Cloud -->|pull| AE
+    AE --> TP --> FC --> Files
+    Files -->|push| TP --> AE --> Cloud
+    AE --> CD
+    AE --> DB
+    SE --> GM
+    Files --> DB
+
+    Apps --> SE
+    MCP -->|SQL / file lookup| DB
+    WEB --> MB
+```
+
+---
+
+## Bidirectional Sync Flow
+
+```mermaid
+sequenceDiagram
+    participant User as 👤 User (Finder/Numbers)
+    participant FW as FileWatcher
+    participant SE as SyncEngine
+    participant CD as CollectionDiffer
+    participant TP as TransformPipeline
+    participant API as ☁️ Cloud API
+    participant Git as Git
+
+    Note over SE,API: Pull cycle (scheduled / on-demand)
+    SE->>API: GET /contacts (with updatedSince)
+    API-->>SE: JSON records
+    SE->>TP: transform JSON → VCF/CSV/MD
+    TP-->>SE: local file bytes
+    SE->>CD: diff canonical vs new records
+    CD-->>SE: added / changed / deleted
+    SE->>User: write files to ~/API2File-Data/
+    SE->>Git: auto-commit "sync: pulled N contacts"
+
+    Note over User,SE: Push cycle (file edit detected)
+    User->>FW: edit contacts.csv in Numbers
+    FW->>SE: file changed event (debounced 500ms)
+    SE->>TP: parse CSV → canonical JSON delta
+    TP-->>SE: changed records
+    SE->>CD: diff against last known remote state
+    CD-->>SE: create / update / delete ops
+    SE->>API: POST/PUT/DELETE per op
+    API-->>SE: 200 OK
+    SE->>Git: auto-commit "sync: pushed 1 contact update"
+```
+
+---
+
+## Adapter Pipeline
+
+```mermaid
+flowchart LR
+    AJ[.adapter.json<br/>config] -->|loaded at startup| AE
+
+    subgraph AE["AdapterEngine"]
+        direction TB
+        AUTH[Auth Handler<br/>Bearer / ApiKey / Basic / OAuth2]
+        HTTP[HTTP / GraphQL Client]
+        PAG[Paginator<br/>page · offset · cursor · body]
+        DP[JSONPath extractor<br/>dataPath]
+    end
+
+    AE -->|raw records| TP
+
+    subgraph TP["TransformPipeline"]
+        direction TB
+        FLD[Field transforms<br/>rename · filter · derive]
+        FMT[FormatConverter<br/>CSV · MD · ICS · VCF · XLSX…]
+        OBJ2[Canonical .json writer]
+    end
+
+    TP -->|files| DISK[(~/API2File-Data/)]
+    TP -->|rows| SQL[(SQLite Mirror)]
+
+    DISK -->|edit detected| PUSH[Push path<br/>parse → diff → API calls]
+    PUSH --> AE
+```
+
+---
+
+Native Apple-platform app that bidirectionally syncs cloud API data to local files. Config-driven adapters mean no code is needed to add new cloud services.
 
 Pure Swift core with native macOS and iOS apps.
 
