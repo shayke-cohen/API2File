@@ -1,7 +1,7 @@
 {
   "service": "wix",
   "displayName": "Wix — Website & Business Platform",
-  "version": "3.2",
+  "version": "3.3",
   "icon": "globe",
   "wizardDescription": "Contacts, blog, products, orders, coupons, pricing plans, gift cards, events, restaurants, bookings, groups, media, portfolio",
   "siteUrl": "YOUR_SITE_URL_HERE",
@@ -106,7 +106,7 @@
           {
             "filename": "{first|lower}-{last|lower}.md",
             "directory": "contacts",
-            "template": "# {first} {last}\n\n**Email:** {primaryEmail}\n**Phone:** {primaryPhone}",
+            "template": "# {first} {last}\n\n**Email:** {primaryEmail.email}\n**Phone:** {primaryPhone}",
             "readOnly": true
           }
         ]
