@@ -175,6 +175,7 @@ final class RealAdapterConfigTests: XCTestCase {
             "bookings-services",
             "bookings-appointments",
             "groups",
+            "inbox-conversations",
             "comments",
             "events",
             "events-rsvps",
@@ -184,6 +185,8 @@ final class RealAdapterConfigTests: XCTestCase {
             "restaurant-orders",
             "bookings",
             "collections",
+            "portfolio-collections",
+            "portfolio-projects",
         ]
         XCTAssertEqual(
             config.resources.map(\.name),
@@ -211,6 +214,7 @@ final class RealAdapterConfigTests: XCTestCase {
             "bookings-services": .partialWritable,
             "bookings-appointments": .readOnly,
             "groups": .partialWritable,
+            "inbox-conversations": .readOnly,
             "comments": .readOnly,
             "events": .partialWritable,
             "events-rsvps": .readOnly,
@@ -220,6 +224,8 @@ final class RealAdapterConfigTests: XCTestCase {
             "restaurant-orders": .readOnly,
             "bookings": .partialWritable,
             "collections": .readOnly,
+            "portfolio-collections": .fullCRUD,
+            "portfolio-projects": .fullCRUD,
         ]
         for resource in config.resources {
             XCTAssertEqual(
@@ -284,6 +290,23 @@ final class RealAdapterConfigTests: XCTestCase {
         XCTAssertEqual(items.push?.update?.bodyType, "wix-cms-item-update")
         XCTAssertNil(items.push?.create?.bodyWrapper)
         XCTAssertNil(items.push?.update?.bodyWrapper)
+
+        let portfolioProjects = try XCTUnwrap(config.resources.first(where: { $0.name == "portfolio-projects" }))
+        XCTAssertEqual(portfolioProjects.capabilityClass, .fullCRUD)
+        XCTAssertEqual(portfolioProjects.fileMapping.format, .csv)
+        XCTAssertEqual(portfolioProjects.children?.count, 1)
+
+        let projectItems = try XCTUnwrap(portfolioProjects.children?.first)
+        XCTAssertEqual(projectItems.name, "portfolio-project-items")
+        XCTAssertEqual(projectItems.capabilityClass, .fullCRUD)
+        XCTAssertEqual(projectItems.fileMapping.format, .json)
+        XCTAssertEqual(projectItems.fileMapping.strategy, .onePerRecord)
+        XCTAssertEqual(projectItems.pull?.url, "https://www.wixapis.com/portfolio/v1/projects/{id}/items/query")
+        XCTAssertEqual(projectItems.push?.create?.url, "https://www.wixapis.com/portfolio/v1/projects/{id}/items")
+        XCTAssertEqual(projectItems.push?.update?.url, "https://www.wixapis.com/portfolio/v1/projects/{id}/items/{itemId}")
+        XCTAssertEqual(projectItems.push?.delete?.url, "https://www.wixapis.com/portfolio/v1/projects/{id}/items/{itemId}")
+        XCTAssertEqual(projectItems.push?.create?.bodyWrapper, "item")
+        XCTAssertEqual(projectItems.push?.update?.bodyWrapper, "item")
     }
 
     func testWixAdapterAddsHumanFriendlyOrdersFormsMembersAndSiteProperties() throws {
