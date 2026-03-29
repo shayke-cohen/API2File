@@ -109,7 +109,7 @@ struct PreferencesView: View {
     private var detailView: some View {
         switch selection {
         case .general:
-            GeneralPane(config: $appState.config)
+            GeneralPane(config: $appState.config, appState: appState)
         case .data:
             SQLExplorerPane(appState: appState, initialServiceId: nil)
         case .service(let id):
@@ -138,7 +138,11 @@ struct PreferencesView: View {
 
 struct GeneralPane: View {
     @Binding var config: GlobalConfig
-    @State private var hasPendingAdapterUpdates = false
+
+    @State private var isUpdatingAdapters = false
+    @State private var adapterUpdateResult: String? = nil
+
+    var appState: AppState? = nil
 
     var body: some View {
         Form {
@@ -169,18 +173,32 @@ struct GeneralPane: View {
                     HStack(spacing: 6) {
                         Text("~/.api2file/adapters")
                             .foregroundStyle(.secondary)
-                        if hasPendingAdapterUpdates {
-                            Circle()
-                                .fill(.yellow)
-                                .frame(width: 7, height: 7)
-                                .help("Adapter updates available")
-                                .testId("general-adapters-update-badge")
+
+                        if let result = adapterUpdateResult {
+                            Text(result)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .testId("general-adapters-update-result")
                         }
                         Button("Reveal") {
                             NSWorkspace.shared.open(AdapterStore.userAdaptersURL)
                         }
                         .controlSize(.small)
                         .testId("general-adapters-reveal")
+                        if let appState {
+                            Button(isUpdatingAdapters ? "Updating…" : "Update") {
+                                Task {
+                                    isUpdatingAdapters = true
+                                    adapterUpdateResult = nil
+                                    let count = await appState.updateInstalledAdapters()
+                                    isUpdatingAdapters = false
+                                    adapterUpdateResult = count > 0 ? "Updated \(count)" : "Up to date"
+                                }
+                            }
+                            .controlSize(.small)
+                            .disabled(isUpdatingAdapters)
+                            .testId("general-adapters-update")
+                        }
                     }
                 }
             } header: {
@@ -221,9 +239,6 @@ struct GeneralPane: View {
             }
         }
         .formStyle(.grouped)
-        .task {
-            hasPendingAdapterUpdates = await AdapterStore.shared.hasPendingUpdates()
-        }
     }
 
     private func chooseSyncFolder() {

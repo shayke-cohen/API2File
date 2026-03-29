@@ -4,8 +4,7 @@ import Foundation
 ///
 /// On first launch, all bundled adapters are seeded there. On subsequent launches,
 /// only new adapters are added — existing user files are never overwritten. If a
-/// bundled adapter ships a newer version, it lands as `{id}.adapter_new.json` so
-/// the user can review the diff and decide what to keep.
+/// bundled adapter ships a newer version, the user's copy is automatically overwritten.
 public actor AdapterStore {
 
     public static let shared = AdapterStore()
@@ -44,7 +43,7 @@ public actor AdapterStore {
                 // New adapter — copy it to user folder
                 try bundledData.write(to: userFileURL)
             } else {
-                // Already exists — check if bundled version is newer
+                // Already exists — overwrite if bundled version is newer
                 guard
                     let userData = try? Data(contentsOf: userFileURL),
                     let bundledConfig = try? decoder.decode(AdapterConfig.self, from: bundledData),
@@ -52,10 +51,7 @@ public actor AdapterStore {
                     isNewer(bundledConfig.version, than: userConfig.version)
                 else { continue }
 
-                // Write update hint alongside the user's file
-                let stem = filename.replacingOccurrences(of: ".adapter.json", with: "")
-                let newURL = dir.appendingPathComponent("\(stem).adapter_new.json")
-                try? bundledData.write(to: newURL)
+                try bundledData.write(to: userFileURL)
             }
         }
     }
@@ -63,7 +59,7 @@ public actor AdapterStore {
     // MARK: - Loading
 
     /// Returns all visible adapter templates from the user folder.
-    /// Files named `*.adapter_new.json` and adapters with `hidden: true` are excluded.
+    /// Adapters with `hidden: true` are excluded.
     public func loadAll() throws -> [AdapterTemplate] {
         let fm = FileManager.default
         let dir = storageLocations.adaptersDirectory
@@ -72,10 +68,7 @@ public actor AdapterStore {
 
         let contents = try fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)
         let adapterFiles = contents
-            .filter {
-                $0.lastPathComponent.hasSuffix(".adapter.json") &&
-                !$0.lastPathComponent.hasSuffix(".adapter_new.json")
-            }
+            .filter { $0.lastPathComponent.hasSuffix(".adapter.json") }
             .sorted { $0.lastPathComponent < $1.lastPathComponent }
 
         let decoder = JSONDecoder()
@@ -96,15 +89,6 @@ public actor AdapterStore {
     }
 
     // MARK: - Updates
-
-    /// Returns true if any `*.adapter_new.json` files exist in the user folder.
-    public func hasPendingUpdates() -> Bool {
-        guard let contents = try? FileManager.default.contentsOfDirectory(
-            at: storageLocations.adaptersDirectory,
-            includingPropertiesForKeys: nil
-        ) else { return false }
-        return contents.contains { $0.lastPathComponent.hasSuffix(".adapter_new.json") }
-    }
 
     /// Refresh an installed service adapter from the newest available template when the
     /// bundled or user template version is newer than the deployed copy.
