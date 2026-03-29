@@ -1,9 +1,9 @@
 {
   "service": "wix",
   "displayName": "Wix — Website & Business Platform",
-  "version": "2.8",
+  "version": "3.0",
   "icon": "globe",
-  "wizardDescription": "Contacts, blog, products, orders, coupons, pricing plans, gift cards, events, restaurants, bookings, groups, media",
+  "wizardDescription": "Contacts, blog, products, orders, coupons, pricing plans, gift cards, events, restaurants, bookings, groups, media, portfolio",
   "siteUrl": "YOUR_SITE_URL_HERE",
   "dashboardUrl": "https://www.wix.com/dashboard/YOUR_SITE_ID_HERE/home/",
   "setupFields": [
@@ -1166,7 +1166,221 @@
 
       "sync": {
         "interval": 300
-      }
+      },
+
+      "children": [
+        {
+          "name": "group-members",
+          "description": "Members of this Wix Group",
+          "capabilityClass": "partial_writable",
+          "pull": {
+            "method": "POST",
+            "url": "https://www.wixapis.com/social-groups/v2/groups/{id}/members/query",
+            "body": { "paging": { "limit": 100 } },
+            "dataPath": "$.members"
+          },
+          "pagination": {
+            "type": "body",
+            "pageSize": 100,
+            "limitField": "paging.limit",
+            "cursorField": "paging.cursor",
+            "nextCursorPath": "$.pagingMetadata.cursors.next"
+          },
+          "push": {
+            "create": {
+              "method": "POST",
+              "url": "https://www.wixapis.com/social-groups/v2/groups/{groupId}/members",
+              "bodyWrapper": "memberIds"
+            },
+            "delete": {
+              "method": "DELETE",
+              "url": "https://www.wixapis.com/social-groups/v2/groups/{groupId}/members"
+            }
+          },
+          "fileMapping": {
+            "strategy": "collection",
+            "directory": "groups/{name|slugify}",
+            "filename": "members.csv",
+            "format": "csv",
+            "idField": "memberId",
+            "pushMode": "custom",
+            "transforms": {
+              "pull": [
+                { "op": "rename", "from": "role.value", "to": "role" },
+                { "op": "omit", "fields": ["connectionStatus"] }
+              ],
+              "push": [
+                { "op": "pick", "fields": ["memberId", "groupId"] }
+              ]
+            }
+          },
+          "sync": { "interval": 300 }
+        },
+        {
+          "name": "group-posts",
+          "description": "Posts in this Wix Group as Markdown files",
+          "capabilityClass": "full_crud",
+          "pull": {
+            "method": "POST",
+            "url": "https://www.wixapis.com/social-groups/v2/groups/{id}/posts/query",
+            "body": { "paging": { "limit": 50 } },
+            "dataPath": "$.posts"
+          },
+          "pagination": {
+            "type": "body",
+            "pageSize": 50,
+            "limitField": "paging.limit",
+            "cursorField": "paging.cursor",
+            "nextCursorPath": "$.pagingMetadata.cursors.next"
+          },
+          "push": {
+            "create": {
+              "method": "POST",
+              "url": "https://www.wixapis.com/social-groups/v2/groups/{groupId}/posts",
+              "bodyWrapper": "post"
+            },
+            "update": {
+              "method": "PATCH",
+              "url": "https://www.wixapis.com/social-groups/v2/groups/{groupId}/posts/{id}",
+              "bodyWrapper": "post"
+            },
+            "delete": {
+              "method": "DELETE",
+              "url": "https://www.wixapis.com/social-groups/v2/groups/{groupId}/posts/{id}"
+            }
+          },
+          "fileMapping": {
+            "strategy": "one-per-record",
+            "directory": "groups/{name|slugify}/posts",
+            "filename": "{createdDate|date}-{title|slugify}.md",
+            "format": "md",
+            "formatOptions": {
+              "fieldMapping": {
+                "richContent": "richContent"
+              }
+            },
+            "idField": "id",
+            "contentField": "contentText",
+            "transforms": {
+              "pull": [
+                { "op": "rename", "from": "createdBy.memberId", "to": "authorId" },
+                { "op": "omit", "fields": [
+                  "createdBy", "updatedDate", "reactionsSummary",
+                  "commentsInfo", "contentId", "media"
+                ]}
+              ],
+              "push": [
+                { "op": "pick", "fields": [
+                  "groupId", "title", "contentText", "richContent", "isPinned"
+                ]}
+              ]
+            }
+          },
+          "sync": { "interval": 120, "debounceMs": 1000 }
+        }
+      ]
+    },
+    {
+      "name": "inbox-conversations",
+      "description": "Wix Inbox conversations as a CSV index",
+      "capabilityClass": "read_only",
+      "dashboardUrl": "https://www.wix.com/dashboard/YOUR_SITE_ID_HERE/inbox",
+
+      "pull": {
+        "method": "POST",
+        "url": "https://www.wixapis.com/inbox/v2/conversations/query",
+        "body": { "paging": { "limit": 100 } },
+        "dataPath": "$.conversations"
+      },
+
+      "pagination": {
+        "type": "body",
+        "pageSize": 100,
+        "limitField": "paging.limit",
+        "cursorField": "paging.cursor",
+        "nextCursorPath": "$.pagingMetadata.cursors.next"
+      },
+
+      "fileMapping": {
+        "strategy": "collection",
+        "directory": "inbox",
+        "filename": "conversations.csv",
+        "format": "csv",
+        "idField": "id",
+        "transforms": {
+          "pull": [
+            { "op": "rename", "from": "participant.contactId", "to": "contactId" },
+            { "op": "rename", "from": "participant.name", "to": "contactName" },
+            { "op": "rename", "from": "lastMessage.plainText", "to": "lastMessage" },
+            { "op": "rename", "from": "lastMessage.createdDate", "to": "lastMessageDate" },
+            { "op": "omit", "fields": [
+              "participant", "channel", "businessChannel",
+              "unreadCount", "createdDate"
+            ]}
+          ]
+        }
+      },
+
+      "sync": { "interval": 120 },
+
+      "children": [
+        {
+          "name": "inbox-messages",
+          "description": "Messages in this Wix Inbox conversation",
+          "capabilityClass": "partial_writable",
+          "pull": {
+            "method": "POST",
+            "url": "https://www.wixapis.com/inbox/v2/messages/query",
+            "body": {
+              "filter": { "conversationId": { "$eq": "{id}" } },
+              "paging": { "limit": 100 }
+            },
+            "dataPath": "$.messages"
+          },
+          "pagination": {
+            "type": "body",
+            "pageSize": 100,
+            "limitField": "paging.limit",
+            "cursorField": "paging.cursor",
+            "nextCursorPath": "$.pagingMetadata.cursors.next"
+          },
+          "push": {
+            "create": {
+              "method": "POST",
+              "url": "https://www.wixapis.com/inbox/v2/messages",
+              "bodyWrapper": "message"
+            },
+            "update": {
+              "method": "POST",
+              "url": "https://www.wixapis.com/inbox/v2/conversations/{conversationId}/markAsRead"
+            }
+          },
+          "fileMapping": {
+            "strategy": "collection",
+            "directory": "inbox/{contactName|slugify}",
+            "filename": "messages.csv",
+            "format": "csv",
+            "idField": "id",
+            "pushMode": "custom",
+            "transforms": {
+              "pull": [
+                { "op": "rename", "from": "content.plainText", "to": "content" },
+                { "op": "rename", "from": "sender.contactId", "to": "senderId" },
+                { "op": "rename", "from": "sender.appId", "to": "senderApp" },
+                { "op": "omit", "fields": [
+                  "sender", "content", "visibility", "updatedDate"
+                ]}
+              ],
+              "push": [
+                { "op": "pick", "fields": ["conversationId", "content", "seen"] },
+                { "op": "set", "field": "content.plainText", "value": "{content}" },
+                { "op": "set", "field": "content.type", "value": "BASIC" }
+              ]
+            }
+          },
+          "sync": { "interval": 60 }
+        }
+      ]
     },
     {
       "name": "comments",
@@ -1654,6 +1868,205 @@
         "interval": 300,
         "debounceMs": 500
       }
+    },
+
+    {
+      "name": "portfolio-collections",
+      "description": "Wix Portfolio collections as a CSV spreadsheet",
+      "capabilityClass": "full_crud",
+      "dashboardUrl": "https://www.wix.com/dashboard/YOUR_SITE_ID_HERE/portfolio",
+
+      "pull": {
+        "method": "POST",
+        "url": "https://www.wixapis.com/portfolio/v1/collections/query",
+        "body": {
+          "query": {
+            "paging": {
+              "limit": 100
+            }
+          }
+        },
+        "dataPath": "$.collections"
+      },
+
+      "pagination": {
+        "type": "body",
+        "pageSize": 100,
+        "limitField": "query.paging.limit",
+        "cursorField": "query.paging.cursor",
+        "nextCursorPath": "$.pagingMetadata.cursors.next"
+      },
+
+      "push": {
+        "create": {
+          "method": "POST",
+          "url": "https://www.wixapis.com/portfolio/v1/collections",
+          "bodyWrapper": "collection"
+        },
+        "update": {
+          "method": "PATCH",
+          "url": "https://www.wixapis.com/portfolio/v1/collections/{id}",
+          "bodyWrapper": "collection"
+        },
+        "delete": {
+          "method": "DELETE",
+          "url": "https://www.wixapis.com/portfolio/v1/collections/{id}"
+        }
+      },
+
+      "fileMapping": {
+        "strategy": "collection",
+        "directory": "portfolio",
+        "filename": "collections.csv",
+        "format": "csv",
+        "idField": "id",
+        "transforms": {
+          "pull": [
+            { "op": "omit", "fields": ["createdDate", "updatedDate"] }
+          ],
+          "push": [
+            { "op": "omit", "fields": ["slug", "sortOrder", "createdDate", "updatedDate"] }
+          ]
+        }
+      },
+
+      "sync": {
+        "interval": 120,
+        "debounceMs": 1000
+      }
+    },
+
+    {
+      "name": "portfolio-projects",
+      "description": "Wix Portfolio projects as a CSV spreadsheet",
+      "capabilityClass": "full_crud",
+      "dashboardUrl": "https://www.wix.com/dashboard/YOUR_SITE_ID_HERE/portfolio",
+
+      "pull": {
+        "method": "POST",
+        "url": "https://www.wixapis.com/portfolio/v1/projects/query",
+        "body": {
+          "query": {
+            "paging": {
+              "limit": 100
+            }
+          }
+        },
+        "dataPath": "$.projects"
+      },
+
+      "pagination": {
+        "type": "body",
+        "pageSize": 100,
+        "limitField": "query.paging.limit",
+        "cursorField": "query.paging.cursor",
+        "nextCursorPath": "$.pagingMetadata.cursors.next"
+      },
+
+      "push": {
+        "create": {
+          "method": "POST",
+          "url": "https://www.wixapis.com/portfolio/v1/projects",
+          "bodyWrapper": "project"
+        },
+        "update": {
+          "method": "PATCH",
+          "url": "https://www.wixapis.com/portfolio/v1/projects/{id}",
+          "bodyWrapper": "project"
+        },
+        "delete": {
+          "method": "DELETE",
+          "url": "https://www.wixapis.com/portfolio/v1/projects/{id}"
+        }
+      },
+
+      "fileMapping": {
+        "strategy": "collection",
+        "directory": "portfolio",
+        "filename": "projects.csv",
+        "format": "csv",
+        "idField": "id",
+        "transforms": {
+          "pull": [
+            { "op": "omit", "fields": ["createdDate", "updatedDate"] }
+          ],
+          "push": [
+            { "op": "omit", "fields": ["slug", "createdDate", "updatedDate"] }
+          ]
+        }
+      },
+
+      "sync": {
+        "interval": 120,
+        "debounceMs": 1000
+      },
+
+      "children": [
+        {
+          "name": "portfolio-project-items",
+          "description": "Media items in this Portfolio project as JSON files",
+          "capabilityClass": "full_crud",
+
+          "pull": {
+            "method": "POST",
+            "url": "https://www.wixapis.com/portfolio/v1/projects/{id}/items/query",
+            "body": {
+              "query": {
+                "paging": {
+                  "limit": 100
+                }
+              }
+            },
+            "dataPath": "$.items"
+          },
+
+          "pagination": {
+            "type": "body",
+            "pageSize": 100,
+            "limitField": "query.paging.limit",
+            "cursorField": "query.paging.cursor",
+            "nextCursorPath": "$.pagingMetadata.cursors.next"
+          },
+
+          "push": {
+            "create": {
+              "method": "POST",
+              "url": "https://www.wixapis.com/portfolio/v1/projects/{id}/items",
+              "bodyWrapper": "item"
+            },
+            "update": {
+              "method": "PATCH",
+              "url": "https://www.wixapis.com/portfolio/v1/projects/{id}/items/{itemId}",
+              "bodyWrapper": "item"
+            },
+            "delete": {
+              "method": "DELETE",
+              "url": "https://www.wixapis.com/portfolio/v1/projects/{id}/items/{itemId}"
+            }
+          },
+
+          "fileMapping": {
+            "strategy": "one-per-record",
+            "directory": "portfolio/projects/{title|slugify}/items",
+            "filename": "{id}.json",
+            "format": "json",
+            "idField": "id",
+            "transforms": {
+              "pull": [
+                { "op": "omit", "fields": ["createdDate", "updatedDate"] }
+              ],
+              "push": [
+                { "op": "omit", "fields": ["sortOrder", "createdDate", "updatedDate"] }
+              ]
+            }
+          },
+
+          "sync": {
+            "interval": 120,
+            "debounceMs": 1000
+          }
+        }
+      ]
     }
   ]
 }

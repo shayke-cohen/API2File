@@ -164,6 +164,7 @@ final class WixLiveE2ETests: XCTestCase {
         .init(name: "bookings-services", capabilityClass: .partialWritable, humanRelativePath: "bookings/services.csv", humanFormat: .csv, objectRelativePath: "bookings/.services.objects.json", humanSanitized: true, supportsCreate: true, supportsUpdate: true, supportsDelete: true, humanToObjectToServer: true, objectToHumanToServer: false, serverToObjectToHuman: true, notes: "CSV with CRUD from the human surface; object-file propagation still needs hardening."),
         .init(name: "bookings-appointments", capabilityClass: .readOnly, humanRelativePath: "bookings/appointments.csv", humanFormat: .csv, objectRelativePath: nil, humanSanitized: true, supportsCreate: false, supportsUpdate: false, supportsDelete: false, humanToObjectToServer: false, objectToHumanToServer: false, serverToObjectToHuman: false, notes: "Read-only appointments feed."),
         .init(name: "groups", capabilityClass: .partialWritable, humanRelativePath: "groups.csv", humanFormat: .csv, objectRelativePath: ".groups.objects.json", humanSanitized: true, supportsCreate: true, supportsUpdate: true, supportsDelete: true, humanToObjectToServer: true, objectToHumanToServer: false, serverToObjectToHuman: true, notes: "CSV with CRUD from the human surface; object-file propagation still needs hardening."),
+        .init(name: "inbox-conversations", capabilityClass: .readOnly, humanRelativePath: "inbox/conversations.csv", humanFormat: .csv, objectRelativePath: ".inbox-conversations.objects.json", humanSanitized: true, supportsCreate: false, supportsUpdate: false, supportsDelete: false, humanToObjectToServer: false, objectToHumanToServer: false, serverToObjectToHuman: false, notes: "Read-only inbox conversation index; writable messages are a child surface."),
         .init(name: "comments", capabilityClass: .readOnly, humanRelativePath: "comments.csv", humanFormat: .csv, objectRelativePath: nil, humanSanitized: false, supportsCreate: false, supportsUpdate: false, supportsDelete: false, humanToObjectToServer: false, objectToHumanToServer: false, serverToObjectToHuman: false, notes: "Read-only comments projection."),
         .init(name: "events", capabilityClass: .partialWritable, humanRelativePath: "events.csv", humanFormat: .csv, objectRelativePath: ".events.objects.json", humanSanitized: true, supportsCreate: false, supportsUpdate: true, supportsDelete: false, humanToObjectToServer: true, objectToHumanToServer: true, serverToObjectToHuman: true, notes: "Event catalog with update-only semantics in the first pass."),
         .init(name: "events-rsvps", capabilityClass: .readOnly, humanRelativePath: "events/rsvps.csv", humanFormat: .csv, objectRelativePath: nil, humanSanitized: true, supportsCreate: false, supportsUpdate: false, supportsDelete: false, humanToObjectToServer: false, objectToHumanToServer: false, serverToObjectToHuman: false, notes: "Read-only RSVP feed."),
@@ -173,11 +174,17 @@ final class WixLiveE2ETests: XCTestCase {
         .init(name: "restaurant-orders", capabilityClass: .readOnly, humanRelativePath: "restaurant/orders.csv", humanFormat: .csv, objectRelativePath: nil, humanSanitized: true, supportsCreate: false, supportsUpdate: false, supportsDelete: false, humanToObjectToServer: false, objectToHumanToServer: false, serverToObjectToHuman: false, notes: "Read-only restaurants order feed."),
         .init(name: "bookings", capabilityClass: .partialWritable, humanRelativePath: "bookings/{name}.json", humanFormat: .json, objectRelativePath: "bookings/.objects/{name}.json", humanSanitized: true, supportsCreate: true, supportsUpdate: true, supportsDelete: false, humanToObjectToServer: true, objectToHumanToServer: true, serverToObjectToHuman: false, notes: "One-file-per-record JSON surface with narrower semantics than the CSV service surface."),
         .init(name: "collections", capabilityClass: .readOnly, humanRelativePath: "collections.json", humanFormat: .json, objectRelativePath: ".collections.objects.json", humanSanitized: true, supportsCreate: false, supportsUpdate: false, supportsDelete: false, humanToObjectToServer: false, objectToHumanToServer: false, serverToObjectToHuman: false, notes: "Catalog metadata surface; generic create/delete unsupported."),
+        .init(name: "portfolio-collections", capabilityClass: .fullCRUD, humanRelativePath: "portfolio/collections.csv", humanFormat: .csv, objectRelativePath: ".portfolio-collections.objects.json", humanSanitized: true, supportsCreate: true, supportsUpdate: true, supportsDelete: true, humanToObjectToServer: true, objectToHumanToServer: true, serverToObjectToHuman: true, notes: "CSV with full CRUD. Slug is server-assigned; omitted from push."),
+        .init(name: "portfolio-projects", capabilityClass: .fullCRUD, humanRelativePath: "portfolio/projects.csv", humanFormat: .csv, objectRelativePath: ".portfolio-projects.objects.json", humanSanitized: true, supportsCreate: true, supportsUpdate: true, supportsDelete: true, humanToObjectToServer: true, objectToHumanToServer: true, serverToObjectToHuman: true, notes: "CSV with full CRUD. Items are JSON files per-project via child resource."),
     ]
 
     private static let wixChildSurfaceContracts: [WixResourceContract] = [
         .init(name: "forms.submissions", capabilityClass: .partialWritable, humanRelativePath: "forms/{name}-submissions.csv", humanFormat: .csv, objectRelativePath: "forms/.{name}-submissions.objects.json", humanSanitized: true, supportsCreate: true, supportsUpdate: true, supportsDelete: false, humanToObjectToServer: false, objectToHumanToServer: false, serverToObjectToHuman: false, notes: "Human-friendly child CSV for form submissions."),
         .init(name: "collections.items", capabilityClass: .fullCRUD, humanRelativePath: "cms/{displayName}.csv", humanFormat: .csv, objectRelativePath: "cms/.{displayName}.objects.json", humanSanitized: true, supportsCreate: true, supportsUpdate: true, supportsDelete: true, humanToObjectToServer: true, objectToHumanToServer: true, serverToObjectToHuman: true, notes: "Writable NATIVE CMS collection items only."),
+        .init(name: "groups.group-members", capabilityClass: .partialWritable, humanRelativePath: "groups/{name}/members.csv", humanFormat: .csv, objectRelativePath: "groups/.{name}-members.objects.json", humanSanitized: true, supportsCreate: true, supportsUpdate: false, supportsDelete: true, humanToObjectToServer: false, objectToHumanToServer: false, serverToObjectToHuman: false, notes: "Child CSV listing members of each group; add/remove rows to manage membership."),
+        .init(name: "groups.group-posts", capabilityClass: .fullCRUD, humanRelativePath: "groups/{name}/posts/{slug}.md", humanFormat: .markdown, objectRelativePath: "groups/{name}/posts/.objects/{slug}.json", humanSanitized: true, supportsCreate: true, supportsUpdate: true, supportsDelete: true, humanToObjectToServer: true, objectToHumanToServer: true, serverToObjectToHuman: true, notes: "Markdown posts in each group feed; full CRUD with Ricos conversion."),
+        .init(name: "inbox-conversations.inbox-messages", capabilityClass: .partialWritable, humanRelativePath: "inbox/{contactName}/messages.csv", humanFormat: .csv, objectRelativePath: "inbox/.{contactName}-messages.objects.json", humanSanitized: true, supportsCreate: true, supportsUpdate: true, supportsDelete: false, humanToObjectToServer: false, objectToHumanToServer: false, serverToObjectToHuman: false, notes: "Child CSV of messages per inbox conversation; add row to send, update to mark read."),
+        .init(name: "portfolio-projects.portfolio-project-items", capabilityClass: .fullCRUD, humanRelativePath: "portfolio/projects/{title}/items/{id}.json", humanFormat: .json, objectRelativePath: nil, humanSanitized: true, supportsCreate: true, supportsUpdate: true, supportsDelete: true, humanToObjectToServer: true, objectToHumanToServer: false, serverToObjectToHuman: true, notes: "JSON per-item surface with rich mediaItem structure."),
     ]
 
     private var apiKey: String!
@@ -251,6 +258,7 @@ final class WixLiveE2ETests: XCTestCase {
             "blog-categories",
             "blog-tags",
             "groups",
+            "inbox-conversations",
             "bookings-services",
             "bookings-appointments",
             "comments",
@@ -261,6 +269,8 @@ final class WixLiveE2ETests: XCTestCase {
             "restaurant-orders",
             "bookings",
             "collections",
+            "portfolio-collections",
+            "portfolio-projects",
             "pro-gallery",
             "pdf-viewer",
             "wix-video",
@@ -287,6 +297,7 @@ final class WixLiveE2ETests: XCTestCase {
             "bookings-services",
             "bookings-appointments",
             "groups",
+            "inbox-conversations",
             "comments",
             "events",
             "events-rsvps",
@@ -296,6 +307,8 @@ final class WixLiveE2ETests: XCTestCase {
             "restaurant-orders",
             "bookings",
             "collections",
+            "portfolio-collections",
+            "portfolio-projects",
         ])
 
         var resourcesByName: [String: ResourceConfig] = [:]
@@ -2013,14 +2026,19 @@ final class WixLiveE2ETests: XCTestCase {
         let bundled = try XCTUnwrap(bundledConfig)
         let forms = try XCTUnwrap(bundled.resources.first(where: { $0.name == "forms" }))
         let collections = try XCTUnwrap(bundled.resources.first(where: { $0.name == "collections" }))
+        let groups = try XCTUnwrap(bundled.resources.first(where: { $0.name == "groups" }))
+        let inbox = try XCTUnwrap(bundled.resources.first(where: { $0.name == "inbox-conversations" }))
         let childNames = Set(Self.wixChildSurfaceContracts.map(\.name))
+
+        let groupChildNames = groups.children?.map { "groups.\($0.name)" } ?? []
+        let inboxChildNames = inbox.children?.map { "inbox-conversations.\($0.name)" } ?? []
 
         XCTAssertEqual(
             childNames,
             Set([
                 "forms.\(try XCTUnwrap(forms.children?.first).name)",
                 "collections.\(try XCTUnwrap(collections.children?.first).name)",
-            ]),
+            ] + groupChildNames + inboxChildNames),
             "Important writable child surfaces should stay explicit in the Wix contract matrix"
         )
     }
@@ -2043,6 +2061,19 @@ final class WixLiveE2ETests: XCTestCase {
         let items = try XCTUnwrap(collections.children?.first(where: { $0.name == "items" }))
         XCTAssertEqual(items.capabilityClass, .fullCRUD)
         XCTAssertEqual(items.fileMapping.format, .csv)
+
+        let groups = try XCTUnwrap(bundled.resources.first(where: { $0.name == "groups" }))
+        let groupMembers = try XCTUnwrap(groups.children?.first(where: { $0.name == "group-members" }))
+        XCTAssertEqual(groupMembers.capabilityClass, .partialWritable)
+        XCTAssertEqual(groupMembers.fileMapping.format, .csv)
+        let groupPosts = try XCTUnwrap(groups.children?.first(where: { $0.name == "group-posts" }))
+        XCTAssertEqual(groupPosts.capabilityClass, .fullCRUD)
+        XCTAssertEqual(groupPosts.fileMapping.format, .markdown)
+
+        let inbox = try XCTUnwrap(bundled.resources.first(where: { $0.name == "inbox-conversations" }))
+        let inboxMessages = try XCTUnwrap(inbox.children?.first(where: { $0.name == "inbox-messages" }))
+        XCTAssertEqual(inboxMessages.capabilityClass, .partialWritable)
+        XCTAssertEqual(inboxMessages.fileMapping.format, .csv)
     }
 
     func testWixResourceContracts_ReportStatusMatrix() throws {
@@ -5238,5 +5269,756 @@ final class WixLiveE2ETests: XCTestCase {
             }
         }
         return crc ^ 0xFFFFFFFF
+    }
+
+    // MARK: - Group Members — Pull
+    // ======================================================================
+
+    func testGroupMembers_Pull_ReturnsCSVForEachGroup() async throws {
+        let groupsRes = try resource("groups")
+        let result = try await engine.pull(resource: groupsRes)
+
+        let memberFiles = result.files.filter { $0.relativePath.hasSuffix("/members.csv") }
+        XCTAssertFalse(memberFiles.isEmpty, "Expected at least one groups/{slug}/members.csv in pull result — did the group-members child get added to the adapter?")
+
+        try writeFilesToDisk(result.files)
+    }
+
+    func testGroupMembers_Pull_HasExpectedColumns_WhenMembersExist() async throws {
+        let groupsRes = try resource("groups")
+        let result = try await engine.pull(resource: groupsRes)
+
+        let memberFiles = result.files.filter { $0.relativePath.hasSuffix("/members.csv") }
+        guard let nonEmpty = memberFiles.first(where: { !$0.content.isEmpty }) else {
+            throw XCTSkip("All groups have no members — cannot verify column schema")
+        }
+
+        try writeFilesToDisk(result.files)
+        let records = try readCSV(at: serviceDir.appendingPathComponent(nonEmpty.relativePath))
+        guard let first = records.first else {
+            throw XCTSkip("members.csv is non-empty bytes but decoded to zero records")
+        }
+
+        let columns = Set(first.keys)
+        XCTAssertTrue(columns.contains("memberId"), "Expected 'memberId' column in members.csv; got: \(columns.sorted())")
+        XCTAssertTrue(columns.contains("role"), "Expected 'role' column in members.csv; got: \(columns.sorted())")
+    }
+
+    func testGroupMembers_Pull_PathMatchesGroupNameSlug() async throws {
+        let groupsRes = try resource("groups")
+        let pullResult = try await engine.pull(resource: groupsRes)
+
+        // Pull parent groups to get canonical slugs
+        let groupFiles = pullResult.files.filter { $0.relativePath == "groups.csv" }
+        XCTAssertFalse(groupFiles.isEmpty, "groups.csv missing from pull result")
+
+        try writeFilesToDisk(pullResult.files)
+
+        let groupRecords = try readCSV("groups.csv")
+        let memberFiles = pullResult.files.filter { $0.relativePath.hasSuffix("/members.csv") }
+        XCTAssertFalse(memberFiles.isEmpty, "Expected members.csv children from group pull")
+
+        // Every members.csv path should be under a valid group slug directory
+        for memberFile in memberFiles {
+            // path: groups/{slug}/members.csv
+            let parts = memberFile.relativePath.split(separator: "/")
+            XCTAssertEqual(parts.count, 3, "Unexpected path structure: \(memberFile.relativePath)")
+            XCTAssertEqual(parts.first, "groups")
+            XCTAssertEqual(parts.last, "members.csv")
+
+            // The slug should correspond to a group name
+            let slug = String(parts[1])
+            let matchingGroup = groupRecords.first { record in
+                guard let name = record["name"] as? String else { return false }
+                return TemplateEngine.render("{value|slugify}", with: ["value": name]) == slug
+            }
+            XCTAssertNotNil(matchingGroup, "members.csv at '\(memberFile.relativePath)' has no matching group for slug '\(slug)'")
+        }
+    }
+
+    // MARK: - Group Posts — Pull / Create / Update / Delete
+    // ======================================================================
+
+    func testGroupPosts_Pull_ReturnsMarkdownFilesUnderPostsDirectory() async throws {
+        let groupsRes = try resource("groups")
+        let result = try await engine.pull(resource: groupsRes)
+
+        let postFiles = result.files.filter {
+            $0.relativePath.contains("/posts/") && $0.relativePath.hasSuffix(".md")
+        }
+        if postFiles.isEmpty {
+            throw XCTSkip("No groups have posts — create a post in Wix Groups dashboard first to run this test")
+        }
+
+        try writeFilesToDisk(result.files)
+
+        // All post files should be under groups/{slug}/posts/
+        for file in postFiles {
+            XCTAssertTrue(
+                file.relativePath.hasPrefix("groups/"),
+                "Group post file has unexpected path: \(file.relativePath)"
+            )
+        }
+    }
+
+    func testGroupPosts_Pull_MarkdownHasExpectedFrontMatter() async throws {
+        let groupsRes = try resource("groups")
+        let result = try await engine.pull(resource: groupsRes)
+
+        let postFiles = result.files.filter {
+            $0.relativePath.contains("/posts/") && $0.relativePath.hasSuffix(".md")
+        }
+        if postFiles.isEmpty {
+            throw XCTSkip("No groups have posts — cannot verify front matter schema")
+        }
+
+        try writeFilesToDisk(result.files)
+
+        let sample = postFiles[0]
+        let content = String(decoding: sample.content, as: UTF8.self)
+        XCTAssertTrue(content.hasPrefix("---\n"), "\(sample.relativePath) should begin with YAML front matter")
+
+        for key in ["id", "groupId", "createdDate"] {
+            XCTAssertTrue(
+                content.contains("\(key):"),
+                "Missing front matter key '\(key)' in \(sample.relativePath)"
+            )
+        }
+    }
+
+    func testGroupPosts_Create_NewPost_AppearsOnServer() async throws {
+        let ownerId = try await currentGroupOwnerId()
+        let groupId = try await createGroup(name: uniqueTestName("PostTestGroup"), ownerId: ownerId)
+        try await delay(1500)
+
+        let childRes = try resolvedGroupChildResource(childName: "group-posts", groupId: groupId, groupName: uniqueTestName("PostTestGroup"))
+        let title = uniqueTestName("GroupPost")
+
+        let createdPostId = try await engine.pushRecord(
+            [
+                "groupId": groupId,
+                "title": title,
+                "contentText": "Test post content for \(title)",
+                "richContent": minimalRicosDocument(text: "Test post content for \(title)"),
+                "isPinned": false
+            ],
+            resource: childRes,
+            action: .create
+        )
+        try await delay(1500)
+
+        XCTAssertNotNil(createdPostId, "engine.pushRecord for group-posts returned nil ID")
+
+        let posts = try await queryGroupPosts(groupId: groupId)
+        let found = posts.first(where: {
+            ($0["id"] as? String) == createdPostId || recursiveStringContainsToken($0, token: title)
+        })
+        XCTAssertNotNil(found, "Created group post '\(title)' not found on server")
+
+        if let postId = found?["id"] as? String {
+            createdIds.append((resource: childRes, id: postId))
+        }
+    }
+
+    func testGroupPosts_Update_ModifyContent_ReflectedOnServer() async throws {
+        let ownerId = try await currentGroupOwnerId()
+        let groupId = try await createGroup(name: uniqueTestName("PostUpdGroup"), ownerId: ownerId)
+        try await delay(1500)
+
+        let childRes = try resolvedGroupChildResource(childName: "group-posts", groupId: groupId, groupName: "")
+        let originalTitle = uniqueTestName("PostUpd")
+        let updatedTitle = originalTitle + " Updated"
+
+        let postId = try await createGroupPost(groupId: groupId, title: originalTitle)
+        try await delay(1000)
+
+        try await engine.pushRecord(
+            [
+                "groupId": groupId,
+                "title": updatedTitle,
+                "contentText": "Updated content for \(updatedTitle)",
+                "richContent": minimalRicosDocument(text: "Updated content for \(updatedTitle)"),
+                "isPinned": false
+            ],
+            resource: childRes,
+            action: .update(id: postId)
+        )
+        try await delay(1500)
+
+        let posts = try await queryGroupPosts(groupId: groupId)
+        let found = posts.first(where: { ($0["id"] as? String) == postId })
+        XCTAssertTrue(
+            recursiveStringContainsToken(found, token: updatedTitle),
+            "Updated post title '\(updatedTitle)' not found on server after update"
+        )
+    }
+
+    func testGroupPosts_Delete_RemovePost_DeletedFromServer() async throws {
+        let ownerId = try await currentGroupOwnerId()
+        let groupId = try await createGroup(name: uniqueTestName("PostDelGroup"), ownerId: ownerId)
+        try await delay(1500)
+
+        let postId = try await createGroupPost(groupId: groupId, title: uniqueTestName("PostDel"))
+        try await delay(1000)
+
+        let childRes = try resolvedGroupChildResource(childName: "group-posts", groupId: groupId, groupName: "")
+        try await engine.delete(remoteId: postId, resource: childRes, extraTemplateVars: ["groupId": groupId])
+        createdIds.removeAll(where: { $0.id == postId })
+        try await delay(1000)
+
+        let posts = try await queryGroupPosts(groupId: groupId)
+        XCTAssertFalse(
+            posts.contains(where: { ($0["id"] as? String) == postId }),
+            "Group post \(postId) should be deleted from server"
+        )
+    }
+
+    // MARK: - Inbox Conversations — Pull
+    // ======================================================================
+
+    func testInboxConversations_Pull_ReturnsCSVFile() async throws {
+        try await assertCollectionPull(
+            resourceName: "inbox-conversations",
+            relativePath: "inbox/conversations.csv",
+            expectedColumns: ["id", "contactName", "contactId"],
+            allowEmptyFile: true,
+            allowSiteUnavailable: true
+        )
+    }
+
+    func testInboxConversations_Pull_FileIsUnderInboxDirectory() async throws {
+        let res = try resource("inbox-conversations")
+        let result: PullResult
+        do {
+            result = try await engine.pull(resource: res)
+        } catch {
+            if isSiteUnavailable(error) {
+                throw XCTSkip("Wix Inbox not available on this site: \(error)")
+            }
+            throw error
+        }
+
+        XCTAssertFalse(result.files.isEmpty, "inbox-conversations pull returned no files")
+
+        let conversationsFile = result.files.first(where: { $0.relativePath == "inbox/conversations.csv" })
+        XCTAssertNotNil(conversationsFile, "Expected inbox/conversations.csv in pull result; got: \(result.files.map(\.relativePath))")
+    }
+
+    // MARK: - Inbox Messages — Pull / Send
+    // ======================================================================
+
+    func testInboxMessages_Pull_ReturnsMessagesCSVForConversations() async throws {
+        let res = try resource("inbox-conversations")
+        let result: PullResult
+        do {
+            result = try await engine.pull(resource: res)
+        } catch {
+            if isSiteUnavailable(error) {
+                throw XCTSkip("Wix Inbox not available on this site")
+            }
+            throw error
+        }
+
+        let messageFiles = result.files.filter { $0.relativePath.hasSuffix("/messages.csv") }
+        if messageFiles.isEmpty {
+            throw XCTSkip("No inbox conversations found — Wix Inbox appears empty on this site")
+        }
+
+        try writeFilesToDisk(result.files)
+
+        // Check path structure: inbox/{contactName}/messages.csv
+        for file in messageFiles {
+            let parts = file.relativePath.split(separator: "/")
+            XCTAssertEqual(parts.count, 3, "Unexpected messages.csv path: \(file.relativePath)")
+            XCTAssertEqual(parts.first, "inbox")
+            XCTAssertEqual(parts.last, "messages.csv")
+        }
+    }
+
+    func testInboxMessages_Pull_HasExpectedColumns_WhenMessagesExist() async throws {
+        let res = try resource("inbox-conversations")
+        let result: PullResult
+        do {
+            result = try await engine.pull(resource: res)
+        } catch {
+            if isSiteUnavailable(error) {
+                throw XCTSkip("Wix Inbox not available on this site")
+            }
+            throw error
+        }
+
+        let messageFiles = result.files.filter { $0.relativePath.hasSuffix("/messages.csv") }
+        guard let nonEmpty = messageFiles.first(where: { !$0.content.isEmpty }) else {
+            throw XCTSkip("No message content found in any conversation — inbox may be empty")
+        }
+
+        try writeFilesToDisk(result.files)
+        let records = try readCSV(at: serviceDir.appendingPathComponent(nonEmpty.relativePath))
+        guard let first = records.first else {
+            throw XCTSkip("messages.csv decoded to zero records")
+        }
+
+        let columns = Set(first.keys)
+        XCTAssertTrue(columns.contains("content"), "Expected 'content' column; got: \(columns.sorted())")
+        XCTAssertTrue(columns.contains("senderId") || columns.contains("direction"),
+                      "Expected 'senderId' or 'direction' column; got: \(columns.sorted())")
+        XCTAssertTrue(columns.contains("createdDate") || columns.contains("id"),
+                      "Expected timestamp or id column; got: \(columns.sorted())")
+    }
+
+    func testInboxMessages_Send_NewMessage_AppearsOnServer() async throws {
+        let conversations = try await queryInboxConversations()
+        guard let conversation = conversations.first,
+              let conversationId = conversation["id"] as? String else {
+            throw XCTSkip("No inbox conversations available — cannot test send")
+        }
+        let contactName = (conversation["contactName"] as? String) ?? conversationId
+
+        let childRes = try resolvedInboxMessagesResource(conversationId: conversationId, contactName: contactName)
+        let content = uniqueTestName("InboxMsg")
+
+        _ = try await engine.pushRecord(
+            [
+                "conversationId": conversationId,
+                "content": content,
+                "seen": false
+            ],
+            resource: childRes,
+            action: .create
+        )
+        try await delay(1500)
+
+        let messages = try await queryInboxMessages(conversationId: conversationId)
+        let found = messages.first(where: { recursiveStringContainsToken($0, token: content) })
+        XCTAssertNotNil(found, "Sent inbox message '\(content)' not found on server after push")
+    }
+
+    // MARK: - Group/Inbox API Helpers
+    // ======================================================================
+
+    private func queryGroupMembers(groupId: String) async throws -> [[String: Any]] {
+        let result = try await wixAPI(
+            method: .POST,
+            path: "/social-groups/v2/groups/\(groupId)/members/query",
+            body: ["paging": ["limit": 100]]
+        )
+        return result["members"] as? [[String: Any]] ?? []
+    }
+
+    private func queryGroupPosts(groupId: String) async throws -> [[String: Any]] {
+        let result = try await wixAPI(
+            method: .POST,
+            path: "/social-groups/v2/groups/\(groupId)/posts/query",
+            body: ["paging": ["limit": 50]]
+        )
+        return result["posts"] as? [[String: Any]] ?? []
+    }
+
+    private func createGroupPost(groupId: String, title: String) async throws -> String {
+        let body: [String: Any] = [
+            "post": [
+                "entityType": "GROUP_POST",
+                "title": title,
+                "richContent": minimalRicosDocument(text: title)
+            ]
+        ]
+        let result = try await wixAPI(
+            method: .POST,
+            path: "/social-groups/v2/groups/\(groupId)/posts",
+            body: body
+        )
+        guard let post = result["post"] as? [String: Any],
+              let id = post["id"] as? String else {
+            let childRes = try resolvedGroupChildResource(childName: "group-posts", groupId: groupId, groupName: "")
+            XCTFail("Failed to create group post — response: \(result)")
+            _ = childRes
+            return ""
+        }
+        let childRes = try resolvedGroupChildResource(childName: "group-posts", groupId: groupId, groupName: "")
+        createdIds.append((resource: childRes, id: id))
+        return id
+    }
+
+    private func queryInboxConversations() async throws -> [[String: Any]] {
+        let result: [String: Any]
+        do {
+            result = try await wixAPI(
+                method: .POST,
+                path: "/inbox/v2/conversations/query",
+                body: ["paging": ["limit": 20]]
+            )
+        } catch {
+            if isSiteUnavailable(error) {
+                throw XCTSkip("Wix Inbox not available on this site")
+            }
+            throw error
+        }
+        return result["conversations"] as? [[String: Any]] ?? []
+    }
+
+    private func queryInboxMessages(conversationId: String) async throws -> [[String: Any]] {
+        let result = try await wixAPI(
+            method: .POST,
+            path: "/inbox/v2/messages/query",
+            body: [
+                "filter": ["conversationId": ["$eq": conversationId]],
+                "paging": ["limit": 50]
+            ]
+        )
+        return result["messages"] as? [[String: Any]] ?? []
+    }
+
+    // MARK: - Group/Inbox Child Resource Resolvers
+    // ======================================================================
+
+    private func resolvedGroupChildResource(
+        childName: String,
+        groupId: String,
+        groupName: String
+    ) throws -> ResourceConfig {
+        let groupsResource = try resource("groups")
+        let childConfig = try XCTUnwrap(
+            groupsResource.children?.first(where: { $0.name == childName }),
+            "groups resource has no '\(childName)' child — check wix.adapter.json"
+        )
+
+        let vars: [String: Any] = ["id": groupId, "name": groupName]
+
+        let resolvedPull: PullConfig?
+        if let pull = childConfig.pull {
+            let resolvedBody = pull.body.map {
+                anyToJSONValue(resolveTemplatesInJSON(jsonValueToAny($0), with: vars))
+            }
+            resolvedPull = PullConfig(
+                method: pull.method,
+                url: TemplateEngine.render(pull.url, with: vars),
+                type: pull.type,
+                query: pull.query.map { TemplateEngine.render($0, with: vars) },
+                body: resolvedBody,
+                dataPath: pull.dataPath,
+                detail: pull.detail,
+                pagination: pull.pagination,
+                mediaConfig: pull.mediaConfig,
+                updatedSinceField: pull.updatedSinceField,
+                updatedSinceBodyPath: pull.updatedSinceBodyPath,
+                updatedSinceDateFormat: pull.updatedSinceDateFormat,
+                supportsETag: pull.supportsETag
+            )
+        } else {
+            resolvedPull = nil
+        }
+
+        let resolvedDirectory = TemplateEngine.render(childConfig.fileMapping.directory, with: vars)
+
+        return ResourceConfig(
+            name: "\(childName).\(groupId)",
+            description: childConfig.description,
+            capabilityClass: childConfig.capabilityClass,
+            pull: resolvedPull,
+            push: childConfig.push,
+            fileMapping: FileMappingConfig(
+                strategy: childConfig.fileMapping.strategy,
+                directory: resolvedDirectory,
+                filename: childConfig.fileMapping.filename,
+                format: childConfig.fileMapping.format,
+                formatOptions: childConfig.fileMapping.formatOptions,
+                idField: childConfig.fileMapping.idField,
+                contentField: childConfig.fileMapping.contentField,
+                readOnly: childConfig.fileMapping.readOnly,
+                preserveExtension: childConfig.fileMapping.preserveExtension,
+                transforms: childConfig.fileMapping.transforms,
+                pushMode: childConfig.fileMapping.pushMode,
+                deleteFromAPI: childConfig.fileMapping.deleteFromAPI
+            ),
+            children: nil,
+            sync: childConfig.sync,
+            siteUrl: childConfig.siteUrl,
+            dashboardUrl: childConfig.dashboardUrl
+        )
+    }
+
+    private func resolvedInboxMessagesResource(
+        conversationId: String,
+        contactName: String
+    ) throws -> ResourceConfig {
+        let inboxResource = try resource("inbox-conversations")
+        let childConfig = try XCTUnwrap(
+            inboxResource.children?.first(where: { $0.name == "inbox-messages" }),
+            "inbox-conversations resource has no 'inbox-messages' child — check wix.adapter.json"
+        )
+
+        let vars: [String: Any] = ["id": conversationId, "contactName": contactName]
+
+        let resolvedPull: PullConfig?
+        if let pull = childConfig.pull {
+            let resolvedBody = pull.body.map {
+                anyToJSONValue(resolveTemplatesInJSON(jsonValueToAny($0), with: vars))
+            }
+            resolvedPull = PullConfig(
+                method: pull.method,
+                url: TemplateEngine.render(pull.url, with: vars),
+                type: pull.type,
+                query: pull.query.map { TemplateEngine.render($0, with: vars) },
+                body: resolvedBody,
+                dataPath: pull.dataPath,
+                detail: pull.detail,
+                pagination: pull.pagination,
+                mediaConfig: pull.mediaConfig,
+                updatedSinceField: pull.updatedSinceField,
+                updatedSinceBodyPath: pull.updatedSinceBodyPath,
+                updatedSinceDateFormat: pull.updatedSinceDateFormat,
+                supportsETag: pull.supportsETag
+            )
+        } else {
+            resolvedPull = nil
+        }
+
+        let resolvedDirectory = TemplateEngine.render(childConfig.fileMapping.directory, with: vars)
+
+        return ResourceConfig(
+            name: "inbox-messages.\(conversationId)",
+            description: childConfig.description,
+            capabilityClass: childConfig.capabilityClass,
+            pull: resolvedPull,
+            push: childConfig.push,
+            fileMapping: FileMappingConfig(
+                strategy: childConfig.fileMapping.strategy,
+                directory: resolvedDirectory,
+                filename: childConfig.fileMapping.filename,
+                format: childConfig.fileMapping.format,
+                formatOptions: childConfig.fileMapping.formatOptions,
+                idField: childConfig.fileMapping.idField,
+                contentField: childConfig.fileMapping.contentField,
+                readOnly: childConfig.fileMapping.readOnly,
+                preserveExtension: childConfig.fileMapping.preserveExtension,
+                transforms: childConfig.fileMapping.transforms,
+                pushMode: childConfig.fileMapping.pushMode,
+                deleteFromAPI: childConfig.fileMapping.deleteFromAPI
+            ),
+            children: nil,
+            sync: childConfig.sync,
+            siteUrl: childConfig.siteUrl,
+            dashboardUrl: childConfig.dashboardUrl
+        )
+    }
+
+    /// Minimal Wix Ricos document wrapping plain text — used for group post content in tests.
+    private func minimalRicosDocument(text: String) -> [String: Any] {
+        [
+            "nodes": [
+                [
+                    "type": "PARAGRAPH",
+                    "id": UUID().uuidString,
+                    "nodes": [
+                        [
+                            "type": "TEXT",
+                            "id": UUID().uuidString,
+                            "nodes": [],
+                            "textData": [
+                                "text": text,
+                                "decorations": []
+                            ]
+                        ]
+                    ],
+                    "paragraphData": [:]
+                ]
+            ],
+            "metadata": [
+                "version": 1,
+                "createdTimestamp": ISO8601DateFormatter().string(from: Date()),
+                "id": UUID().uuidString
+            ]
+        ]
+    }
+
+    // MARK: - Portfolio Helpers
+
+    private func queryPortfolioCollections() async throws -> [[String: Any]] {
+        let body: [String: Any] = ["query": ["paging": ["limit": 100]]]
+        let result = try await wixAPI(method: .POST, path: "/portfolio/v1/collections/query", body: body)
+        return result["collections"] as? [[String: Any]] ?? []
+    }
+
+    private func createPortfolioCollection(title: String) async throws -> String {
+        let body: [String: Any] = ["collection": ["title": title, "visible": true]]
+        let result = try await wixAPI(method: .POST, path: "/portfolio/v1/collections", body: body)
+        guard let collection = result["collection"] as? [String: Any],
+              let id = collection["id"] as? String else {
+            XCTFail("Failed to create portfolio collection")
+            return ""
+        }
+        let collRes = try resource("portfolio-collections")
+        createdIds.append((resource: collRes, id: id))
+        return id
+    }
+
+    private func queryPortfolioProjects() async throws -> [[String: Any]] {
+        let body: [String: Any] = ["query": ["paging": ["limit": 100]]]
+        let result = try await wixAPI(method: .POST, path: "/portfolio/v1/projects/query", body: body)
+        return result["projects"] as? [[String: Any]] ?? []
+    }
+
+    private func createPortfolioProject(title: String, collectionId: String) async throws -> String {
+        let body: [String: Any] = ["project": ["title": title, "collectionId": collectionId, "visible": true]]
+        let result = try await wixAPI(method: .POST, path: "/portfolio/v1/projects", body: body)
+        guard let project = result["project"] as? [String: Any],
+              let id = project["id"] as? String else {
+            XCTFail("Failed to create portfolio project")
+            return ""
+        }
+        let projRes = try resource("portfolio-projects")
+        createdIds.append((resource: projRes, id: id))
+        return id
+    }
+
+    private func queryPortfolioProjectItems(projectId: String) async throws -> [[String: Any]] {
+        let body: [String: Any] = ["query": ["paging": ["limit": 100]]]
+        let result = try await wixAPI(
+            method: .POST,
+            path: "/portfolio/v1/projects/\(projectId)/items/query",
+            body: body
+        )
+        return result["items"] as? [[String: Any]] ?? []
+    }
+
+    // MARK: - Portfolio Collections
+
+    func testPortfolioCollections_Pull_DoesNotLeakTimestamps() async throws {
+        let res = try resource("portfolio-collections")
+        let result = try await engine.pull(resource: res)
+        let csvFiles = result.files.filter { $0.relativePath.hasSuffix(".csv") }
+        XCTAssertFalse(csvFiles.isEmpty, "portfolio-collections pull should produce at least one CSV file")
+        for file in csvFiles {
+            let content = String(data: file.content, encoding: .utf8) ?? ""
+            XCTAssertFalse(content.contains("createdDate"), "createdDate should be omitted from portfolio collections CSV")
+            XCTAssertFalse(content.contains("updatedDate"), "updatedDate should be omitted from portfolio collections CSV")
+        }
+    }
+
+    func testPortfolioCollections_Create_AppearsOnServer() async throws {
+        let res = try resource("portfolio-collections")
+        let title = uniqueTestName("PortfolioCol")
+
+        let createdId = try await engine.pushRecord(
+            ["title": title, "visible": true],
+            resource: res,
+            action: .create
+        )
+        let id = try XCTUnwrap(createdId, "Expected create portfolio collection to return an id")
+        createdIds.append((resource: res, id: id))
+        try await delay(1000)
+
+        let collections = try await queryPortfolioCollections()
+        let found = collections.first(where: { $0["id"] as? String == id })
+        XCTAssertNotNil(found, "Created portfolio collection not found on server")
+        XCTAssertEqual(found?["title"] as? String, title)
+    }
+
+    func testPortfolioCollections_Update_ReflectedOnServer() async throws {
+        let res = try resource("portfolio-collections")
+        let collectionId = try await createPortfolioCollection(title: uniqueTestName("PortfolioColBase"))
+        let updatedTitle = uniqueTestName("PortfolioColUpdated")
+        try await delay(500)
+
+        try await engine.pushRecord(
+            ["title": updatedTitle, "visible": true],
+            resource: res,
+            action: .update(id: collectionId)
+        )
+        try await delay(1000)
+
+        let collections = try await queryPortfolioCollections()
+        let found = collections.first(where: { $0["id"] as? String == collectionId })
+        XCTAssertEqual(found?["title"] as? String, updatedTitle)
+    }
+
+    func testPortfolioCollections_Delete_RemovedFromServer() async throws {
+        let res = try resource("portfolio-collections")
+        let collectionId = try await createPortfolioCollection(title: uniqueTestName("PortfolioColDel"))
+        try await delay(500)
+
+        try await engine.delete(remoteId: collectionId, resource: res)
+        createdIds.removeAll(where: { $0.id == collectionId })
+        try await delay(1000)
+
+        let collections = try await queryPortfolioCollections()
+        XCTAssertFalse(
+            collections.contains(where: { $0["id"] as? String == collectionId }),
+            "Deleted portfolio collection should not appear in query results"
+        )
+    }
+
+    // MARK: - Portfolio Projects
+
+    func testPortfolioProjects_Create_AppearsOnServer() async throws {
+        let projRes = try resource("portfolio-projects")
+        let collectionId = try await createPortfolioCollection(title: uniqueTestName("PColForProj"))
+        try await delay(500)
+
+        let projTitle = uniqueTestName("PortfolioProj")
+        let createdId = try await engine.pushRecord(
+            ["title": projTitle, "collectionId": collectionId, "visible": true],
+            resource: projRes,
+            action: .create
+        )
+        let projId = try XCTUnwrap(createdId, "Expected create portfolio project to return an id")
+        createdIds.append((resource: projRes, id: projId))
+        try await delay(1000)
+
+        let projects = try await queryPortfolioProjects()
+        let found = projects.first(where: { $0["id"] as? String == projId })
+        XCTAssertNotNil(found, "Created portfolio project not found on server")
+        XCTAssertEqual(found?["title"] as? String, projTitle)
+    }
+
+    func testPortfolioProjects_Delete_RemovedFromServer() async throws {
+        let projRes = try resource("portfolio-projects")
+        let collectionId = try await createPortfolioCollection(title: uniqueTestName("PColForDel"))
+        let projId = try await createPortfolioProject(title: uniqueTestName("PProjDel"), collectionId: collectionId)
+        try await delay(500)
+
+        try await engine.delete(remoteId: projId, resource: projRes)
+        createdIds.removeAll(where: { $0.id == projId })
+        try await delay(1000)
+
+        let projects = try await queryPortfolioProjects()
+        XCTAssertFalse(
+            projects.contains(where: { $0["id"] as? String == projId }),
+            "Deleted portfolio project should not appear in query results"
+        )
+    }
+
+    // MARK: - Portfolio Project Items
+
+    func testPortfolioProjectItems_Create_AppearsOnServer() async throws {
+        let projRes = try resource("portfolio-projects")
+        let projItemsRes = try XCTUnwrap(
+            projRes.children?.first(where: { $0.name == "portfolio-project-items" }),
+            "portfolio-project-items child resource not found in bundled adapter"
+        )
+        let collectionId = try await createPortfolioCollection(title: uniqueTestName("PColForItems"))
+        let projId = try await createPortfolioProject(title: uniqueTestName("PProjForItems"), collectionId: collectionId)
+        try await delay(500)
+
+        let itemTitle = uniqueTestName("PItem")
+        let createdId = try await engine.pushRecord(
+            [
+                "title": itemTitle,
+                "projectId": projId,
+                "mediaItem": [
+                    "type": "IMAGE",
+                    "image": ["url": "https://static.wixstatic.com/media/11062b_a62f58db8a05400cac72d2c6a48bc5d8~mv2.jpg"]
+                ]
+            ],
+            resource: projItemsRes,
+            action: .create
+        )
+        let itemId = try XCTUnwrap(createdId, "Expected create portfolio project item to return an id")
+        try await delay(1000)
+
+        let items = try await queryPortfolioProjectItems(projectId: projId)
+        let found = items.first(where: { $0["id"] as? String == itemId })
+        XCTAssertNotNil(found, "Created portfolio project item not found on server")
+        XCTAssertEqual(found?["title"] as? String, itemTitle)
     }
 }
