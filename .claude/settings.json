@@ -64,7 +64,14 @@
       "Edit(~/.claude/skills/api2file/**)",
       "Bash(sleep 15 echo '=== Office files ===' find ~/API2File/demo -maxdepth 2 \\\\\\(-name *.xlsx -o -name *.docx -o -name *.pptx \\\\\\) 2)",
       "Bash(sleep 15 echo '=== Office ===' find ~/API2File -maxdepth 3 \\\\\\(-name *.xlsx -o -name *.docx -o -name *.pptx \\\\\\) 2)",
-      "Bash(find ~/API2File-Data -maxdepth 3 \\\\\\(-name *.xlsx -o -name *.docx -o -name *.pptx -o -name inventory* -o -name deck* \\\\\\) 2)"
+      "Bash(find ~/API2File-Data -maxdepth 3 \\\\\\(-name *.xlsx -o -name *.docx -o -name *.pptx -o -name inventory* -o -name deck* \\\\\\) 2)",
+      "Bash(curl -s localhost:21567/api/services/monday)",
+      "Bash(curl -s localhost:21567/api/services)",
+      "Bash(timeout 5 .build/debug/api2file-mcp)",
+      "Bash(printf '{\"\"\"\"jsonrpc\"\"\"\":\"\"\"\"2.0\"\"\"\",\"\"\"\"id\"\"\"\":1,\"\"\"\"method\"\"\"\":\"\"\"\"initialize\"\"\"\",\"\"\"\"params\"\"\"\":{\"\"\"\"protocolVersion\"\"\"\":\"\"\"\"2024-11-05\"\"\"\",\"\"\"\"capabilities\"\"\"\":{},\"\"\"\"clientInfo\"\"\"\":{\"\"\"\"name\"\"\"\":\"\"\"\"test\"\"\"\",\"\"\"\"version\"\"\"\":\"\"\"\"1.0\"\"\"\"}}}\\\\n')",
+      "Bash(gtimeout 5 .build/debug/api2file-mcp)",
+      "Bash(grep -r \"frame\\\\|padding\\\\|spacing\\\\|font\\\\|color\" /Users/shayco/API2File/Sources/API2FileApp/UI/*.swift)",
+      "Bash(bash /Users/shayco/API2File/scripts/rebuild.sh)"
     ],
     "additionalDirectories": [
       "/Users/shayco/API2File",

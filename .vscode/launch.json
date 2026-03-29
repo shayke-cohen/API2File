@@ -59,6 +59,26 @@
             "target": "api2file",
             "configuration": "release",
             "preLaunchTask": "swift: Build Release api2file"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:API2File}",
+            "name": "Debug api2file-mcp",
+            "target": "api2file-mcp",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug api2file-mcp"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:API2File}",
+            "name": "Release api2file-mcp",
+            "target": "api2file-mcp",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release api2file-mcp"
         }
     ]
 }
