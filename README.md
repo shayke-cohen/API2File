@@ -29,6 +29,40 @@ swift run API2FileApp         # menu bar app
 
 ---
 
+## High-Level Concept
+
+```mermaid
+graph LR
+    subgraph Cloud["☁️  Cloud Services"]
+        direction TB
+        C1[Monday.com]
+        C2[Wix]
+        C3[GitHub]
+        C4[Airtable]
+    end
+
+    subgraph API2File["⚙️  API2File"]
+        direction TB
+        SYNC[Sync Engine]
+        CONV[Format Converters]
+        GIT[Git Auto-Commit]
+    end
+
+    subgraph Local["💻  Your Mac"]
+        direction TB
+        FILES[Local Files<br/>CSV · MD · VCF · ICS · XLSX…]
+        APPS[Native Apps<br/>Numbers · Contacts · Calendar · Pages]
+        AI[AI Tools<br/>Claude / MCP]
+    end
+
+    Cloud <-->|bidirectional sync| API2File
+    API2File <-->|read / write files| Local
+    APPS -->|open & edit| FILES
+    AI -->|query & act| FILES
+```
+
+---
+
 ## System Overview
 
 ```mermaid
