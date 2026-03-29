@@ -14,6 +14,7 @@ struct Dashboard2View: View {
     @State private var showHiddenFiles = false
     @State private var expandedFolders: Set<String> = []
     @State private var isLoadingHistory = false
+    @State private var syncState: SyncState?
 
     private let background = LinearGradient(
         colors: [
@@ -81,6 +82,10 @@ struct Dashboard2View: View {
             isLoadingHistory = true
             await appState.refreshHistory(serviceId: selectedServiceId)
             isLoadingHistory = false
+            if let dir = selectedServiceDirectory {
+                let stateURL = dir.appendingPathComponent(".api2file/state.json")
+                syncState = try? SyncState.load(from: stateURL)
+            }
         }
     }
 
@@ -534,8 +539,28 @@ struct Dashboard2View: View {
                                 depth: 0,
                                 serviceDir: selectedServiceDirectory!,
                                 serviceConfig: selectedService?.config,
+                                syncState: syncState,
                                 selectedFileURL: $selectedFileURL,
-                                expandedFolders: $expandedFolders
+                                expandedFolders: $expandedFolders,
+                                onToggleResourceSync: { resourceName, enabled in
+                                    if let serviceId = selectedService?.serviceId {
+                                        appState.setResourceEnabled(serviceId: serviceId, resourceName: resourceName, enabled: enabled)
+                                    }
+                                },
+                                onToggleFileExcluded: { relativePath, excluded in
+                                    if let serviceId = selectedService?.serviceId {
+                                        appState.setFileExcluded(serviceId: serviceId, relativePath: relativePath, excluded: excluded)
+                                        if var state = syncState {
+                                            if var fileState = state.files[relativePath] {
+                                                fileState.excluded = excluded
+                                                state.files[relativePath] = fileState
+                                            } else {
+                                                state.files[relativePath] = FileSyncState(remoteId: "", lastSyncedHash: "", excluded: excluded)
+                                            }
+                                            syncState = state
+                                        }
+                                    }
+                                }
                             )
                         }
                     }
@@ -915,8 +940,11 @@ private struct PortalBrowserTreeRow: View {
     let depth: Int
     let serviceDir: URL
     let serviceConfig: AdapterConfig?
+    let syncState: SyncState?
     @Binding var selectedFileURL: URL?
     @Binding var expandedFolders: Set<String>
+    var onToggleResourceSync: ((String, Bool) -> Void)?
+    var onToggleFileExcluded: ((String, Bool) -> Void)?
 
     private var rowPadding: CGFloat {
         CGFloat(depth) * 14
@@ -941,8 +969,11 @@ private struct PortalBrowserTreeRow: View {
                         depth: depth + 1,
                         serviceDir: serviceDir,
                         serviceConfig: serviceConfig,
+                        syncState: syncState,
                         selectedFileURL: $selectedFileURL,
-                        expandedFolders: $expandedFolders
+                        expandedFolders: $expandedFolders,
+                        onToggleResourceSync: onToggleResourceSync,
+                        onToggleFileExcluded: onToggleFileExcluded
                     )
                 }
             }
@@ -950,7 +981,9 @@ private struct PortalBrowserTreeRow: View {
     }
 
     private var folderRow: some View {
-        Button {
+        let resource = matchingResource(for: node.relativePath)
+        let isDisabled = resource?.enabled == false
+        return Button {
             toggleFolder()
         } label: {
             HStack(spacing: 10) {
@@ -959,17 +992,23 @@ private struct PortalBrowserTreeRow: View {
                     .foregroundStyle(.secondary)
                     .frame(width: 12)
                 Image(systemName: "folder")
-                    .foregroundStyle(Color.accentColor)
+                    .foregroundStyle(isDisabled ? Color.secondary : Color.accentColor)
                 Text(node.name)
                     .font(.callout.weight(.medium))
-                    .foregroundStyle(.primary)
+                    .foregroundStyle(isDisabled ? .secondary : .primary)
                 Spacer()
-                Text("\(node.children.count)")
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 4)
-                    .background(Capsule().fill(Color.secondary.opacity(0.10)))
+                if isDisabled {
+                    Image(systemName: "pause.fill")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text("\(node.children.count)")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 4)
+                        .background(Capsule().fill(Color.secondary.opacity(0.10)))
+                }
             }
             .padding(.leading, rowPadding)
             .padding(.horizontal, 10)
@@ -980,6 +1019,7 @@ private struct PortalBrowserTreeRow: View {
             )
         }
         .buttonStyle(.plain)
+        .opacity(isDisabled ? 0.5 : 1.0)
         .contextMenu {
             Button("Open in Finder") {
                 FinderSupport.openInFinder(serviceDir.appendingPathComponent(node.relativePath))
@@ -987,11 +1027,25 @@ private struct PortalBrowserTreeRow: View {
             Button("Open in Terminal") {
                 portalOpenInTerminal(serviceDir.appendingPathComponent(node.relativePath))
             }
+            if let resource {
+                Divider()
+                if isDisabled {
+                    Button("Enable Sync") {
+                        onToggleResourceSync?(resource.name, true)
+                    }
+                } else {
+                    Button("Disable Sync") {
+                        onToggleResourceSync?(resource.name, false)
+                    }
+                }
+            }
         }
     }
 
     private var fileRow: some View {
         let fileURL = nodeFileURL
+        let relativePath = fileURL.path.replacingOccurrences(of: serviceDir.path + "/", with: "")
+        let isExcluded = syncState?.files[relativePath]?.excluded == true
         return Button {
             selectedFileURL = fileURL
             expandAncestors()
@@ -999,11 +1053,11 @@ private struct PortalBrowserTreeRow: View {
             HStack(spacing: 10) {
                 Color.clear.frame(width: 12)
                 Image(systemName: portalIconName(for: fileURL))
-                    .foregroundStyle(selectedFileURL == fileURL ? Color.accentColor : .secondary)
+                    .foregroundStyle(selectedFileURL == fileURL ? Color.accentColor : (isExcluded ? Color.secondary.opacity(0.5) : .secondary))
                 VStack(alignment: .leading, spacing: 2) {
                     Text(node.name)
                         .font(.callout.weight(.medium))
-                        .foregroundStyle(.primary)
+                        .foregroundStyle(isExcluded ? .secondary : .primary)
                         .lineLimit(1)
                         .truncationMode(.middle)
                     Text(fileURL.pathExtension.uppercased())
@@ -1011,6 +1065,11 @@ private struct PortalBrowserTreeRow: View {
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
+                if isExcluded {
+                    Image(systemName: "minus.circle")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
             }
             .padding(.leading, rowPadding)
             .padding(.horizontal, 10)
@@ -1021,8 +1080,9 @@ private struct PortalBrowserTreeRow: View {
             )
         }
         .buttonStyle(.plain)
+        .opacity(isExcluded ? 0.6 : 1.0)
         .contextMenu {
-            portalFileContextMenu(fileURL)
+            portalFileContextMenu(fileURL, relativePath: relativePath, isExcluded: isExcluded)
         }
     }
 
@@ -1052,7 +1112,7 @@ private struct PortalBrowserTreeRow: View {
     }
 
     @ViewBuilder
-    private func portalFileContextMenu(_ fileURL: URL) -> some View {
+    private func portalFileContextMenu(_ fileURL: URL, relativePath: String, isExcluded: Bool) -> some View {
         Button("Open in Finder") {
             NSWorkspace.shared.activateFileViewerSelecting([fileURL])
         }
@@ -1070,6 +1130,32 @@ private struct PortalBrowserTreeRow: View {
         Button("Open Editor") {
             openFileInEditor(fileURL)
         }
+        Divider()
+        if isExcluded {
+            Button("Include in Sync") {
+                onToggleFileExcluded?(relativePath, false)
+            }
+        } else {
+            Button("Exclude from Sync") {
+                onToggleFileExcluded?(relativePath, true)
+            }
+        }
+    }
+
+    private func matchingResource(for folderPath: String) -> ResourceConfig? {
+        guard let config = serviceConfig else { return nil }
+        func check(_ res: ResourceConfig) -> ResourceConfig? {
+            let dir = res.fileMapping.directory
+            guard !dir.contains("{"), dir == folderPath else { return nil }
+            return res
+        }
+        for resource in config.resources {
+            if let found = check(resource) { return found }
+            for child in resource.children ?? [] {
+                if let found = check(child) { return found }
+            }
+        }
+        return nil
     }
 }
 

@@ -69,6 +69,34 @@ final class FinderSync: FIFinderSync {
         viewItem.image = NSImage(systemSymbolName: "globe", accessibilityDescription: nil)
         menu.addItem(viewItem)
 
+        if let targetURL = FIFinderSyncController.default().targetedURL() ?? FIFinderSyncController.default().selectedItemURLs()?.first,
+           let serviceId = extractServiceId(from: targetURL) {
+            menu.addItem(NSMenuItem.separator())
+
+            var isDirectory: ObjCBool = false
+            FileManager.default.fileExists(atPath: targetURL.path, isDirectory: &isDirectory)
+
+            if isDirectory.boolValue {
+                let isEnabled = resourceEnabled(for: targetURL, serviceId: serviceId)
+                let action: Selector = isEnabled ? #selector(disableResourceSyncAction(_:)) : #selector(enableResourceSyncAction(_:))
+                let label = isEnabled ? "Disable Sync" : "Enable Sync"
+                let symbol = isEnabled ? "pause.fill" : "play.fill"
+                let item = NSMenuItem(title: label, action: action, keyEquivalent: "")
+                item.target = self
+                item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
+                menu.addItem(item)
+            } else {
+                let isExcluded = fileExcluded(for: targetURL, serviceId: serviceId)
+                let action: Selector = isExcluded ? #selector(includeInSyncAction(_:)) : #selector(excludeFromSyncAction(_:))
+                let label = isExcluded ? "Include in Sync" : "Exclude from Sync"
+                let symbol = isExcluded ? "plus.circle" : "minus.circle"
+                let item = NSMenuItem(title: label, action: action, keyEquivalent: "")
+                item.target = self
+                item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
+                menu.addItem(item)
+            }
+        }
+
         if let targetURL = FIFinderSyncController.default().targetedURL(),
            hasConflict(at: targetURL) {
             menu.addItem(NSMenuItem.separator())
@@ -135,6 +163,113 @@ final class FinderSync: FIFinderSync {
         if FileManager.default.fileExists(atPath: conflictPath.path) {
             NSWorkspace.shared.open(conflictPath)
         }
+    }
+
+    @objc func disableResourceSyncAction(_ sender: AnyObject?) {
+        performResourceSyncToggle(enabled: false)
+    }
+
+    @objc func enableResourceSyncAction(_ sender: AnyObject?) {
+        performResourceSyncToggle(enabled: true)
+    }
+
+    @objc func excludeFromSyncAction(_ sender: AnyObject?) {
+        performFileExcludedToggle(excluded: true)
+    }
+
+    @objc func includeInSyncAction(_ sender: AnyObject?) {
+        performFileExcludedToggle(excluded: false)
+    }
+
+    private func performResourceSyncToggle(enabled: Bool) {
+        guard let targetURL = currentTargetURL(),
+              let serviceId = extractServiceId(from: targetURL),
+              let resourceName = extractResourceName(for: targetURL, serviceId: serviceId) else {
+            NSLog("FinderSync performResourceSyncToggle could not resolve target")
+            return
+        }
+        Task {
+            let urlString = "\(controlServerBaseURL)/api/services/\(serviceId)/resources/\(resourceName)"
+            guard let url = URL(string: urlString) else { return }
+            var request = URLRequest(url: url)
+            request.httpMethod = "PATCH"
+            request.httpBody = try? JSONSerialization.data(withJSONObject: ["enabled": enabled])
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            NSLog("FinderSync resourceSyncToggle PATCH %@ enabled=%@", urlString, enabled ? "true" : "false")
+            do {
+                let (_, response) = try await URLSession.shared.data(for: request)
+                let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
+                NSLog("FinderSync resourceSyncToggle response status=%ld", statusCode)
+            } catch {
+                NSLog("FinderSync resourceSyncToggle failed: %@", error.localizedDescription)
+            }
+        }
+    }
+
+    private func performFileExcludedToggle(excluded: Bool) {
+        guard let targetURL = currentTargetURL(),
+              let serviceId = extractServiceId(from: targetURL) else {
+            NSLog("FinderSync performFileExcludedToggle could not resolve target")
+            return
+        }
+        guard let relativePath = FinderBadgeSupport.relativePath(for: targetURL, syncRootURL: syncFolderURL) else { return }
+        // relativePath = "serviceId/rest/of/path" — strip the serviceId prefix
+        let pathWithinService = String(relativePath.dropFirst(serviceId.count + 1))
+        Task {
+            let urlString = "\(controlServerBaseURL)/api/services/\(serviceId)/files"
+            guard let url = URL(string: urlString) else { return }
+            var request = URLRequest(url: url)
+            request.httpMethod = "PATCH"
+            request.httpBody = try? JSONSerialization.data(withJSONObject: ["path": pathWithinService, "excluded": excluded])
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            NSLog("FinderSync fileExcludedToggle PATCH %@ path=%@ excluded=%@", urlString, pathWithinService, excluded ? "true" : "false")
+            do {
+                let (_, response) = try await URLSession.shared.data(for: request)
+                let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
+                NSLog("FinderSync fileExcludedToggle response status=%ld", statusCode)
+            } catch {
+                NSLog("FinderSync fileExcludedToggle failed: %@", error.localizedDescription)
+            }
+        }
+    }
+
+    private func extractResourceName(for url: URL, serviceId: String) -> String? {
+        guard let relativePath = FinderBadgeSupport.relativePath(for: url, syncRootURL: syncFolderURL) else { return nil }
+        let pathWithinService = String(relativePath.dropFirst(serviceId.count + 1))
+        let folderName = pathWithinService.components(separatedBy: "/").first ?? pathWithinService
+        guard !folderName.isEmpty else { return nil }
+        let serviceRoot = syncFolderURL.appendingPathComponent(serviceId, isDirectory: true)
+        guard let config = serviceConfig(for: serviceId, serviceRoot: serviceRoot) else { return nil }
+        for resource in config.resources {
+            if resource.fileMapping.directory == folderName { return resource.name }
+            for child in resource.children ?? [] {
+                if child.fileMapping.directory == folderName { return child.name }
+            }
+        }
+        return nil
+    }
+
+    private func resourceEnabled(for url: URL, serviceId: String) -> Bool {
+        guard let resourceName = extractResourceName(for: url, serviceId: serviceId) else { return true }
+        let serviceRoot = syncFolderURL.appendingPathComponent(serviceId, isDirectory: true)
+        guard let config = serviceConfig(for: serviceId, serviceRoot: serviceRoot) else { return true }
+        for resource in config.resources {
+            if resource.name == resourceName { return resource.enabled != false }
+            for child in resource.children ?? [] {
+                if child.name == resourceName { return child.enabled != false }
+            }
+        }
+        return true
+    }
+
+    private func fileExcluded(for url: URL, serviceId: String) -> Bool {
+        guard let relativePath = FinderBadgeSupport.relativePath(for: url, syncRootURL: syncFolderURL) else { return false }
+        let pathWithinService = String(relativePath.dropFirst(serviceId.count + 1))
+        let serviceRoot = syncFolderURL.appendingPathComponent(serviceId, isDirectory: true)
+        let stateURL = serviceRoot.appendingPathComponent(".api2file/state.json")
+        guard let data = try? Data(contentsOf: stateURL),
+              let state = try? JSONDecoder().decode(SyncState.self, from: data) else { return false }
+        return state.files[pathWithinService]?.excluded == true
     }
 
     // MARK: - Shared State

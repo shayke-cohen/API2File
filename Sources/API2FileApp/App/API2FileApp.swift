@@ -330,6 +330,20 @@ final class AppState: ObservableObject {
         }
     }
 
+    func setResourceEnabled(serviceId: String, resourceName: String, enabled: Bool) {
+        Task {
+            await syncEngine?.setResourceEnabled(serviceId: serviceId, resourceName: resourceName, enabled: enabled)
+            await refreshServices()
+        }
+    }
+
+    func setFileExcluded(serviceId: String, relativePath: String, excluded: Bool) {
+        Task {
+            await syncEngine?.setFileExcluded(serviceId: serviceId, relativePath: relativePath, excluded: excluded)
+            await refreshServices()
+        }
+    }
+
     func updateAPIKey(serviceId: String, newKey: String) {
         Task {
             guard let service = services.first(where: { $0.serviceId == serviceId }) else { return }

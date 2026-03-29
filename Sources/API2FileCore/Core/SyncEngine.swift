@@ -381,7 +381,8 @@ public actor SyncEngine {
                 await ActivityLogger.shared.debug(.sync, "↓ Skipping \(resourcesToSkip.count) empty resource(s) this cycle")
             }
 
-            let sortedResources = prioritizeResources(engine.config.resources, state: localState, skip: resourcesToSkip)
+            let enabledResources = engine.config.resources.filter { $0.enabled != false }
+            let sortedResources = prioritizeResources(enabledResources, state: localState, skip: resourcesToSkip)
             let stateSnapshot = localState
 
             var pulledFiles: [SyncableFile] = []
@@ -489,16 +490,22 @@ public actor SyncEngine {
 
             // Stale file cleanup — only for resources that performed a full sync this cycle
             for (resourceName, newFilePaths) in fullSyncFilePathsByResource {
-                guard let resource = engine.config.resources.first(where: { $0.name == resourceName }),
-                      resource.fileMapping.strategy == .onePerRecord else { continue }
+                guard let resource = engine.config.resources.first(where: { $0.name == resourceName }) else { continue }
+                let isOnePerRecord = resource.fileMapping.strategy == .onePerRecord
+                let childNames = Set((resource.children ?? []).map(\.name))
+                guard isOnePerRecord || !childNames.isEmpty else { continue }
 
                 var staleFilePaths: [String] = []
                 for (filePath, _) in localState.files {
                     if !newFilePaths.contains(filePath),
-                       let matchedResource = findResource(for: filePath, in: engine.config),
-                       matchedResource.name == resource.name,
-                       matchedResource.fileMapping.strategy == .onePerRecord {
-                        staleFilePaths.append(filePath)
+                       let matchedResource = findResource(for: filePath, in: engine.config) {
+                        if isOnePerRecord,
+                           matchedResource.name == resource.name,
+                           matchedResource.fileMapping.strategy == .onePerRecord {
+                            staleFilePaths.append(filePath)
+                        } else if childNames.contains(matchedResource.name) {
+                            staleFilePaths.append(filePath)
+                        }
                     }
                 }
 
@@ -641,6 +648,12 @@ public actor SyncEngine {
         unchangedCount: inout Int
     ) async throws {
         for file in result.files {
+            // Skip excluded files
+            if localState.files[file.relativePath]?.excluded == true {
+                await ActivityLogger.shared.debug(.sync, "↓ Skipping \(file.relativePath) — excluded from sync")
+                continue
+            }
+
             let filePath = serviceDir.appendingPathComponent(file.relativePath)
             try FileManager.default.createDirectory(at: filePath.deletingLastPathComponent(), withIntermediateDirectories: true)
 
@@ -802,6 +815,12 @@ public actor SyncEngine {
 
         // Find which resource this file belongs to
         guard let resource = findResource(for: filePath, in: engine.config) else { return }
+
+        // Skip disabled resources
+        if resource.enabled == false { return }
+
+        // Skip excluded files
+        if syncStates[serviceId]?.files[filePath]?.excluded == true { return }
 
         // Skip read-only resources
         if resource.fileMapping.effectivePushMode == .readOnly { return }
@@ -2806,6 +2825,62 @@ public actor SyncEngine {
         // Reload the service to pick up the change
         await reloadService(serviceId)
         await ActivityLogger.shared.info(.system, "\(serviceId) \(enabled ? "enabled" : "disabled")")
+    }
+
+    /// Enable or disable a specific resource within a service by updating its adapter.json and reloading
+    public func setResourceEnabled(serviceId: String, resourceName: String, enabled: Bool) async {
+        let serviceDir = syncFolder.appendingPathComponent(serviceId)
+        let configURL = serviceDir.appendingPathComponent(".api2file/adapter.json")
+
+        guard FileManager.default.fileExists(atPath: configURL.path) else { return }
+
+        do {
+            let data = try Data(contentsOf: configURL)
+            guard var json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
+            guard var resources = json["resources"] as? [[String: Any]] else { return }
+            for i in resources.indices where (resources[i]["name"] as? String) == resourceName {
+                resources[i]["enabled"] = enabled
+            }
+            json["resources"] = resources
+            let updatedData = try JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys])
+            try updatedData.write(to: configURL, options: .atomic)
+        } catch {
+            await ActivityLogger.shared.error(.system, "Failed to update enabled state for resource \(resourceName) in \(serviceId): \(error)")
+            return
+        }
+
+        await reloadService(serviceId)
+        await ActivityLogger.shared.info(.system, "\(serviceId)/\(resourceName) \(enabled ? "enabled" : "disabled")")
+    }
+
+    /// Exclude or include a specific file from sync by updating its state.json
+    public func setFileExcluded(serviceId: String, relativePath: String, excluded: Bool) async {
+        let serviceDir = syncFolder.appendingPathComponent(serviceId)
+        let stateURL = serviceDir.appendingPathComponent(".api2file/state.json")
+
+        var state = syncStates[serviceId] ?? SyncState()
+        if var fileState = state.files[relativePath] {
+            fileState.excluded = excluded
+            state.files[relativePath] = fileState
+        } else {
+            state.files[relativePath] = FileSyncState(
+                remoteId: "",
+                lastSyncedHash: "",
+                lastSyncTime: Date(),
+                status: .synced,
+                excluded: excluded
+            )
+        }
+
+        do {
+            try state.save(to: stateURL)
+            syncStates[serviceId] = state
+        } catch {
+            await ActivityLogger.shared.error(.system, "Failed to update excluded state for \(relativePath) in \(serviceId): \(error)")
+            return
+        }
+
+        await ActivityLogger.shared.info(.system, "\(serviceId)/\(relativePath) \(excluded ? "excluded" : "included") from sync")
     }
 
     /// Register and start a new service (for use after AddServiceView creates the directory)

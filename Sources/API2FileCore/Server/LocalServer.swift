@@ -235,6 +235,19 @@ public actor LocalServer {
             return await handleTriggerSync(serviceId: serviceId)
         }
 
+        // PATCH /api/services/:id/resources/:name  {"enabled": bool}
+        if method == "PATCH", path.hasPrefix("/api/services/"), path.contains("/resources/") {
+            let parts = path.components(separatedBy: "/")
+            if parts.count == 6, parts[4] == "resources" {
+                return await handleSetResourceEnabled(serviceId: parts[3], resourceName: parts[5], body: request.body)
+            }
+        }
+
+        // PATCH /api/services/:id/files  {"path": "...", "excluded": bool}
+        if method == "PATCH", let serviceId = matchRoute(path: path, pattern: "/api/services/", suffix: "/files") {
+            return await handleSetFileExcluded(serviceId: serviceId, body: request.body)
+        }
+
         // POST /api/adapters/validate
         if method == "POST" && path == "/api/adapters/validate" {
             return handleValidateAdapter(body: request.body)
@@ -576,6 +589,33 @@ public actor LocalServer {
         await syncEngine.triggerSync(serviceId: serviceId)
         NSLog("LocalServer triggerSync dispatched for %@", serviceId)
         return HTTPResponse(statusCode: 200, body: ["triggered": "true"])
+    }
+
+    private func handleSetResourceEnabled(serviceId: String, resourceName: String, body: Data?) async -> HTTPResponse {
+        guard await syncEngine.getServiceStatus(serviceId) != nil else {
+            return HTTPResponse(statusCode: 404, body: ["error": "Service not found", "serviceId": serviceId])
+        }
+        guard let body,
+              let json = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
+              let enabled = json["enabled"] as? Bool else {
+            return HTTPResponse(statusCode: 400, body: ["error": "Body must be {\"enabled\": bool}"])
+        }
+        await syncEngine.setResourceEnabled(serviceId: serviceId, resourceName: resourceName, enabled: enabled)
+        return HTTPResponse(statusCode: 200, body: ["serviceId": serviceId, "resource": resourceName, "enabled": enabled ? "true" : "false"])
+    }
+
+    private func handleSetFileExcluded(serviceId: String, body: Data?) async -> HTTPResponse {
+        guard await syncEngine.getServiceStatus(serviceId) != nil else {
+            return HTTPResponse(statusCode: 404, body: ["error": "Service not found", "serviceId": serviceId])
+        }
+        guard let body,
+              let json = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
+              let relativePath = json["path"] as? String,
+              let excluded = json["excluded"] as? Bool else {
+            return HTTPResponse(statusCode: 400, body: ["error": "Body must be {\"path\": \"...\", \"excluded\": bool}"])
+        }
+        await syncEngine.setFileExcluded(serviceId: serviceId, relativePath: relativePath, excluded: excluded)
+        return HTTPResponse(statusCode: 200, body: ["serviceId": serviceId, "path": relativePath, "excluded": excluded ? "true" : "false"])
     }
 
     private func handleGetHistory(serviceId: String, limit: Int) async -> HTTPResponse {

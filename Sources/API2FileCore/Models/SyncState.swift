@@ -65,12 +65,15 @@ public struct FileSyncState: Codable, Sendable {
     public var lastRemoteETag: String?
     public var lastSyncTime: Date
     public var status: SyncStatus
+    /// If true, this file is excluded from sync in both directions (default: nil = not excluded)
+    public var excluded: Bool?
 
-    public init(remoteId: String, lastSyncedHash: String, lastRemoteETag: String? = nil, lastSyncTime: Date = Date(), status: SyncStatus = .synced) {
+    public init(remoteId: String, lastSyncedHash: String, lastRemoteETag: String? = nil, lastSyncTime: Date = Date(), status: SyncStatus = .synced, excluded: Bool? = nil) {
         self.remoteId = remoteId
         self.lastSyncedHash = lastSyncedHash
         self.lastRemoteETag = lastRemoteETag
         self.lastSyncTime = lastSyncTime
         self.status = status
+        self.excluded = excluded
     }
 }

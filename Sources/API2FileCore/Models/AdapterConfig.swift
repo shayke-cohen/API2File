@@ -139,8 +139,10 @@ public struct ResourceConfig: Codable, Sendable {
     public var siteUrl: String?
     /// Management dashboard URL for this resource (e.g., Wix CRM, Monday board)
     public var dashboardUrl: String?
+    /// If false, syncing is disabled for this resource (default: true when nil)
+    public var enabled: Bool?
 
-    public init(name: String, description: String? = nil, capabilityClass: ResourceCapabilityClass? = nil, pull: PullConfig? = nil, push: PushConfig? = nil, fileMapping: FileMappingConfig, children: [ResourceConfig]? = nil, sync: SyncConfig? = nil, siteUrl: String? = nil, dashboardUrl: String? = nil) {
+    public init(name: String, description: String? = nil, capabilityClass: ResourceCapabilityClass? = nil, pull: PullConfig? = nil, push: PushConfig? = nil, fileMapping: FileMappingConfig, children: [ResourceConfig]? = nil, sync: SyncConfig? = nil, siteUrl: String? = nil, dashboardUrl: String? = nil, enabled: Bool? = nil) {
         self.name = name
         self.description = description
         self.capabilityClass = capabilityClass
@@ -151,6 +153,7 @@ public struct ResourceConfig: Codable, Sendable {
         self.sync = sync
         self.siteUrl = siteUrl
         self.dashboardUrl = dashboardUrl
+        self.enabled = enabled
     }
 
     /// Create a copy with a resolved directory path (for child resources with template directories).
@@ -169,7 +172,7 @@ public struct ResourceConfig: Codable, Sendable {
             pushMode: fileMapping.pushMode,
             deleteFromAPI: fileMapping.deleteFromAPI
         )
-        return ResourceConfig(name: name, description: description, capabilityClass: capabilityClass, pull: pull, push: push, fileMapping: newMapping, children: children, sync: sync)
+        return ResourceConfig(name: name, description: description, capabilityClass: capabilityClass, pull: pull, push: push, fileMapping: newMapping, children: children, sync: sync, siteUrl: siteUrl, dashboardUrl: dashboardUrl, enabled: enabled)
     }
 
     public func withResolvedFileMapping(directory: String, filename: String?) -> ResourceConfig {
@@ -187,7 +190,7 @@ public struct ResourceConfig: Codable, Sendable {
             pushMode: fileMapping.pushMode,
             deleteFromAPI: fileMapping.deleteFromAPI
         )
-        return ResourceConfig(name: name, description: description, capabilityClass: capabilityClass, pull: pull, push: push, fileMapping: newMapping, children: children, sync: sync)
+        return ResourceConfig(name: name, description: description, capabilityClass: capabilityClass, pull: pull, push: push, fileMapping: newMapping, children: children, sync: sync, siteUrl: siteUrl, dashboardUrl: dashboardUrl, enabled: enabled)
     }
 }
 
