@@ -1089,7 +1089,7 @@
         "companionFiles": [
           {
             "filename": "{name|slugify}.md",
-            "directory": "bookings/services",
+            "directory": "bookings-services",
             "template": "# {name}\n\n**Type:** {type}\n**Capacity:** {capacity}\n**Online Booking:** {onlineBookingEnabled}\n\n{tagLine}\n\n{description}",
             "readOnly": true
           }
@@ -1146,7 +1146,7 @@
         "companionFiles": [
           {
             "filename": "{id}.md",
-            "directory": "bookings/appointments",
+            "directory": "bookings-appointments",
             "template": "# {serviceName}\n\n**Guest:** {guestFirstName} {guestLastName}\n**Email:** {guestEmail}\n**Status:** {status}",
             "readOnly": true
           }
@@ -1413,7 +1413,7 @@
           },
           "fileMapping": {
             "strategy": "collection",
-            "directory": "inbox/{contactName|slugify}",
+            "directory": "inbox-conversations/{contactName|slugify}",
             "filename": "messages.csv",
             "format": "csv",
             "idField": "id",
