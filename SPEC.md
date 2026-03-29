@@ -32,7 +32,7 @@ AI agents should prefer the canonical structured files for high-fidelity edits a
 - Services are connected via JSON config files (`adapter.json`), not compiled code
 - Config specifies: auth, API endpoints, data extraction paths, file format, sync interval
 - Bundled adapter configs ship with the app; users can create custom ones
-- Each service config lives at `~/API2File/{service}/.api2file/adapter.json`
+- Each service config lives at `~/API2File-Data/{service}/.api2file/adapter.json` by default
 
 ### FR-2: Bidirectional Sync
 
@@ -66,6 +66,12 @@ AI agents should prefer the canonical structured files for high-fidelity edits a
 | VCF | RFC 6350 | Contacts.app |
 | HTML | — | Safari, browsers |
 | Markdown | CommonMark | Any editor |
+| EML | RFC 5322 | Mail.app |
+| SVG | — | Preview, browsers |
+| WEBLOC | — | Safari |
+| XLSX | OOXML | Numbers, Excel |
+| DOCX | OOXML | Pages, Word |
+| PPTX | OOXML | Keynote, PowerPoint |
 | Text | — | TextEdit |
 | Raw | — | Varies |
 
@@ -142,23 +148,24 @@ All credentials stored in macOS Keychain with `com.api2file.` namespace.
 
 ### FR-10: Demo Mode
 
-- Built-in REST API server (port 8089) with in-memory task data
-- 3 seed tasks with various statuses
-- Full CRUD endpoints: GET/POST/PUT/DELETE `/api/tasks`
-- Bundled `demo.adapter.json` config
-- Setup script for zero-friction onboarding
+- Built-in REST API server (port 8089) with seeded multi-resource data
+- Demo surface includes tasks, contacts, events, notes, pages, config, services, incidents, logos, photos, documents, spreadsheets, reports, presentations, emails, bookmarks, settings, and snippets
+- Full CRUD is available for the demo resources exposed by the bundled adapters
+- Bundled `demo.adapter.json` plus themed demo adapters provide zero-friction onboarding and format coverage
 
 ### FR-11: macOS Menu Bar App
 
 - Native SwiftUI menu bar app (`LSUIElement` — no dock icon)
 - Service list with status indicators and per-service sync controls
+- **Dashboard workspace** — a single dashboard window with inner sections for `File Explorer`, `Data Explorer`, and `Activity`
+- **Settings sheet** — general sync, git, notification, Finder badge, and app settings opened from the dashboard shell
 - **Add Service wizard** — guided 3-step flow: select service → enter credentials → connected
   - Service-specific extra fields (Wix Site ID, Airtable Base ID/Table Name)
   - API key securely stored in macOS Keychain
 - **Service detail view** — NavigationSplitView in Preferences showing resources, last sync time, file count, error details
 - **Service management** — disconnect services, update API keys, per-service sync
 - **Onboarding** — empty state guidance when no services are connected
-- **Preferences** — General tab (sync folder, git, notifications, interval) and Services tab (detail view)
+- **Finder-aware desktop flow** — Finder Sync badges/context menus, Quick Look previews, and file-open routing into API2File’s editor window
 - **.app bundle** — distributable as a standalone macOS application
 
 ### FR-12: Bundled External Adapters
@@ -310,12 +317,14 @@ Usage: `{name|slugify}.json`, `{field|default:untitled}.csv`
 ## Runtime Folder Structure
 
 ```
-~/API2File/
+~/API2File-Data/
 ├── CLAUDE.md                     # Root agent guide (auto-generated)
 ├── {service}/
 │   ├── .api2file/
 │   │   ├── adapter.json          # Service config
-│   │   └── state.json            # Sync state
+│   │   ├── state.json            # Sync state
+│   │   ├── file-links.json       # Canonical/projection link index
+│   │   └── cache/service.sqlite  # Read-only local mirror
 │   ├── .git/                     # Independent git repo
 │   ├── .gitignore                # Excludes .api2file/
 │   ├── CLAUDE.md                 # Service-specific agent guide

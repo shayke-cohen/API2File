@@ -8,7 +8,7 @@ The design direction is a **canonical object-file model**: every resource has a 
 
 Each service now also maintains a derived SQLite mirror at `.api2file/cache/service.sqlite`. The database is regenerated from canonical object files after successful pull/push work and is exposed as a read-only query surface for local tools and MCP agents, including record-resolution helpers that map SQL hits back to canonical and projection files.
 
-On macOS, the app also exposes a Finder-facing desktop workflow: the menu bar app can open synced files directly in the in-app editor, Finder Sync publishes badges and contextual actions, and a Quick Look preview extension renders synced file previews with text-first custom previews plus metadata fallback for binary and Office-style files.
+On macOS, the app exposes two complementary desktop surfaces: a menu bar app with a single Dashboard shell for file browsing, local SQLite exploration, activity review, and settings; and a Finder-facing workflow where synced files can be opened directly in API2File, badged through Finder Sync, and previewed through a Quick Look extension with text-first custom previews plus metadata fallback for binary and Office-style files.
 
 The repo now also contains an experimental browser-native product line in [`website/`](/Users/shayco/API2File/website). Lite is intentionally separate from the Swift runtime: it preserves adapter JSON and canonical/projection concepts, but re-implements the runtime in TypeScript around browser capabilities like File System Access, IndexedDB, and `fetch`.
 
@@ -21,9 +21,9 @@ The repo now also contains an experimental browser-native product line in [`webs
 │  ┌──────────────┐  ┌──────────────────────────────────┐ │
 │  │ SwiftUI UI   │  │         SyncEngine               │ │
 │  │ (macOS/iOS)  │──│  - Service discovery              │ │
-│  │ Finder / QL  │  │  - Finder state publishing        │ │
-│  └──────────────┘  │  - Lifecycle management           │ │
-│                    │  - Pull/push orchestration         │ │
+│  │ Dashboard /  │  │  - Finder state publishing        │ │
+│  │ Finder / QL  │  │  - Lifecycle management           │ │
+│  └──────────────┘  │  - Pull/push orchestration         │ │
 │                    └────────────┬─────────────────────┘ │
 │                                 │                        │
 │              ┌──────────────────┼──────────────────┐     │
@@ -46,6 +46,18 @@ The repo now also contains an experimental browser-native product line in [`webs
 ```
 
 ## Core Components
+
+### Dashboard Shell
+
+**Files:** `Sources/API2FileApp/UI/DashboardRootView.swift`, `Sources/API2FileApp/UI/Dashboard2View.swift`, `Sources/API2FileApp/UI/SQLExplorerPane.swift`, `Sources/API2FileApp/UI/PreferencesView.swift`
+
+The macOS dashboard is a single root shell that hosts three inner sections:
+
+- **File Explorer** — a workspace-first browser for synced files, service selection, sync actions, and in-app editing/preview launch points
+- **Data Explorer** — a SQLite-backed view over `.api2file/cache/service.sqlite`
+- **Activity** — recent pull/push history for the selected service set
+
+The dashboard also owns the general settings sheet instead of using a separate top-level preferences-style dashboard screen.
 
 ## Browser-Native Lite
 
@@ -220,7 +232,30 @@ Maintains a per-service SQLite database under `.api2file/cache/service.sqlite`.
 - Creates one query table per resource with scalar columns plus `_json_payload`
 - Adds metadata columns such as `_remote_id`, `_projection_path`, `_object_path`, `_last_synced_at`, and `_status`
 - Rejects mutating SQL; the mirror is analysis-only in v1
-- Powers the local control API and MCP SQL/search tools
+- Powers the dashboard Data Explorer, local control API, and MCP SQL/search tools
+
+### Finder Sync Extension
+
+**File:** `Sources/FinderExtension/FinderSync.swift`
+
+Finder Sync publishes the synced-folder presence into Finder itself.
+
+- Registers badges for synced, modified, syncing, conflict, and error states
+- Exposes contextual actions such as force-sync and view-on-server
+- Resolves service IDs from selected paths and talks to the local control API
+- Watches the sync root through the shared state/bookmark model rather than re-implementing sync logic
+
+### Quick Look Extension
+
+**File:** `Sources/QuickLookExtension/PreviewProvider.swift`
+
+Quick Look preview support is file-type-aware but intentionally pragmatic.
+
+- CSV gets a table-style preview
+- Markdown gets a lightweight rendered preview
+- JSON, YAML, TXT, ICS, VCF, and EML get text-first previews
+- Images, HTML, PDF, SVG, audio, and movie files can pass through to system preview behavior when appropriate
+- Binary, archive, and Office-style files fall back to a metadata card rather than attempting a lossy custom renderer
 
 ### FileLinkManager
 
@@ -300,7 +335,7 @@ FileMapper (determine human-facing file paths)
 FormatConverter.encode() (records → CSV/JSON/ICS/VCF/...)
     │
     ▼
-Write human-facing files to ~/API2File/{service}/{path}
+Write human-facing files to ~/API2File-Data/{service}/{path}
     │
     ▼
 Update .api2file/state.json (hash, remoteId, timestamp)

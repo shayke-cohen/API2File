@@ -12,13 +12,14 @@ Pure Swift core with native macOS and iOS apps.
 - **Read-only SQLite mirror per service** -- query synced data locally at `.api2file/cache/service.sqlite`
 - **Media sync** -- generic binary file download/upload for any cloud storage API (images, videos, documents)
 - **Bidirectional sync** with smart collection diffing -- pull from API, push local edits back
-- **macOS menu bar app** (MenuBarExtra) -- always-on sync with per-service controls
+- **macOS menu bar app + dashboard** -- always-on sync with a unified dashboard for File Explorer, Data Explorer, Activity, and settings
 - **Finder-aware desktop flow** -- Finder Sync badges/context actions, document opening into API2File, and Quick Look previews for synced file types
 - **Universal iOS app** -- browse, preview, edit, import, and share synced files from iPhone and iPad
 - **Web dashboard** at `localhost:8089` -- visual overview served by the demo server
 - **Browser-native Lite prototype** in [`website/`](/Users/shayco/API2File/website) -- experimental no-install sync runtime using File System Access API + IndexedDB
 - **CLI tool** (`api2file`) -- init, add, sync, pull, status, list
 - **MCP query tools** -- list tables, describe schema, run read-only SQL, search records, jump from record IDs to canonical/projection files, and query-open the first match
+- **Dashboard workspace** -- one native macOS shell for file browsing, SQLite-backed data exploration, and sync activity
 - **Global Data Explorer** -- browse a service's SQLite tables in one screen inside the macOS app
 - **Auto-generated CLAUDE.md** -- agent guide placed in the sync folder for AI tools
 - **Git auto-commit** -- every sync cycle committed with descriptive messages
@@ -70,7 +71,7 @@ swift run api2file status        # shows all services and their sync state
 swift run API2FileApp
 ```
 
-The app appears as a cloud icon in the menu bar. Click it to see connected services, trigger syncs, and open preferences.
+The app appears as a cloud icon in the menu bar. Open the Dashboard to browse synced files, inspect the SQLite mirror, review activity, and manage settings from one workspace.
 
 ### 6. Build the iOS app
 
@@ -134,10 +135,13 @@ Sources/
       Adapters/           12 bundled .adapter.json files
       Web/                dashboard.html
   API2FileApp/            macOS menu bar app (SwiftUI)
-    App/                  API2FileApp.swift (entry point)
-    UI/                   MenuBarView, PreferencesView, ServiceDetailView, AddServiceView,
-                          Dashboard2View
+    App/                  API2FileApp.swift, API2FileAppDelegate.swift
+    UI/                   MenuBarView, DashboardRootView, Dashboard2View,
+                          SQLExplorerPane, PreferencesView, ServiceDetailView,
+                          AddServiceView
+  FinderExtension/        Finder Sync badges and contextual actions
   QuickLookExtension/     macOS Quick Look preview extension for synced files
+  API2FileMCP/            MCP bridge executable for browser/webview control
   API2FileiOSApp/         iPhone + iPad app (SwiftUI)
     App/                  API2FileiOSApp.swift, IOSAppState.swift
     UI/                   Services, browser, activity, settings, file detail

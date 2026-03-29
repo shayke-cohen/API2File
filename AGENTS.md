@@ -5,6 +5,7 @@ This repository contains the API2File product code, not just a synced data folde
 ## Start Here
 
 - Read [README.md](/Users/shayco/API2File/README.md) for the product surface area and main commands.
+- Read [SPEC.md](/Users/shayco/API2File/SPEC.md) for the intended product behavior and UX surface.
 - Read [ARCHITECTURE.md](/Users/shayco/API2File/ARCHITECTURE.md) for the system model and core components.
 - Read [TESTING.md](/Users/shayco/API2File/TESTING.md) before changing sync behavior, adapters, or guide generation.
 - Treat [Package.swift](/Users/shayco/API2File/Package.swift) and the current source tree as the source of truth when prose docs drift.
@@ -13,6 +14,8 @@ This repository contains the API2File product code, not just a synced data folde
 
 - `API2FileCore`: sync engine, adapters, format converters, servers, models.
 - `API2FileApp`: macOS menu bar app.
+- `API2FileFinderExtension`: Finder Sync badges and contextual actions.
+- `API2FileQuickLookExtension`: Finder Quick Look previews for synced files.
 - `API2FileCLI`: `api2file` command line tool.
 - `API2FileDemo`: local demo API server.
 - `API2FileMCP`: MCP bridge for browser/webview control.
@@ -22,7 +25,9 @@ Key directories:
 - `Sources/API2FileCore/Adapters`: adapter engine, transforms, format converters.
 - `Sources/API2FileCore/Core`: sync engine, coordinator, git/keychain/network/watcher logic, guide generation.
 - `Sources/API2FileCore/Resources/Adapters`: bundled `.adapter.json` configs.
-- `Sources/API2FileApp/UI`: SwiftUI screens for menu bar, preferences, service detail, add-service flow.
+- `Sources/API2FileApp/UI`: SwiftUI screens for the dashboard shell, file explorer, data explorer, preferences/settings, service detail, and add-service flow.
+- `Sources/FinderExtension`: Finder Sync extension source.
+- `Sources/QuickLookExtension`: Quick Look preview extension source.
 - `Tests/API2FileCoreTests`: unit, integration, MCP, server, and end-to-end coverage.
 - `demo/`: sample synced folder content and generated service guide examples.
 
@@ -60,6 +65,7 @@ swift test --filter RealSyncE2E
 - Control API: `http://localhost:21567/`
 - Generated sync-folder guides currently use `CLAUDE.md` filenames.
 - Service state lives under `.api2file/`; service folders are independent git repos.
+- The macOS app’s current primary UI is a single `Dashboard` shell with inner `File Explorer`, `Data Explorer`, and `Activity` sections plus a settings sheet.
 
 ## Working Agreements
 
@@ -72,6 +78,7 @@ swift test --filter RealSyncE2E
 ## Documentation Expectations
 
 - Update [README.md](/Users/shayco/API2File/README.md) for user-visible product or command changes.
+- Update [SPEC.md](/Users/shayco/API2File/SPEC.md) for product-surface, workflow, or UX expectation changes.
 - Update [ARCHITECTURE.md](/Users/shayco/API2File/ARCHITECTURE.md) for structural or subsystem changes.
 - Update [TESTING.md](/Users/shayco/API2File/TESTING.md) when test commands, coverage areas, or manual verification steps change.
 - Update generated-guide logic and examples when changing how synced-folder instructions should read.
