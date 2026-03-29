@@ -170,7 +170,8 @@ public struct ResourceConfig: Codable, Sendable {
             preserveExtension: fileMapping.preserveExtension,
             transforms: fileMapping.transforms,
             pushMode: fileMapping.pushMode,
-            deleteFromAPI: fileMapping.deleteFromAPI
+            deleteFromAPI: fileMapping.deleteFromAPI,
+            companionFiles: fileMapping.companionFiles
         )
         return ResourceConfig(name: name, description: description, capabilityClass: capabilityClass, pull: pull, push: push, fileMapping: newMapping, children: children, sync: sync, siteUrl: siteUrl, dashboardUrl: dashboardUrl, enabled: enabled)
     }
@@ -188,7 +189,8 @@ public struct ResourceConfig: Codable, Sendable {
             preserveExtension: fileMapping.preserveExtension,
             transforms: fileMapping.transforms,
             pushMode: fileMapping.pushMode,
-            deleteFromAPI: fileMapping.deleteFromAPI
+            deleteFromAPI: fileMapping.deleteFromAPI,
+            companionFiles: fileMapping.companionFiles
         )
         return ResourceConfig(name: name, description: description, capabilityClass: capabilityClass, pull: pull, push: push, fileMapping: newMapping, children: children, sync: sync, siteUrl: siteUrl, dashboardUrl: dashboardUrl, enabled: enabled)
     }
@@ -394,8 +396,9 @@ public struct FileMappingConfig: Codable, Sendable {
     public let transforms: TransformConfig?
     public let pushMode: PushMode?
     public let deleteFromAPI: Bool?
+    public let companionFiles: [CompanionFileConfig]?
 
-    public init(strategy: MappingStrategy, directory: String, filename: String? = nil, format: FileFormat = .json, formatOptions: FormatOptions? = nil, idField: String? = nil, contentField: String? = nil, readOnly: Bool? = nil, preserveExtension: Bool? = nil, transforms: TransformConfig? = nil, pushMode: PushMode? = nil, deleteFromAPI: Bool? = nil) {
+    public init(strategy: MappingStrategy, directory: String, filename: String? = nil, format: FileFormat = .json, formatOptions: FormatOptions? = nil, idField: String? = nil, contentField: String? = nil, readOnly: Bool? = nil, preserveExtension: Bool? = nil, transforms: TransformConfig? = nil, pushMode: PushMode? = nil, deleteFromAPI: Bool? = nil, companionFiles: [CompanionFileConfig]? = nil) {
         self.strategy = strategy
         self.directory = directory
         self.filename = filename
@@ -408,6 +411,7 @@ public struct FileMappingConfig: Codable, Sendable {
         self.transforms = transforms
         self.pushMode = pushMode
         self.deleteFromAPI = deleteFromAPI
+        self.companionFiles = companionFiles
     }
 
     /// Resolve the effective push mode based on config and transforms.
@@ -438,6 +442,18 @@ public struct FileMappingConfig: Codable, Sendable {
             fieldMapping: fieldMapping
         )
     }
+}
+
+/// A companion file generated per-record alongside the primary file mapping.
+public struct CompanionFileConfig: Codable, Sendable {
+    /// Filename template, e.g. "{name|slugify}.md"
+    public let filename: String
+    /// Target directory, e.g. "products"
+    public let directory: String
+    /// Markdown template body with {field} placeholders
+    public let template: String
+    /// Whether the companion is read-only (default true — companions do not push)
+    public let readOnly: Bool?
 }
 
 /// Push mode for a resource — determines how file edits are transformed before pushing to API.

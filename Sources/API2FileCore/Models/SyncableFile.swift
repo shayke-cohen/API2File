@@ -17,17 +17,21 @@ public struct SyncableFile: Sendable {
     /// Whether this file is read-only (server → local only)
     public let readOnly: Bool
 
+    /// Whether this is a companion file (generated per-record from a template — never pushed)
+    public let isCompanion: Bool
+
     /// SHA256 hash of the content
     public var contentHash: String {
         content.sha256Hex
     }
 
-    public init(relativePath: String, format: FileFormat, content: Data, remoteId: String? = nil, readOnly: Bool = false) {
+    public init(relativePath: String, format: FileFormat, content: Data, remoteId: String? = nil, readOnly: Bool = false, isCompanion: Bool = false) {
         self.relativePath = relativePath
         self.format = format
         self.content = content
         self.remoteId = remoteId
         self.readOnly = readOnly
+        self.isCompanion = isCompanion
     }
 }
 

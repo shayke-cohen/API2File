@@ -67,13 +67,16 @@ public struct FileSyncState: Codable, Sendable {
     public var status: SyncStatus
     /// If true, this file is excluded from sync in both directions (default: nil = not excluded)
     public var excluded: Bool?
+    /// If true, this is a companion file generated from a template — never pushed to the API
+    public var isCompanion: Bool?
 
-    public init(remoteId: String, lastSyncedHash: String, lastRemoteETag: String? = nil, lastSyncTime: Date = Date(), status: SyncStatus = .synced, excluded: Bool? = nil) {
+    public init(remoteId: String, lastSyncedHash: String, lastRemoteETag: String? = nil, lastSyncTime: Date = Date(), status: SyncStatus = .synced, excluded: Bool? = nil, isCompanion: Bool? = nil) {
         self.remoteId = remoteId
         self.lastSyncedHash = lastSyncedHash
         self.lastRemoteETag = lastRemoteETag
         self.lastSyncTime = lastSyncTime
         self.status = status
         self.excluded = excluded
+        self.isCompanion = isCompanion
     }
 }

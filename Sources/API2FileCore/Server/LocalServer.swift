@@ -12,6 +12,7 @@ public actor LocalServer {
     private let syncEngine: SyncEngine
     private var listener: NWListener?
     private nonisolated(unsafe) var browserDelegate: BrowserControlDelegate?
+    private nonisolated(unsafe) var openAppCallback: ((String, String?) -> Void)?
 
     public init(port: UInt16 = 21567, syncEngine: SyncEngine) {
         self.port = port
@@ -20,6 +21,10 @@ public actor LocalServer {
 
     public func setBrowserDelegate(_ delegate: BrowserControlDelegate?) {
         self.browserDelegate = delegate
+    }
+
+    public func setOpenAppCallback(_ callback: @escaping (String, String?) -> Void) {
+        self.openAppCallback = callback
     }
 
     // MARK: - Lifecycle
@@ -256,6 +261,11 @@ public actor LocalServer {
         // POST /api/open-url
         if method == "POST" && path == "/api/open-url" {
             return handleOpenURL(body: request.body)
+        }
+
+        // POST /api/app/open?service=xxx&path=yyy  — "Open in API2File" from Finder extension
+        if method == "POST" && path == "/api/app/open" {
+            return handleOpenApp(queryItems: request.queryItems)
         }
 
         // --- Browser control routes ---
@@ -1066,6 +1076,17 @@ public actor LocalServer {
         #else
         return HTTPResponse(statusCode: 503, body: ["error": "Opening external URLs is not supported on this platform"])
         #endif
+    }
+
+    private func handleOpenApp(queryItems: [String: String]) -> HTTPResponse {
+        guard let serviceId = queryItems["service"], !serviceId.isEmpty else {
+            NSLog("LocalServer handleOpenApp missing service parameter")
+            return HTTPResponse(statusCode: 400, body: ["error": "Missing service parameter"])
+        }
+        let relativePath: String? = queryItems["path"].flatMap { $0.isEmpty ? nil : $0 }
+        NSLog("LocalServer handleOpenApp serviceId=%@ path=%@", serviceId, relativePath ?? "")
+        openAppCallback?(serviceId, relativePath)
+        return HTTPResponse(statusCode: 200, body: ["status": "ok"])
     }
 
     // MARK: - Route Matching

@@ -75,7 +75,8 @@
       "Bash(ls /Users/shayco/API2File/*.xcodeproj)",
       "Bash(ls /Users/shayco/API2File/*.xcworkspace)",
       "Bash(pluginkit -m -v -p com.apple.FinderSync 2)",
-      "Bash(1 ps:*)"
+      "Bash(1 ps:*)",
+      "Bash(wait)"
     ],
     "additionalDirectories": [
       "/Users/shayco/API2File",

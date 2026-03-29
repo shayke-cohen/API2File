@@ -16,6 +16,10 @@ final class FinderSync: FIFinderSync {
 
         NSLog("FinderSync init bundle=%@", Bundle.main.bundlePath)
         refreshSyncFolderAccess()
+        // Route plist reads to {syncRoot}/.api2file/finder-badges.plist — same path the
+        // main app writes to. Avoids containerURL(forSecurityApplicationGroupIdentifier:)
+        // which triggers macOS TCC "access data from other apps" dialogs in the main app.
+        FinderBadgeSupport.syncRootOverride = syncFolderURL
         registerBadgeImages()
         refreshObservedDirectories()
 
@@ -130,18 +134,25 @@ final class FinderSync: FIFinderSync {
         }
         NSLog("FinderSync openInAppAction serviceId=%@ path=%@", serviceId, relativePath ?? "")
 
-        // Use custom URL scheme to activate the app — most reliable from a sandboxed extension
-        var components = URLComponents()
-        components.scheme = "api2file"
-        components.host = "open"
-        var queryItems = [URLQueryItem(name: "service", value: serviceId)]
-        if let relativePath {
-            queryItems.append(URLQueryItem(name: "path", value: relativePath))
-        }
-        components.queryItems = queryItems
-        if let url = components.url {
-            NSLog("FinderSync openInAppAction opening %@", url.absoluteString)
-            NSWorkspace.shared.open(url)
+        Task {
+            var components = URLComponents(string: "\(controlServerBaseURL)/api/app/open")!
+            var queryItems = [URLQueryItem(name: "service", value: serviceId)]
+            if let relativePath {
+                queryItems.append(URLQueryItem(name: "path", value: relativePath))
+            }
+            components.queryItems = queryItems
+            guard let url = components.url else { return }
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            NSLog("FinderSync openInAppAction POST %@", url.absoluteString)
+            do {
+                let (data, response) = try await URLSession.shared.data(for: request)
+                let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
+                let body = String(data: data, encoding: .utf8) ?? "<non-utf8>"
+                NSLog("FinderSync openInAppAction response status=%ld body=%@", statusCode, body)
+            } catch {
+                NSLog("FinderSync openInAppAction failed: %@", error.localizedDescription)
+            }
         }
     }
 
@@ -311,6 +322,7 @@ final class FinderSync: FIFinderSync {
     @objc private func sharedStateDidChange() {
         NSLog("FinderSync sharedStateDidChange")
         refreshSyncFolderAccess()
+        FinderBadgeSupport.syncRootOverride = syncFolderURL
         refreshObservedDirectories()
         refreshKnownBadges()
     }
