@@ -9,6 +9,7 @@ public struct PlatformServices: @unchecked Sendable {
     public let fileWatcher: FileWatcher
     public let configWatcher: ConfigWatcher
     public let versionControlFactory: VersionControlBackendFactory
+    public let renderedPageSnapshotService: (any RenderedPageSnapshotService)?
 
     public init(
         storageLocations: StorageLocations = .current,
@@ -17,7 +18,8 @@ public struct PlatformServices: @unchecked Sendable {
         notificationManager: NotificationManager = .shared,
         fileWatcher: FileWatcher = FileWatcher(),
         configWatcher: ConfigWatcher = ConfigWatcher(),
-        versionControlFactory: VersionControlBackendFactory = .current
+        versionControlFactory: VersionControlBackendFactory = .current,
+        renderedPageSnapshotService: (any RenderedPageSnapshotService)? = nil
     ) {
         let store = adapterStore ?? AdapterStore(storageLocations: storageLocations)
         self.storageLocations = storageLocations
@@ -27,6 +29,7 @@ public struct PlatformServices: @unchecked Sendable {
         self.fileWatcher = fileWatcher
         self.configWatcher = configWatcher
         self.versionControlFactory = versionControlFactory
+        self.renderedPageSnapshotService = renderedPageSnapshotService
     }
 
     public static var current: PlatformServices {

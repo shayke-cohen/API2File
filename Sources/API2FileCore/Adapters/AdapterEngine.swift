@@ -932,6 +932,10 @@ public actor AdapterEngine {
             return buildWixProductCreateBody(record: record)
         case "wix-product-update":
             return buildWixProductUpdateBody(record: record)
+        case "wix-cms-item-create":
+            return buildWixCMSItemBody(record: record, remoteId: remoteId, isUpdate: false)
+        case "wix-cms-item-update":
+            return buildWixCMSItemBody(record: record, remoteId: remoteId, isUpdate: true)
         default:
             return nil
         }
@@ -1273,6 +1277,32 @@ public actor AdapterEngine {
         return ["info": info]
     }
 
+    private func buildWixCMSItemBody(record: [String: Any], remoteId: String?, isUpdate: Bool) -> [String: Any]? {
+        guard let dataCollectionId = nonEmptyString(record["dataCollectionId"]) else {
+            return nil
+        }
+
+        var dataItem: [String: Any] = [:]
+
+        if isUpdate, let id = remoteId ?? nonEmptyString(record["id"]) {
+            dataItem["id"] = id
+        }
+
+        if let nestedData = record["data"] as? [String: Any] {
+            dataItem["data"] = nestedData
+        } else {
+            var data = record
+            data.removeValue(forKey: "id")
+            data.removeValue(forKey: "dataCollectionId")
+            dataItem["data"] = data
+        }
+
+        return [
+            "dataCollectionId": dataCollectionId,
+            "dataItem": dataItem
+        ]
+    }
+
     private func nonEmptyString(_ value: Any?) -> String? {
         guard let string = stringifyValue(value)?.trimmingCharacters(in: .whitespacesAndNewlines),
               !string.isEmpty else {
@@ -1492,12 +1522,13 @@ public actor AdapterEngine {
             let directory = mapping.directory
             let relativePath = directory.isEmpty || directory == "." ? filename : "\(directory)/\(filename)"
             let data = try FormatConverterFactory.encode(records: records, format: format, options: options)
+            let remoteId = collectionContextRemoteId(for: resource)
 
             return [SyncableFile(
                 relativePath: relativePath,
                 format: format,
                 content: data,
-                remoteId: nil,
+                remoteId: remoteId,
                 readOnly: readOnly
             )]
 
@@ -1866,5 +1897,26 @@ public actor AdapterEngine {
             return "\(n)"
         default: return "\(value)"
         }
+    }
+
+    private func collectionContextRemoteId(for resource: ResourceConfig) -> String? {
+        guard let body = resource.pull?.body else { return nil }
+        return jsonString(body, path: ["dataCollectionId"])
+    }
+
+    private func jsonString(_ value: JSONValue, path: [String]) -> String? {
+        if path.isEmpty {
+            if case .string(let string) = value, !string.isEmpty {
+                return string
+            }
+            return nil
+        }
+
+        guard case .object(let object) = value,
+              let child = object[path[0]] else {
+            return nil
+        }
+
+        return jsonString(child, path: Array(path.dropFirst()))
     }
 }

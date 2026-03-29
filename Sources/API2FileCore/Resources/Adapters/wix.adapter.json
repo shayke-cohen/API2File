@@ -1,7 +1,7 @@
 {
   "service": "wix",
   "displayName": "Wix — Website & Business Platform",
-  "version": "2.7",
+  "version": "2.8",
   "icon": "globe",
   "wizardDescription": "Contacts, blog, products, orders, coupons, pricing plans, gift cards, events, restaurants, bookings, groups, media",
   "siteUrl": "YOUR_SITE_URL_HERE",
@@ -94,13 +94,12 @@
         "transforms": {
           "pull": [
             { "op": "spread", "path": "info.name" },
-            { "op": "spread", "path": "primaryEmail" },
-            { "op": "rename", "from": "email", "to": "primaryEmail" },
-            { "op": "omit", "fields": ["info", "revision", "source", "lastActivity", "subscriptionStatus", "deliverabilityStatus", "createdDate", "updatedDate", "primaryInfo", "memberInfo", "picture"] },
-            { "op": "set", "field": "_url", "value": "https://manage.wix.com/dashboard/YOUR_SITE_ID_HERE/contacts/{id}" }
+            { "op": "rename", "from": "info.emails.items.0.email", "to": "primaryEmail" },
+            { "op": "rename", "from": "info.phones.items.0.phone", "to": "primaryPhone" },
+            { "op": "omit", "fields": ["info", "revision", "source", "lastActivity", "createdDate", "updatedDate", "memberInfo", "picture", "primaryInfo"] }
           ],
           "push": [
-            { "op": "omit", "fields": ["_url"] }
+            { "op": "omit", "fields": ["_url", "createdDate", "updatedDate", "memberInfo", "picture", "primaryInfo"] }
           ]
         }
       },
@@ -182,12 +181,10 @@
         "contentField": "contentText",
         "transforms": {
           "pull": [
-            { "op": "omit", "fields": ["categoryIds", "coverMedia", "customExcerpt", "hashtags", "internalCategoryIds", "internalRelatedPostIds", "isDemo", "media", "mostRecentContributorId", "preview", "pricingPlanIds", "relatedPostIds", "tagIds", "translations", "commentingEnabled", "minutesToRead", "contentId", "hasUnpublishedChanges", "lastPublishedDate"] },
-            { "op": "set", "field": "_url", "value": "https://manage.wix.com/dashboard/YOUR_SITE_ID_HERE/blog/{id}/edit" }
+            { "op": "omit", "fields": ["categoryIds", "coverMedia", "customExcerpt", "hashtags", "internalCategoryIds", "internalRelatedPostIds", "isDemo", "media", "mostRecentContributorId", "preview", "pricingPlanIds", "relatedPostIds", "tagIds", "translations", "commentingEnabled", "minutesToRead", "contentId", "hasUnpublishedChanges", "lastPublishedDate"] }
           ],
           "push": [
-            { "op": "pick", "fields": ["title", "slug", "memberId", "excerpt", "contentText", "richContent", "featured", "pinned", "language"] },
-            { "op": "omit", "fields": ["_url"] }
+            { "op": "pick", "fields": ["title", "slug", "memberId", "excerpt", "contentText", "richContent", "featured", "pinned", "language"] }
           ]
         }
       },
@@ -249,11 +246,10 @@
         "transforms": {
           "pull": [
             { "op": "rename", "from": "actualPriceRange.minValue.amount", "to": "priceAmount" },
-            { "op": "omit", "fields": ["actualPriceRange", "media", "options", "modifiers", "infoSections", "mainCategoryId", "physicalProperties", "handle", "variantsInfo", "additionalRibbons", "flattenOptions", "flattenModifiers", "variantSummary", "entityEventSequence", "numericId", "visibleInPos", "inventory"] },
-            { "op": "set", "field": "_url", "value": "https://manage.wix.com/dashboard/YOUR_SITE_ID_HERE/store/products/{id}" }
+            { "op": "omit", "fields": ["actualPriceRange", "media", "options", "modifiers", "infoSections", "mainCategoryId", "physicalProperties", "handle", "variantsInfo", "additionalRibbons", "flattenOptions", "flattenModifiers", "variantSummary", "entityEventSequence", "numericId", "visibleInPos", "inventory", "revision", "createdDate", "updatedDate", "compareAtPriceRange"] }
           ],
           "push": [
-            { "op": "omit", "fields": ["_url"] }
+            { "op": "omit", "fields": ["createdDate", "updatedDate", "compareAtPriceRange"] }
           ]
         }
       },
@@ -335,8 +331,7 @@
             { "op": "rename", "from": "shippingInfo.logistics.shippingDestination.address.postalCode", "to": "shippingPostalCode" },
             { "op": "rename", "from": "shippingInfo.logistics.shippingDestination.address.country", "to": "shippingCountry" },
             { "op": "rename", "from": "priceSummary.total.amount", "to": "totalAmount" },
-            { "op": "omit", "fields": ["activities", "additionalFees", "appliedDiscounts", "balanceSummary", "billingInfo", "buyerInfo", "channelInfo", "createdBy", "customFields", "extendedFields", "lineItems", "orderVersion", "priceSummary", "recipientInfo", "shippingInfo", "siteLanguage", "tags", "taxInfo", "taxSummary"] },
-            { "op": "set", "field": "_url", "value": "https://manage.wix.com/dashboard/YOUR_SITE_ID_HERE/store/orders/{id}" }
+            { "op": "omit", "fields": ["activities", "additionalFees", "appliedDiscounts", "balanceSummary", "billingInfo", "buyerInfo", "channelInfo", "createdBy", "customFields", "extendedFields", "lineItems", "orderVersion", "priceSummary", "recipientInfo", "shippingInfo", "siteLanguage", "tags", "taxInfo", "taxSummary"] }
           ],
           "push": [
             { "op": "rename", "from": "buyerEmail", "to": "buyerInfo.email" },
@@ -367,7 +362,7 @@
             { "op": "rename", "from": "shippingSubdivision", "to": "shippingInfo.logistics.shippingDestination.address.subdivision" },
             { "op": "rename", "from": "shippingPostalCode", "to": "shippingInfo.logistics.shippingDestination.address.postalCode" },
             { "op": "rename", "from": "shippingCountry", "to": "shippingInfo.logistics.shippingDestination.address.country" },
-            { "op": "omit", "fields": ["_url", "orderNumber", "status", "paymentStatus", "fulfillmentStatus", "totalAmount", "currency", "createdDate", "updatedDate"] }
+            { "op": "omit", "fields": ["orderNumber", "status", "paymentStatus", "fulfillmentStatus", "totalAmount", "currency", "updatedDate"] }
           ]
         }
       },
@@ -410,8 +405,7 @@
             { "op": "rename", "from": "specification.startTime", "to": "startTime" },
             { "op": "rename", "from": "specification.expirationTime", "to": "expirationTime" },
             { "op": "rename", "from": "displayData.summary", "to": "summary" },
-            { "op": "omit", "fields": ["specification", "displayData"] },
-            { "op": "set", "field": "_url", "value": "https://manage.wix.com/dashboard/YOUR_SITE_ID_HERE/store/coupons/{id}" }
+            { "op": "omit", "fields": ["specification", "displayData"] }
           ]
         }
       },
@@ -446,8 +440,7 @@
         "readOnly": true,
         "transforms": {
           "pull": [
-            { "op": "omit", "fields": ["image", "pricingVariants", "perks", "extendedFields"] },
-            { "op": "set", "field": "_url", "value": "https://manage.wix.com/dashboard/YOUR_SITE_ID_HERE/pricing-plans/{id}" }
+            { "op": "omit", "fields": ["image", "pricingVariants", "perks", "extendedFields"] }
           ]
         }
       },
@@ -488,8 +481,7 @@
             { "op": "rename", "from": "balance.currency", "to": "balanceCurrency" },
             { "op": "rename", "from": "initialValue.amount", "to": "initialValueAmount" },
             { "op": "rename", "from": "initialValue.currency", "to": "initialValueCurrency" },
-            { "op": "omit", "fields": ["balance", "initialValue", "sender", "recipient", "delivery", "extendedFields"] },
-            { "op": "set", "field": "_url", "value": "https://manage.wix.com/dashboard/YOUR_SITE_ID_HERE/gift-cards/{id}" }
+            { "op": "omit", "fields": ["balance", "initialValue", "sender", "recipient", "delivery", "extendedFields"] }
           ]
         }
       },
@@ -556,12 +548,11 @@
         "pushMode": "custom",
         "transforms": {
           "pull": [
-            { "op": "omit", "fields": ["mediaFolderId", "tags"] },
-            { "op": "set", "field": "_url", "value": "https://manage.wix.com/dashboard/YOUR_SITE_ID_HERE/forms/{id}" }
+            { "op": "omit", "fields": ["mediaFolderId", "tags", "updatedDate", "namespace"] }
           ],
           "push": [
             { "op": "set", "field": "namespace", "value": "wix.form_platform.form" },
-            { "op": "omit", "fields": ["_url", "mediaFolderId", "updatedDate"] }
+            { "op": "omit", "fields": ["mediaFolderId", "updatedDate", "tags"] }
           ]
         }
       },
@@ -628,8 +619,7 @@
                 { "op": "rename", "from": "submitter.applicationId", "to": "submitterApplicationId" },
                 { "op": "rename", "from": "submitter.userId", "to": "submitterUserId" },
                 { "op": "rename", "from": "orderDetails.checkoutId", "to": "checkoutId" },
-                { "op": "omit", "fields": ["submitter", "orderDetails", "extendedFields", "tags", "accessRestriction"] },
-                { "op": "set", "field": "_url", "value": "https://manage.wix.com/dashboard/YOUR_SITE_ID_HERE/forms/{formId}/submissions/{id}" }
+                { "op": "omit", "fields": ["submitter", "orderDetails", "extendedFields", "tags", "accessRestriction", "submitterApplicationId", "submitterUserId", "updatedDate"] }
               ],
               "push": [
                 { "op": "rename", "from": "submitterMemberId", "to": "submitter.memberId" },
@@ -637,7 +627,7 @@
                 { "op": "rename", "from": "submitterApplicationId", "to": "submitter.applicationId" },
                 { "op": "rename", "from": "submitterUserId", "to": "submitter.userId" },
                 { "op": "rename", "from": "checkoutId", "to": "orderDetails.checkoutId" },
-                { "op": "omit", "fields": ["_url", "updatedDate"] }
+                { "op": "omit", "fields": ["updatedDate", "submitterApplicationId", "submitterUserId"] }
               ]
             }
           }
@@ -698,15 +688,14 @@
             { "op": "rename", "from": "contact.lastName", "to": "lastName" },
             { "op": "rename", "from": "profile.nickname", "to": "nickname" },
             { "op": "rename", "from": "profile.slug", "to": "slug" },
-            { "op": "omit", "fields": ["contact", "profile"] },
-            { "op": "set", "field": "_url", "value": "https://manage.wix.com/dashboard/YOUR_SITE_ID_HERE/contacts/{contactId}" }
+            { "op": "omit", "fields": ["contact", "profile", "contactId", "activityStatus", "privacyStatus", "status", "createdDate", "updatedDate", "lastLoginDate", "loginEmailVerified"] }
           ],
           "push": [
             { "op": "rename", "from": "firstName", "to": "contact.firstName" },
             { "op": "rename", "from": "lastName", "to": "contact.lastName" },
             { "op": "rename", "from": "nickname", "to": "profile.nickname" },
             { "op": "rename", "from": "slug", "to": "profile.slug" },
-            { "op": "omit", "fields": ["_url", "contactId", "activityStatus", "status", "createdDate", "updatedDate", "lastLoginDate", "loginEmailVerified"] }
+            { "op": "omit", "fields": ["contactId", "activityStatus", "privacyStatus", "status", "createdDate", "updatedDate", "lastLoginDate", "loginEmailVerified"] }
           ]
         }
       },
@@ -732,6 +721,30 @@
         "strategy": "collection",
         "directory": ".",
         "filename": "site-properties.json",
+        "format": "json",
+        "readOnly": true
+      },
+
+      "sync": {
+        "interval": 600
+      }
+    },
+    {
+      "name": "site-urls",
+      "description": "Wix published and editor URL catalog for the connected site",
+      "capabilityClass": "read_only",
+      "dashboardUrl": "https://manage.wix.com/dashboard/YOUR_SITE_ID_HERE/home",
+
+      "pull": {
+        "method": "GET",
+        "url": "https://www.wixapis.com/urls-server/v2/published-site-urls",
+        "dataPath": "$"
+      },
+
+      "fileMapping": {
+        "strategy": "collection",
+        "directory": "site",
+        "filename": "site-urls.json",
         "format": "json",
         "readOnly": true
       },
@@ -1030,10 +1043,12 @@
           "pull": [
             { "op": "rename", "from": "defaultCapacity", "to": "capacity" },
             { "op": "rename", "from": "onlineBooking.enabled", "to": "onlineBookingEnabled" },
-            { "op": "omit", "fields": ["onlineBooking", "staffMemberIds", "schedule", "payment", "form", "locations", "category", "media", "links", "sortOrder", "tagLine", "description", "bookingPolicy", "extendedFields"] }
+            { "op": "omit", "fields": ["onlineBooking", "staffMemberIds", "schedule", "payment", "form", "locations", "category", "media", "links", "sortOrder", "tagLine", "description", "bookingPolicy", "extendedFields", "revision", "appId", "createdByAppId", "createdDate", "updatedDate", "hidden", "mainSlug", "resourceGroups", "serviceResources", "staffMembers", "supportedSlugs", "tags", "urls", "addOnDetails", "addOnGroups", "conferencing", "taxableAddress"] }
           ],
           "push": [
-            { "op": "omit", "fields": ["id", "type", "capacity", "onlineBookingEnabled", "createdDate", "updatedDate"] }
+            { "op": "rename", "from": "capacity", "to": "defaultCapacity" },
+            { "op": "rename", "from": "onlineBookingEnabled", "to": "onlineBooking.enabled" },
+            { "op": "omit", "fields": ["id", "createdDate", "updatedDate"] }
           ]
         }
       },
@@ -1135,7 +1150,7 @@
         "transforms": {
           "pull": [
             { "op": "rename", "from": "settings.memberWelcomeMessage", "to": "welcomeMessage" },
-            { "op": "omit", "fields": ["settings", "coverImage", "details", "createdBy", "recentActivityDate", "lastActivityDate", "pendingMembersCount"] }
+            { "op": "omit", "fields": ["settings", "coverImage", "details", "createdBy", "recentActivityDate", "lastActivityDate", "pendingMembersCount", "ownerId", "title", "slug", "createdDate", "updatedDate", "memberCount", "membersCount", "privacyLevel", "welcomeMessage"] }
           ],
           "push": [
             { "op": "set", "field": "title", "value": "{name}" },
@@ -1199,7 +1214,7 @@
           "pull": [
             { "op": "rename", "from": "author.memberId", "to": "authorMemberId" },
             { "op": "rename", "from": "content.plainText", "to": "text" },
-            { "op": "omit", "fields": ["author", "content", "voteSummary", "replyCount"] }
+            { "op": "omit", "fields": ["author", "content", "voteSummary", "replyCount", "authorMemberId"] }
           ],
           "push": [
             { "op": "set", "field": "appId", "value": "14bcded7-0066-7c35-14d7-466cb3f09103" },
@@ -1251,14 +1266,13 @@
             { "op": "rename", "from": "dateAndTimeSettings.startDate", "to": "startDate" },
             { "op": "rename", "from": "dateAndTimeSettings.endDate", "to": "endDate" },
             { "op": "rename", "from": "timeZone", "to": "timeZone" },
-            { "op": "omit", "fields": ["dateAndTimeSettings", "registration", "scheduling", "location", "form", "participants", "extendedFields"] },
-            { "op": "set", "field": "_url", "value": "https://manage.wix.com/dashboard/YOUR_SITE_ID_HERE/events/{id}" }
+            { "op": "omit", "fields": ["dateAndTimeSettings", "registration", "scheduling", "location", "form", "participants", "extendedFields", "createdDate", "updatedDate", "instanceId", "userId", "eventDisplaySettings", "contactLabel", "guestListSettings", "labellingSettings", "onlineConferencing", "publishedDate", "description", "detailedDescription", "eventPageUrl", "calendarUrls", "slug"] }
           ],
           "push": [
             { "op": "rename", "from": "startDate", "to": "dateAndTimeSettings.startDate" },
             { "op": "rename", "from": "endDate", "to": "dateAndTimeSettings.endDate" },
             { "op": "rename", "from": "timeZone", "to": "timeZone" },
-            { "op": "omit", "fields": ["_url", "createdDate", "updatedDate", "status"] }
+            { "op": "omit", "fields": ["createdDate", "updatedDate", "status", "instanceId", "userId", "eventDisplaySettings", "contactLabel", "guestListSettings", "labellingSettings", "onlineConferencing", "publishedDate", "description", "detailedDescription", "eventPageUrl", "calendarUrls", "slug"] }
           ]
         }
       },
@@ -1390,7 +1404,7 @@
         "idField": "id",
         "transforms": {
           "pull": [
-            { "op": "omit", "fields": ["sectionIds", "businessLocationIds", "visibility", "seoData", "menuOrderingSettingsIds", "extendedFields"] }
+            { "op": "omit", "fields": ["sectionIds", "businessLocationIds", "seoData", "menuOrderingSettingsIds", "extendedFields", "revision", "createdDate", "updatedDate", "urlQueryParam"] }
           ]
         }
       },
@@ -1516,10 +1530,10 @@
         "idField": "id",
         "transforms": {
           "pull": [
-            { "op": "set", "field": "_url", "value": "https://manage.wix.com/dashboard/YOUR_SITE_ID_HERE/bookings/services/{id}" }
+            { "op": "omit", "fields": ["appId", "createdByAppId", "createdDate", "updatedDate", "hidden", "mainSlug", "resourceGroups", "serviceResources", "staffMembers", "supportedSlugs", "tags", "urls", "addOnDetails", "addOnGroups", "conferencing", "taxableAddress"] }
           ],
           "push": [
-            { "op": "omit", "fields": ["_url"] }
+            { "op": "omit", "fields": ["appId", "createdByAppId", "createdDate", "updatedDate", "hidden", "mainSlug", "resourceGroups", "serviceResources", "staffMembers", "supportedSlugs", "tags", "urls", "addOnDetails", "addOnGroups", "conferencing", "taxableAddress"] }
           ]
         }
       },
@@ -1559,10 +1573,10 @@
             { "op": "match", "field": "displayNamespace", "value": "" },
             { "op": "match", "field": "collectionType", "value": "NATIVE" },
             { "op": "containsAll", "field": "capabilities.dataOperations", "fields": ["INSERT", "UPDATE", "REMOVE"] },
-            { "op": "set", "field": "_url", "value": "https://manage.wix.com/dashboard/YOUR_SITE_ID_HERE/wix-cms/data/{id}" }
+            { "op": "omit", "fields": ["revision", "createdDate", "updatedDate", "fields", "pagingModes", "plugins", "permissions", "dataPermissions"] }
           ],
           "push": [
-            { "op": "omit", "fields": ["_url"] }
+            { "op": "omit", "fields": ["revision", "createdDate", "updatedDate", "fields", "pagingModes", "plugins", "permissions", "dataPermissions"] }
           ]
         }
       },
@@ -1599,14 +1613,12 @@
             "create": {
               "method": "POST",
               "url": "https://www.wixapis.com/wix-data/v2/items",
-              "bodyWrapper": "dataItem",
-              "bodyRootFields": ["dataCollectionId"]
+              "bodyType": "wix-cms-item-create"
             },
             "update": {
               "method": "PUT",
               "url": "https://www.wixapis.com/wix-data/v2/items/{id}",
-              "bodyWrapper": "dataItem",
-              "bodyRootFields": ["dataCollectionId"]
+              "bodyType": "wix-cms-item-update"
             },
             "delete": {
               "method": "DELETE",

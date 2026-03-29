@@ -481,32 +481,34 @@ final class WebViewStore: NSObject, ObservableObject, WKNavigationDelegate, WKUI
 
     /// Offscreen window that hosts the WebView when the Browser tab isn't visible.
     /// Required for `takeSnapshot` to work — WKWebView must be in a window hierarchy.
+    /// Keep it on-screen but effectively invisible so WebKit still paints real pixels.
     private var offscreenWindow: NSWindow?
 
-    /// Shared process pool so all WebViews share cookies/sessions.
-    private static let sharedProcessPool = WKProcessPool()
-
     override init() {
-        let config = WKWebViewConfiguration()
-        config.preferences.javaScriptCanOpenWindowsAutomatically = true
-        config.processPool = WebViewStore.sharedProcessPool
-        // Use the default (persistent) data store — cookies, localStorage, etc. survive app restarts
-        config.websiteDataStore = .default()
+        let config = BrowserWebViewDefaults.makeConfiguration()
         webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 1024, height: 768), configuration: config)
         super.init()
         webView.navigationDelegate = self
         webView.uiDelegate = self
-        webView.customUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15"
+        BrowserWebViewDefaults.configure(webView)
 
         // Attach to an offscreen window so takeSnapshot works even when Browser tab isn't open
+        let screenFrame = NSScreen.main?.visibleFrame ?? NSRect(x: 80, y: 80, width: 1280, height: 900)
+        let origin = NSPoint(x: screenFrame.midX - 512, y: screenFrame.midY - 384)
         let window = NSWindow(
-            contentRect: NSRect(x: -10000, y: -10000, width: 1024, height: 768),
+            contentRect: NSRect(origin: origin, size: NSSize(width: 1024, height: 768)),
             styleMask: [.borderless],
             backing: .buffered,
             defer: false
         )
+        window.isOpaque = false
+        window.backgroundColor = .clear
+        window.alphaValue = 0.01
+        window.hasShadow = false
+        window.ignoresMouseEvents = true
+        window.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle]
         window.contentView = webView
-        window.orderBack(nil)
+        window.orderFrontRegardless()
         offscreenWindow = window
     }
 
@@ -608,17 +610,14 @@ final class WebViewStore: NSObject, ObservableObject, WKNavigationDelegate, WKUI
                 navigationContinuation = continuation
             }
         }
-        let config = WKSnapshotConfiguration()
-        if let width, let height {
-            config.rect = CGRect(x: 0, y: 0, width: width, height: height)
+
+        if let offscreenWindow {
+            offscreenWindow.orderFrontRegardless()
+            offscreenWindow.displayIfNeeded()
         }
-        let image = try await webView.takeSnapshot(configuration: config)
-        guard let tiffData = image.tiffRepresentation,
-              let bitmap = NSBitmapImageRep(data: tiffData),
-              let pngData = bitmap.representation(using: .png, properties: [:]) else {
-            throw BrowserError.evaluationFailed("Failed to encode screenshot")
-        }
-        return pngData
+        webView.layoutSubtreeIfNeeded()
+        webView.window?.displayIfNeeded()
+        return try await WebViewCaptureSupport.capturePNG(from: webView, width: width, height: height)
     }
 
     func getDOM(selector: String?) async throws -> String {

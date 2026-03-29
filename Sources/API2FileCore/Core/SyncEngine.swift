@@ -1984,7 +1984,7 @@ public actor SyncEngine {
             canonicalPath: canonicalPath,
             derivedPaths: derivedPaths
         )
-        try? FileLinkManager.upsert(entry, in: serviceDir)
+        try? FileLinkManager.replace(entry, in: serviceDir)
     }
 
     private func refreshWixSiteArtifacts(
@@ -2116,16 +2116,25 @@ public actor SyncEngine {
         catalogRecord: [String: Any]
     ) async throws -> [String] {
         let targets = WixSiteSnapshotSupport.snapshotTargets(config: config, catalogRecord: catalogRecord)
-        guard !targets.isEmpty else { return [] }
-        guard let snapshotService = platformServices.renderedPageSnapshotService else { return [] }
+        let previousManifest = WixSiteSnapshotSupport.loadManifest(from: serviceDir)
+        let now = Date()
+
+        guard let snapshotService = platformServices.renderedPageSnapshotService else {
+            return previousManifest.map {
+                Array(
+                    Set(
+                        WixSiteSnapshotSupport.manifestFilePaths($0) +
+                        WixSiteSnapshotSupport.exposedManifestFilePaths($0)
+                    )
+                ).sorted()
+            } ?? []
+        }
 
         let fileManager = FileManager.default
         let derivedRootURL = serviceDir.appendingPathComponent(WixSiteSnapshotSupport.derivedDirectory)
         try fileManager.createDirectory(at: derivedRootURL, withIntermediateDirectories: true)
 
-        let previousManifest = WixSiteSnapshotSupport.loadManifest(from: serviceDir)
         let previousEntries = Dictionary(uniqueKeysWithValues: (previousManifest?.entries ?? []).map { ($0.id, $0) })
-        let now = Date()
         var entries: [SiteSnapshotManifestEntry] = []
 
         for target in targets {
@@ -2185,6 +2194,11 @@ public actor SyncEngine {
             generatedAt: WixSiteSnapshotSupport.iso8601String(now),
             entries: entries.sorted { $0.id < $1.id }
         )
+        try cleanupHiddenWixSiteSnapshots(
+            currentManifest: manifest,
+            previousManifest: previousManifest,
+            serviceDir: serviceDir
+        )
         try WixSiteSnapshotSupport.saveManifest(manifest, to: serviceDir)
         let exposedPaths = try exposeWixSiteSnapshots(
             currentManifest: manifest,
@@ -2192,6 +2206,22 @@ public actor SyncEngine {
             serviceDir: serviceDir
         )
         return Array(Set(WixSiteSnapshotSupport.manifestFilePaths(manifest) + exposedPaths)).sorted()
+    }
+
+    private func cleanupHiddenWixSiteSnapshots(
+        currentManifest: SiteSnapshotManifest,
+        previousManifest: SiteSnapshotManifest?,
+        serviceDir: URL
+    ) throws {
+        let fileManager = FileManager.default
+        let currentPaths = Set(WixSiteSnapshotSupport.manifestFilePaths(currentManifest))
+        let previousPaths = Set(previousManifest.map(WixSiteSnapshotSupport.manifestFilePaths) ?? [])
+
+        for path in previousPaths.subtracting(currentPaths).sorted(by: >) {
+            let url = serviceDir.appendingPathComponent(path)
+            suppressPath(path)
+            try? fileManager.removeItem(at: url)
+        }
     }
 
     private func exposeWixSiteSnapshots(

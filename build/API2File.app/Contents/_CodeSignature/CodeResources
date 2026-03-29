@@ -5,7 +5,44 @@
 	<key>files</key>
 	<dict/>
 	<key>files2</key>
-	<dict/>
+	<dict>
+		<key>Frameworks/API2FileCore.framework</key>
+		<dict>
+			<key>cdhash</key>
+			<data>
+			779Gh7xDF8b+AxPH+wXFKiXYg5s=
+			</data>
+			<key>requirement</key>
+			<string>cdhash H"efbf4687bc4317c6fe0313c7fb05c52a25d8839b"</string>
+		</dict>
+		<key>MacOS/API2File.debug.dylib</key>
+		<dict>
+			<key>cdhash</key>
+			<data>
+			SnH4IFUo+ctfzHK3NZnurKKP744=
+			</data>
+			<key>requirement</key>
+			<string>cdhash H"4a71f8205528f9cb5fcc72b73599eeaca28fef8e"</string>
+		</dict>
+		<key>MacOS/__preview.dylib</key>
+		<dict>
+			<key>cdhash</key>
+			<data>
+			jueIH8pCXJk7b1ngWcghATfNPXY=
+			</data>
+			<key>requirement</key>
+			<string>cdhash H"8ee7881fca425c993b6f59e059c8210137cd3d76"</string>
+		</dict>
+		<key>PlugIns/API2FileFinderExtension.appex</key>
+		<dict>
+			<key>cdhash</key>
+			<data>
+			FjCDEJD5G4AXw9TNAxePGnLtJRY=
+			</data>
+			<key>requirement</key>
+			<string>cdhash H"1630831090f91b8017c3d4cd03178f1a72ed2516"</string>
+		</dict>
+	</dict>
 	<key>rules</key>
 	<dict>
 		<key>^Resources/</key>

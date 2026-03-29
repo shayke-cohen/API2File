@@ -108,7 +108,7 @@ final class IOSAppStateTests: XCTestCase {
 
         await appState.startEngineIfNeeded()
 
-        let serviceRoot = tempRoot.appendingPathComponent("wix-secondary", isDirectory: true)
+        let serviceRoot = tempRoot.appendingPathComponent("wix", isDirectory: true)
         let adapterURL = serviceRoot.appendingPathComponent(".api2file/adapter.json")
         let manifestURL = serviceRoot.appendingPathComponent(".api2file-git/manifest.json")
         let gitURL = serviceRoot.appendingPathComponent(".git")
@@ -238,7 +238,7 @@ final class IOSAppStateTests: XCTestCase {
         history.append(
             SyncHistoryEntry(
                 timestamp: Date(timeIntervalSince1970: 1_700_000_100),
-                serviceId: "wix-secondary",
+                serviceId: "wix",
                 serviceName: "Wix",
                 direction: .pull,
                 status: .success,
@@ -254,13 +254,13 @@ final class IOSAppStateTests: XCTestCase {
 
         await appState.refresh()
 
-        let service = try XCTUnwrap(appState.services.first(where: { $0.serviceId == "wix-secondary" }))
-        XCTAssertEqual(service.serviceId, "wix-secondary")
-        XCTAssertEqual(service.displayName, "Wix (wix-secondary)")
+        let service = try XCTUnwrap(appState.services.first(where: { $0.serviceId == "wix" }))
+        XCTAssertEqual(service.serviceId, "wix")
+        XCTAssertEqual(service.displayName, "Wix")
         XCTAssertEqual(service.fileCount, 1)
         XCTAssertEqual(service.status, .connected)
-        XCTAssertEqual(appState.selectedServiceID, "wix-secondary")
-        XCTAssertEqual(appState.history.first?.serviceId, "wix-secondary")
+        XCTAssertEqual(appState.selectedServiceID, "wix")
+        XCTAssertEqual(appState.history.first?.serviceId, "wix")
     }
 
     func testAddServiceSupportsCustomServiceFolderAndKeychainKey() async throws {
@@ -292,6 +292,118 @@ final class IOSAppStateTests: XCTestCase {
         XCTAssertEqual(config.auth.keychainKey, "api2file.wix-client-a.key")
         XCTAssertEqual(storedKey, "custom-wix-key")
         XCTAssertTrue(appState.services.contains(where: { $0.serviceId == "wix-client-a" }))
+    }
+
+    func testSQLExplorerReadsLocalMirrorAndResolvesRecordFiles() async throws {
+        let serviceRoot = tempRoot.appendingPathComponent("peoplehub", isDirectory: true)
+        let api2fileDir = serviceRoot.appendingPathComponent(".api2file", isDirectory: true)
+        try FileManager.default.createDirectory(at: api2fileDir, withIntermediateDirectories: true)
+
+        let adapterJSON = """
+        {
+          "service": "peoplehub",
+          "displayName": "PeopleHub",
+          "version": "1.0",
+          "enabled": false,
+          "auth": { "type": "apiKey", "keychainKey": "api2file.peoplehub.key" },
+          "resources": [
+            {
+              "name": "contacts",
+              "description": "Contacts",
+              "pull": { "url": "https://example.com/contacts" },
+              "fileMapping": {
+                "strategy": "collection",
+                "directory": ".",
+                "filename": "contacts.csv",
+                "format": "csv",
+                "idField": "id"
+              }
+            }
+          ]
+        }
+        """
+        try Data(adapterJSON.utf8).write(to: api2fileDir.appendingPathComponent("adapter.json"))
+
+        let projectionURL = serviceRoot.appendingPathComponent("contacts.csv")
+        let projectionText = """
+        id,name,team
+        1,Ada,Infra
+        2,Lin,API
+        """
+        try Data(projectionText.utf8).write(to: projectionURL)
+
+        let canonicalPath = ObjectFileManager.objectFilePath(forUserFile: "contacts.csv", strategy: .collection)
+        let canonicalURL = serviceRoot.appendingPathComponent(canonicalPath)
+        try FileManager.default.createDirectory(at: canonicalURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(#"[{"id":"1","name":"Ada","team":"Infra"},{"id":"2","name":"Lin","team":"API"}]"#.utf8).write(to: canonicalURL)
+        try FileLinkManager.save(
+            FileLinkIndex(
+                links: [
+                    FileLinkEntry(
+                        resourceName: "contacts",
+                        mappingStrategy: .collection,
+                        remoteId: "collection",
+                        userPath: "contacts.csv",
+                        canonicalPath: canonicalPath
+                    )
+                ]
+            ),
+            to: serviceRoot
+        )
+
+        var state = SyncState()
+        state.files["contacts.csv"] = FileSyncState(
+            remoteId: "",
+            lastSyncedHash: "contacts-hash",
+            lastSyncTime: Date(),
+            status: .synced
+        )
+        try state.save(to: api2fileDir.appendingPathComponent("state.json"))
+
+        let appState = IOSAppState(
+            platformServices: makePlatformServices(),
+            launchEnvironment: ["API2FILE_INITIAL_TAB": "data"]
+        )
+
+        await appState.startEngineIfNeeded()
+
+        let tables = await appState.listSQLTables(serviceID: "peoplehub")
+        XCTAssertEqual(tables.map(\.tableName), ["contacts"])
+
+        let description = await appState.describeSQLTable(serviceID: "peoplehub", table: "contacts")
+        let columnNames = Set(description?.columns.map(\.name) ?? [])
+        XCTAssertTrue(columnNames.contains("_remote_id"))
+        XCTAssertTrue(columnNames.contains("_projection_path"))
+        XCTAssertTrue(columnNames.contains("_object_path"))
+        XCTAssertTrue(columnNames.contains("_json_payload"))
+        XCTAssertTrue(columnNames.contains("id"))
+        XCTAssertTrue(columnNames.contains("name"))
+        XCTAssertTrue(columnNames.contains("team"))
+
+        let result = try await appState.runSQLQuery(
+            serviceID: "peoplehub",
+            query: "SELECT id, name, team FROM contacts ORDER BY name"
+        )
+        XCTAssertEqual(result.rowCount, 2)
+        XCTAssertEqual(result.rows.map(\.recordId), ["1", "2"])
+        XCTAssertEqual(result.rows.first?.values["name"], "Ada")
+
+        let resolvedProjection = try await appState.openSQLRecordFile(
+            serviceID: "peoplehub",
+            resource: "contacts",
+            recordID: "1",
+            surface: "projection"
+        )
+        let resolvedCanonical = try await appState.openSQLRecordFile(
+            serviceID: "peoplehub",
+            resource: "contacts",
+            recordID: "1",
+            surface: "canonical"
+        )
+
+        XCTAssertEqual(resolvedProjection.path, projectionURL.path)
+        XCTAssertEqual(resolvedCanonical.path, canonicalURL.path)
+        XCTAssertEqual(appState.selectedTab, .dataExplorer)
     }
 
     private var configURL: URL {

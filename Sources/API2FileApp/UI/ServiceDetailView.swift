@@ -1384,14 +1384,9 @@ private struct FilePreviewPanel: View {
             CSVTableView(headers: headers, rows: rows)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         case .image(let image):
-            ScrollView {
-                Image(nsImage: image)
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
-                    .frame(maxHeight: 340)
-                    .frame(maxWidth: .infinity)
-                    .padding(4)
-            }
+            PreviewImageView(image: image)
+                .frame(maxHeight: 340)
+                .padding(4)
         case .html(let htmlString):
             HTMLPreviewView(html: htmlString)
                 .frame(minHeight: 200)
@@ -1419,11 +1414,11 @@ private struct FilePreviewPanel: View {
         // Images
         let imageExts = ["png", "jpg", "jpeg", "gif", "tiff", "bmp", "webp", "ico"]
         if imageExts.contains(ext) {
-            if let image = NSImage(contentsOf: fileURL) { return .image(image) }
+            if let image = PreviewImageLoader.load(from: fileURL) { return .image(image) }
             return .unsupported
         }
         if ext == "svg" {
-            if let image = NSImage(contentsOf: fileURL) { return .image(image) }
+            if let image = PreviewImageLoader.load(from: fileURL) { return .image(image) }
             // fallback: show SVG source
             if let text = try? String(contentsOf: fileURL, encoding: .utf8) { return .text(text) }
             return .unsupported

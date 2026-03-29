@@ -79,9 +79,10 @@ struct API2FileApp: App {
 
         guard let existingInstance else { return false }
 
-        DistributedNotificationCenter.default().post(
-            name: AppState.activateDashboardNotification,
+        DistributedNotificationCenter.default().postNotificationName(
+            AppState.activateDashboardNotification,
             object: nil,
+            userInfo: nil,
             deliverImmediately: true
         )
         existingInstance.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
@@ -121,7 +122,9 @@ final class AppState: ObservableObject {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.openDashboardWindow()
+            Task { @MainActor [weak self] in
+                self?.openDashboardWindow()
+            }
         }
 
         if autoStart {

@@ -255,6 +255,7 @@ ls ~/API2File-Data/wix/orders.csv
 ls ~/API2File-Data/wix/forms.csv
 ls ~/API2File-Data/wix/members.csv
 ls ~/API2File-Data/wix/site-properties.json
+ls ~/API2File-Data/wix/site/site-urls.json
 
 # Verify per-form submission CSVs are created when the Wix Forms app is installed
 ls ~/API2File-Data/wix/forms/
@@ -263,12 +264,21 @@ ls ~/API2File-Data/wix/forms/
 ls ~/API2File-Data/wix/.orders.objects.json
 ls ~/API2File-Data/wix/.forms.objects.json
 ls ~/API2File-Data/wix/.members.objects.json
+
+# Verify hidden rendered agent snapshots exist after pull when the browser-backed snapshot service is available
+ls ~/API2File-Data/wix/.api2file/derived/site-snapshots/
+
+# Verify visible read-only snapshot copies are exposed for discovery
+ls ~/API2File-Data/wix/Snapshots/
 ```
 
 Expected behavior:
 
 - `orders.csv`, `forms.csv`, and `members.csv` are human-facing CSV projections with flattened columns.
 - `site-properties.json` remains structured JSON.
+- `site/site-urls.json` contains the merged published/editor URL catalog for the Wix site.
+- `.api2file/derived/site-snapshots/` contains hidden read-only HTML/PNG artifacts for agents and visual verification.
+- `Snapshots/` exposes visible read-only copies of the rendered HTML/PNG artifacts plus a manifest for easier discovery.
 - Hidden `.*.objects.json` files preserve the full raw Wix payload for each human-facing collection file.
 
 ---
@@ -606,6 +616,8 @@ swift test --filter WixLiveE2ETests/testMembers_Update_ModifyNickname_ReflectedO
 swift test --filter WixLiveE2ETests/testMembers_Delete_RemoveMember_DeletedFromServer
 swift test --filter WixLiveE2ETests/testMembers_ThreeWayUpdatePropagation
 swift test --filter WixLiveE2ETests/testSiteProperties_Pull_ReturnsJSONSnapshotWhenInstalled
+swift test --filter WixLiveE2ETests/testSiteURLs_DirectEndpoints_ReturnPublishedAndEditorURLs
+swift test --filter WixLiveE2ETests/testSiteURLs_IsolatedSync_WritesMergedCatalogAndRenderedSnapshots
 swift test --filter WixLiveE2ETests/testThreeWayUpdatePropagation_WritableCollectionResources
 swift test --filter WixLiveE2ETests/testCollectionsItems_DiscoversWritableNativeCollections
 swift test --filter WixLiveE2ETests/testCollectionsItems_DynamicWritableCollection_CreateUpdateDeleteViaHumanFile
