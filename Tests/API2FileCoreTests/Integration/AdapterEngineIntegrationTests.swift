@@ -1182,4 +1182,109 @@ final class AdapterEngineIntegrationTests: XCTestCase {
         XCTAssertEqual(decoded1[0]["name"] as? String, "Project Alpha")
         XCTAssertEqual(decoded1[0]["status"] as? String, "active")
     }
+
+    // MARK: - Child pull resilience
+
+    func testPull_WithFailingChild_SkipsFailedChildAndReturnsSiblings() async throws {
+        let configJSON = """
+        {
+            "service": "test-api",
+            "displayName": "Test",
+            "version": "1.0",
+            "auth": {"type": "bearer", "keychainKey": "test.key"},
+            "resources": [
+                {
+                    "name": "groups",
+                    "pull": {
+                        "method": "POST",
+                        "url": "https://example.com/groups/query",
+                        "dataPath": "$.groups"
+                    },
+                    "fileMapping": {
+                        "strategy": "collection",
+                        "directory": ".",
+                        "filename": "groups.csv",
+                        "format": "csv",
+                        "idField": "id"
+                    },
+                    "children": [
+                        {
+                            "name": "group-members",
+                            "pull": {
+                                "method": "POST",
+                                "url": "https://example.com/groups/{id}/members/query",
+                                "dataPath": "$.members"
+                            },
+                            "fileMapping": {
+                                "strategy": "collection",
+                                "directory": "groups/{id}",
+                                "filename": "members.csv",
+                                "format": "csv",
+                                "idField": "memberId"
+                            }
+                        },
+                        {
+                            "name": "group-posts",
+                            "pull": {
+                                "method": "POST",
+                                "url": "https://example.com/groups/{id}/posts/query",
+                                "dataPath": "$.posts"
+                            },
+                            "fileMapping": {
+                                "strategy": "collection",
+                                "directory": "groups/{id}/posts",
+                                "filename": "posts.csv",
+                                "format": "csv",
+                                "idField": "postId"
+                            }
+                        }
+                    ]
+                }
+            ]
+        }
+        """
+
+        let config = try JSONDecoder().decode(AdapterConfig.self, from: Data(configJSON.utf8))
+        let resource = try XCTUnwrap(config.resources.first(where: { $0.name == "groups" }))
+
+        let sessionConfig = URLSessionConfiguration.ephemeral
+        sessionConfig.protocolClasses = [MockURLProtocol.self]
+        let session = URLSession(configuration: sessionConfig)
+        let client = HTTPClient(session: session)
+        let engine = AdapterEngine(config: config, serviceDir: tempDir, httpClient: client)
+
+        MockURLProtocol.requestHandler = { request in
+            let url = request.url!.absoluteString
+            if url.contains("/groups/query") {
+                let body = #"{"groups":[{"id":"g1","name":"Alpha"},{"id":"g2","name":"Beta"}]}"#
+                let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: [:])!
+                return (response, Data(body.utf8))
+            } else if url.contains("/members/query") {
+                let body = #"{"members":[{"memberId":"m1","role":{"value":"MEMBER"}}]}"#
+                let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: [:])!
+                return (response, Data(body.utf8))
+            } else if url.contains("/posts/query") {
+                // Simulates a feature endpoint that doesn't exist on this site
+                let response = HTTPURLResponse(url: request.url!, statusCode: 404, httpVersion: nil, headerFields: [:])!
+                return (response, Data("Not Found".utf8))
+            }
+            let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: [:])!
+            return (response, Data("{}".utf8))
+        }
+
+        // Must NOT throw — failing children are non-fatal
+        let result = try await engine.pull(resource: resource)
+
+        // Parent CSV present
+        XCTAssertTrue(result.files.contains(where: { $0.relativePath == "groups.csv" }),
+                      "Expected groups.csv from parent pull")
+
+        // Successful child (members) present for both groups
+        let memberFiles = result.files.filter { $0.relativePath.hasSuffix("members.csv") }
+        XCTAssertEqual(memberFiles.count, 2, "Expected one members.csv per group")
+
+        // Failed child (posts) absent — gracefully skipped
+        let postFiles = result.files.filter { $0.relativePath.hasSuffix("posts.csv") }
+        XCTAssertTrue(postFiles.isEmpty, "Expected posts.csv to be absent when child pull returns 404")
+    }
 }

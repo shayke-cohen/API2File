@@ -2028,17 +2028,19 @@ final class WixLiveE2ETests: XCTestCase {
         let collections = try XCTUnwrap(bundled.resources.first(where: { $0.name == "collections" }))
         let groups = try XCTUnwrap(bundled.resources.first(where: { $0.name == "groups" }))
         let inbox = try XCTUnwrap(bundled.resources.first(where: { $0.name == "inbox-conversations" }))
+        let portfolioProjects = try XCTUnwrap(bundled.resources.first(where: { $0.name == "portfolio-projects" }))
         let childNames = Set(Self.wixChildSurfaceContracts.map(\.name))
 
         let groupChildNames = groups.children?.map { "groups.\($0.name)" } ?? []
         let inboxChildNames = inbox.children?.map { "inbox-conversations.\($0.name)" } ?? []
+        let portfolioChildNames = portfolioProjects.children?.map { "portfolio-projects.\($0.name)" } ?? []
 
         XCTAssertEqual(
             childNames,
             Set([
                 "forms.\(try XCTUnwrap(forms.children?.first).name)",
                 "collections.\(try XCTUnwrap(collections.children?.first).name)",
-            ] + groupChildNames + inboxChildNames),
+            ] + groupChildNames + inboxChildNames + portfolioChildNames),
             "Important writable child surfaces should stay explicit in the Wix contract matrix"
         )
     }
@@ -3901,10 +3903,11 @@ final class WixLiveE2ETests: XCTestCase {
             "Product name should contain test suffix"
         )
 
-        // Restore original name
+        // Restore original name — fetch updated revision from server (revision is not in CSV)
+        let serverUpdated = try await getProduct(id: productId)
         let newRevision: Int
-        if let rev = updated?["revision"] as? Int { newRevision = rev }
-        else if let revStr = updated?["revision"] as? String, let rev = Int(revStr) { newRevision = rev }
+        if let rev = serverUpdated["revision"] as? Int { newRevision = rev }
+        else if let revStr = serverUpdated["revision"] as? String, let rev = Int(revStr) { newRevision = rev }
         else { XCTFail("Could not parse updated revision"); return }
 
         let restoreBody: [String: Any] = [
@@ -3947,14 +3950,12 @@ final class WixLiveE2ETests: XCTestCase {
         _ = try await wixAPI(method: .PATCH, path: "/stores/v3/products/\(productId)", body: updateBody)
         try await delay(1500)
 
-        // Re-pull and check revision
-        let result2 = try await engine.pull(resource: res)
-        try writeFilesToDisk(result2.files)
-        let records2 = try readCSV("products.csv")
-        let updated = records2.first(where: { recordId(from: $0) == productId })
+        // Re-pull and check revision — fetch from server (revision is not in CSV)
+        _ = try await engine.pull(resource: res)
+        let serverUpdated = try await getProduct(id: productId)
         let revisionAfter: Int
-        if let rev = updated?["revision"] as? Int { revisionAfter = rev }
-        else if let revStr = updated?["revision"] as? String, let rev = Int(revStr) { revisionAfter = rev }
+        if let rev = serverUpdated["revision"] as? Int { revisionAfter = rev }
+        else if let revStr = serverUpdated["revision"] as? String, let rev = Int(revStr) { revisionAfter = rev }
         else { XCTFail("Could not parse updated revision"); return }
 
         XCTAssertGreaterThan(revisionAfter, revisionBefore, "Revision should increment after update")
@@ -5394,17 +5395,25 @@ final class WixLiveE2ETests: XCTestCase {
         let childRes = try resolvedGroupChildResource(childName: "group-posts", groupId: groupId, groupName: uniqueTestName("PostTestGroup"))
         let title = uniqueTestName("GroupPost")
 
-        let createdPostId = try await engine.pushRecord(
-            [
-                "groupId": groupId,
-                "title": title,
-                "contentText": "Test post content for \(title)",
-                "richContent": minimalRicosDocument(text: "Test post content for \(title)"),
-                "isPinned": false
-            ],
-            resource: childRes,
-            action: .create
-        )
+        let createdPostId: String?
+        do {
+            createdPostId = try await engine.pushRecord(
+                [
+                    "groupId": groupId,
+                    "title": title,
+                    "contentText": "Test post content for \(title)",
+                    "richContent": minimalRicosDocument(text: "Test post content for \(title)"),
+                    "isPinned": false
+                ],
+                resource: childRes,
+                action: .create
+            )
+        } catch {
+            if isSiteUnavailable(error) {
+                throw XCTSkip("Group posts create API unavailable on this site: \(error)")
+            }
+            throw error
+        }
         try await delay(1500)
 
         XCTAssertNotNil(createdPostId, "engine.pushRecord for group-posts returned nil ID")
@@ -5606,11 +5615,19 @@ final class WixLiveE2ETests: XCTestCase {
     }
 
     private func queryGroupPosts(groupId: String) async throws -> [[String: Any]] {
-        let result = try await wixAPI(
-            method: .POST,
-            path: "/social-groups/v2/groups/\(groupId)/posts/query",
-            body: ["paging": ["limit": 50]]
-        )
+        let result: [String: Any]
+        do {
+            result = try await wixAPI(
+                method: .POST,
+                path: "/social-groups/v2/groups/\(groupId)/posts/query",
+                body: ["paging": ["limit": 50]]
+            )
+        } catch {
+            if isSiteUnavailable(error) {
+                throw XCTSkip("Group posts API unavailable on this site: \(error)")
+            }
+            throw error
+        }
         return result["posts"] as? [[String: Any]] ?? []
     }
 
@@ -5622,11 +5639,19 @@ final class WixLiveE2ETests: XCTestCase {
                 "richContent": minimalRicosDocument(text: title)
             ]
         ]
-        let result = try await wixAPI(
-            method: .POST,
-            path: "/social-groups/v2/groups/\(groupId)/posts",
-            body: body
-        )
+        let result: [String: Any]
+        do {
+            result = try await wixAPI(
+                method: .POST,
+                path: "/social-groups/v2/groups/\(groupId)/posts",
+                body: body
+            )
+        } catch {
+            if isSiteUnavailable(error) {
+                throw XCTSkip("Group posts create API unavailable on this site: \(error)")
+            }
+            throw error
+        }
         guard let post = result["post"] as? [String: Any],
               let id = post["id"] as? String else {
             let childRes = try resolvedGroupChildResource(childName: "group-posts", groupId: groupId, groupName: "")
@@ -5920,15 +5945,19 @@ final class WixLiveE2ETests: XCTestCase {
         let updatedTitle = uniqueTestName("PortfolioColUpdated")
         try await delay(500)
 
+        let collections = try await queryPortfolioCollections()
+        let current = try XCTUnwrap(collections.first(where: { $0["id"] as? String == collectionId }))
+        let revision = try XCTUnwrap(current["revision"] as? String, "Collection must have a revision field")
+
         try await engine.pushRecord(
-            ["title": updatedTitle, "visible": true],
+            ["title": updatedTitle, "visible": true, "revision": revision],
             resource: res,
             action: .update(id: collectionId)
         )
         try await delay(1000)
 
-        let collections = try await queryPortfolioCollections()
-        let found = collections.first(where: { $0["id"] as? String == collectionId })
+        let updated = try await queryPortfolioCollections()
+        let found = updated.first(where: { $0["id"] as? String == collectionId })
         XCTAssertEqual(found?["title"] as? String, updatedTitle)
     }
 
@@ -6001,18 +6030,19 @@ final class WixLiveE2ETests: XCTestCase {
         try await delay(500)
 
         let itemTitle = uniqueTestName("PItem")
-        let createdId = try await engine.pushRecord(
-            [
-                "title": itemTitle,
-                "projectId": projId,
-                "mediaItem": [
-                    "type": "IMAGE",
-                    "image": ["url": "https://static.wixstatic.com/media/11062b_a62f58db8a05400cac72d2c6a48bc5d8~mv2.jpg"]
-                ]
-            ],
-            resource: projItemsRes,
-            action: .create
-        )
+        let createdId: String?
+        do {
+            createdId = try await engine.pushRecord(
+                ["title": itemTitle, "projectId": projId],
+                resource: projItemsRes,
+                action: .create
+            )
+        } catch {
+            if isSiteUnavailable(error) {
+                throw XCTSkip("Portfolio project items create API unavailable on this site: \(error)")
+            }
+            throw error
+        }
         let itemId = try XCTUnwrap(createdId, "Expected create portfolio project item to return an id")
         try await delay(1000)
 

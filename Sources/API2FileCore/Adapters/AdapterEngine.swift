@@ -188,26 +188,33 @@ public actor AdapterEngine {
             return r
         }
         var rawRecordsByFile: [String: [[String: Any]]] = [:]
+        // Exclude companion files from rawRecordsByFile — they have no object files
+        let primaryFiles = files.filter { !$0.isCompanion }
         if resource.fileMapping.strategy == .collection {
             // Collection: all raw records map to the single file
-            if let firstFile = files.first {
+            if let firstFile = primaryFiles.first {
                 rawRecordsByFile[firstFile.relativePath] = rawWithComputed
             }
         } else {
             // One-per-record: each raw record maps to its corresponding file
-            for (index, file) in files.enumerated() where index < rawWithComputed.count {
+            for (index, file) in primaryFiles.enumerated() where index < rawWithComputed.count {
                 rawRecordsByFile[file.relativePath] = [rawWithComputed[index]]
             }
         }
 
-        // Pull children recursively
+        // Pull children recursively — child failures are non-fatal.
+        // If a child endpoint is unavailable (e.g. feature not installed), skip it and keep the parent data.
         var allFiles = files
         if let children = resource.children {
             for child in children {
                 for parentRecord in transformed {
-                    let childResult = try await pullChild(child, parentRecord: parentRecord)
-                    allFiles.append(contentsOf: childResult.files)
-                    rawRecordsByFile.merge(childResult.rawRecordsByFile) { _, new in new }
+                    do {
+                        let childResult = try await pullChild(child, parentRecord: parentRecord)
+                        allFiles.append(contentsOf: childResult.files)
+                        rawRecordsByFile.merge(childResult.rawRecordsByFile) { _, new in new }
+                    } catch {
+                        await ActivityLogger.shared.warn(.sync, "\(resource.name) child '\(child.name)' pull skipped: \(error.localizedDescription)")
+                    }
                 }
             }
         }
@@ -1163,8 +1170,12 @@ public actor AdapterEngine {
             product["physicalProperties"] = [:] as [String: Any]
         }
 
-        if let ribbon = stringifyValue(record["ribbon"]), !ribbon.isEmpty {
-            product["ribbon"] = ribbon
+        if let ribbonDict = record["ribbon"] as? [String: Any], !ribbonDict.isEmpty {
+            product["ribbon"] = ribbonDict
+        } else if let ribbonStr = record["ribbon"] as? String, !ribbonStr.isEmpty,
+                  let ribbonData = ribbonStr.data(using: .utf8),
+                  let ribbonObj = try? JSONSerialization.jsonObject(with: ribbonData) as? [String: Any] {
+            product["ribbon"] = ribbonObj
         }
 
         return ["product": product]
@@ -1179,8 +1190,12 @@ public actor AdapterEngine {
         if let slug = stringifyValue(record["slug"]), !slug.isEmpty {
             product["slug"] = slug
         }
-        if let ribbon = stringifyValue(record["ribbon"]), !ribbon.isEmpty {
-            product["ribbon"] = ribbon
+        if let ribbonDict = record["ribbon"] as? [String: Any], !ribbonDict.isEmpty {
+            product["ribbon"] = ribbonDict
+        } else if let ribbonStr = record["ribbon"] as? String, !ribbonStr.isEmpty,
+                  let ribbonData = ribbonStr.data(using: .utf8),
+                  let ribbonObj = try? JSONSerialization.jsonObject(with: ribbonData) as? [String: Any] {
+            product["ribbon"] = ribbonObj
         }
         if let visible = boolValue(record["visible"]) {
             product["visible"] = visible
@@ -1485,10 +1500,12 @@ public actor AdapterEngine {
         let readOnly = mapping.readOnly ?? false
         let idField = mapping.idField ?? "id"
 
+        var result: [SyncableFile]
+
         switch mapping.strategy {
         case .onePerRecord:
             // One file per record
-            return try records.map { record in
+            result = try records.map { record in
                 let relativePath = FileMapper.filePath(for: record, config: mapping)
                 let data: Data
 
@@ -1524,7 +1541,7 @@ public actor AdapterEngine {
             let data = try FormatConverterFactory.encode(records: records, format: format, options: options)
             let remoteId = collectionContextRemoteId(for: resource)
 
-            return [SyncableFile(
+            result = [SyncableFile(
                 relativePath: relativePath,
                 format: format,
                 content: data,
@@ -1534,7 +1551,7 @@ public actor AdapterEngine {
 
         case .mirror:
             // Mirror the remote structure — same as one-per-record but preserves remote paths
-            return try records.map { record in
+            result = try records.map { record in
                 let relativePath = FileMapper.filePath(for: record, config: mapping)
                 let data: Data
 
@@ -1562,6 +1579,30 @@ public actor AdapterEngine {
                 )
             }
         }
+
+        // Append companion files — one per record per companion config
+        if let companions = mapping.companionFiles, !companions.isEmpty {
+            for companion in companions {
+                for record in records {
+                    let resolvedFilename = TemplateEngine.render(companion.filename, with: record)
+                    let dir = companion.directory
+                    let relPath = dir.isEmpty || dir == "." ? resolvedFilename : "\(dir)/\(resolvedFilename)"
+                    let body = TemplateEngine.render(companion.template, with: record)
+                    guard let data = body.data(using: .utf8) else { continue }
+                    let remoteId = stringifyValue(record[idField])
+                    result.append(SyncableFile(
+                        relativePath: relPath,
+                        format: .markdown,
+                        content: data,
+                        remoteId: remoteId,
+                        readOnly: true,
+                        isCompanion: true
+                    ))
+                }
+            }
+        }
+
+        return result
     }
 
     // MARK: - Private — Children
@@ -1631,12 +1672,13 @@ public actor AdapterEngine {
             return r
         }
         var rawRecordsByFile: [String: [[String: Any]]] = [:]
+        let primaryFiles = files.filter { !$0.isCompanion }
         if child.fileMapping.strategy == .collection {
-            if let firstFile = files.first {
+            if let firstFile = primaryFiles.first {
                 rawRecordsByFile[firstFile.relativePath] = rawWithComputed
             }
         } else {
-            for (index, file) in files.enumerated() where index < rawWithComputed.count {
+            for (index, file) in primaryFiles.enumerated() where index < rawWithComputed.count {
                 rawRecordsByFile[file.relativePath] = [rawWithComputed[index]]
             }
         }
