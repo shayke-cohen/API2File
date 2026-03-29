@@ -140,4 +140,58 @@ final class AdapterStoreTests: XCTestCase {
             "Refreshing a deployed adapter should preserve deployed-only Wix resources"
         )
     }
+
+    func testRefreshInstalledWixAdapterPreservesCustomInstanceKeychainKey() async throws {
+        try await AdapterStore.shared.seedIfNeeded()
+
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let api2fileDir = tempDir.appendingPathComponent(".api2file")
+        try FileManager.default.createDirectory(at: api2fileDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let legacyAdapter = """
+        {
+          "service": "wix",
+          "displayName": "Wix",
+          "version": "1.0",
+          "auth": {
+            "type": "apiKey",
+            "keychainKey": "api2file.wix-client-a.key"
+          },
+          "siteUrl": "https://example.wixsite.com/live-site",
+          "globals": {
+            "baseUrl": "https://www.wixapis.com",
+            "headers": {
+              "Content-Type": "application/json",
+              "wix-site-id": "site-12345"
+            }
+          },
+          "resources": [
+            {
+              "name": "contacts",
+              "pull": {
+                "url": "https://www.wixapis.com/contacts/v4/contacts/query"
+              },
+              "fileMapping": {
+                "strategy": "collection",
+                "directory": ".",
+                "filename": "contacts.csv",
+                "format": "csv"
+              }
+            }
+          ]
+        }
+        """
+
+        try legacyAdapter.data(using: .utf8)?.write(
+            to: api2fileDir.appendingPathComponent("adapter.json"),
+            options: .atomic
+        )
+
+        let refreshed = try await AdapterStore.shared.refreshInstalledAdapterIfNeeded(serviceDir: tempDir)
+        XCTAssertTrue(refreshed)
+
+        let config = try AdapterEngine.loadConfig(from: tempDir)
+        XCTAssertEqual(config.auth.keychainKey, "api2file.wix-client-a.key")
+    }
 }

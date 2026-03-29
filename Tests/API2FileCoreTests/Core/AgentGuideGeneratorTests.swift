@@ -124,6 +124,7 @@ final class AgentGuideGeneratorTests: XCTestCase {
         )
 
         let guide = AgentGuideGenerator.generateServiceGuide(
+            serviceId: "monday",
             config: config,
             serverPort: 24842
         )
@@ -176,6 +177,7 @@ final class AgentGuideGeneratorTests: XCTestCase {
         )
 
         let guide = AgentGuideGenerator.generateServiceGuide(
+            serviceId: "wix",
             config: config,
             serverPort: 24842
         )
@@ -200,6 +202,7 @@ final class AgentGuideGeneratorTests: XCTestCase {
         )
 
         let guide = AgentGuideGenerator.generateServiceGuide(
+            serviceId: "monday",
             config: config,
             serverPort: 24842
         )
@@ -227,6 +230,7 @@ final class AgentGuideGeneratorTests: XCTestCase {
         )
 
         let guide = AgentGuideGenerator.generateServiceGuide(
+            serviceId: "analytics",
             config: config,
             serverPort: 24842
         )
@@ -296,6 +300,7 @@ final class AgentGuideGeneratorTests: XCTestCase {
         )
 
         let guide = AgentGuideGenerator.generateServiceGuide(
+            serviceId: "test",
             config: config,
             serverPort: 24842
         )
@@ -318,6 +323,7 @@ final class AgentGuideGeneratorTests: XCTestCase {
         )
 
         let guide = AgentGuideGenerator.generateServiceGuide(
+            serviceId: "drive",
             config: config,
             serverPort: 24842
         )
@@ -334,6 +340,7 @@ final class AgentGuideGeneratorTests: XCTestCase {
         )
 
         let guide = AgentGuideGenerator.generateServiceGuide(
+            serviceId: "test",
             config: config,
             serverPort: 24842
         )
@@ -341,5 +348,23 @@ final class AgentGuideGeneratorTests: XCTestCase {
         XCTAssertTrue(guide.contains("## Constraints"))
         XCTAssertTrue(guide.contains("Don't modify files in `.api2file/`"))
         XCTAssertTrue(guide.contains("Prefer the hidden `.*.objects.json` files for high-fidelity agent edits"))
+    }
+
+    func testServiceGuideUsesRuntimeServiceIDForCommandsAndTitle() {
+        let config = makeConfig(
+            service: "wix",
+            displayName: "Wix",
+            resources: [makeResource(format: .markdown)]
+        )
+
+        let guide = AgentGuideGenerator.generateServiceGuide(
+            serviceId: "wix-client-a",
+            config: config,
+            serverPort: 24842
+        )
+
+        XCTAssertTrue(guide.contains("# Wix (wix-client-a) — Synced via API2File"))
+        XCTAssertTrue(guide.contains("curl localhost:24842/api/services/wix-client-a/sync"))
+        XCTAssertTrue(guide.contains("`sync(\"wix-client-a\")` → push changes"))
     }
 }

@@ -190,7 +190,7 @@ Tests/
 | --- | --- | --- | --- | --- |
 | **Demo** | `demo.adapter.json` | None | tasks, contacts, events, notes, pages, config, services, incidents, logos, photos, documents, spreadsheets, reports, presentations, emails, bookmarks, settings, snippets | CSV, VCF, ICS, MD, HTML, JSON, SVG, XLSX, DOCX, PPTX, EML, WEBLOC, YAML, TXT, Raw |
 | **Monday.com** | `monday.adapter.json` | Bearer token | boards (with items via GraphQL) | CSV |
-| **Wix** | `wix.adapter.json` | API key + Site ID header | contacts, blog-posts, products, orders, coupons, pricing-plans, gift-cards, forms (+ submissions child), members, site-properties, media, pro-gallery, pdf-viewer, wix-video, wix-music-podcasts, bookings-services, bookings-appointments, groups, comments, events, events-rsvps, events-tickets, restaurant-menus, restaurant-reservations, restaurant-orders, bookings, collections (+ items child) | CSV, MD, JSON, Raw |
+| **Wix** | `wix.adapter.json` | API key + Site ID header | contacts, blog-posts, products, orders, coupons, pricing-plans, gift-cards, forms (+ submissions child), members, site-properties, site-urls, media, pro-gallery, pdf-viewer, wix-video, wix-music-podcasts, bookings-services, bookings-appointments, groups, comments, events, events-rsvps, events-tickets, restaurant-menus, restaurant-reservations, restaurant-orders, bookings, collections (+ items child) | CSV, MD, JSON, Raw |
 | **GitHub** | `github.adapter.json` | Bearer (PAT) | repos, issues, gists, notifications, starred | CSV, JSON |
 | **Airtable** | `airtable.adapter.json` | Bearer (PAT) + Base/Table ID | records, bases | JSON |
 
@@ -248,9 +248,14 @@ Default sync folder: `~/API2File-Data/` (configurable in `GlobalConfig`).
       monthly-summary.docx    Word document (Pages/Word)
   wix/
     .api2file/
-      adapter.json            Service config (18 top-level resources)
+      adapter.json            Service config (28 top-level resources)
       file-links.json         Canonical/projection path links
       state.json              Sync state
+      derived/
+        site-snapshots/
+          manifest.json       Agent snapshot manifest
+          home.rendered.html  Hidden browser-rendered DOM snapshot
+          home.png            Hidden browser screenshot snapshot
     .git/                     Auto-committed history
     CLAUDE.md                 Service-specific agent guide
     contacts.csv              CRM contacts (Numbers)
@@ -259,6 +264,8 @@ Default sync folder: `~/API2File-Data/` (configurable in `GlobalConfig`).
     forms.csv                 Form schemas (Numbers)
     members.csv               Site members (Numbers)
     site-properties.json      Site properties snapshot (editor)
+    site/
+      site-urls.json          Published/editor URL catalog (editor)
     groups.csv                Groups directory (Numbers)
     comments.csv              Comments feed (Numbers)
     collections.json          CMS collection catalog (editor)
@@ -297,6 +304,8 @@ API2File now keeps a hidden structured JSON representation next to synced files:
 
 The object file is the canonical local record. Human-facing files like `contacts.csv` or `blog/my-post.md` are editable projections regenerated from that canonical state.
 
+Some services can also emit hidden, read-only derived artifacts for agents. Wix now generates browser-rendered site snapshots under `.api2file/derived/site-snapshots/` after pull. Those files are agent context only and are not editable sync surfaces.
+
 For Wix blog posts specifically, the Markdown file is a projection of Wix `richContent` / Ricos data. API2File uses Wix's official Ricos conversion API when available so Markdown pull/push preserves headings, lists, and other rich-content structure more accurately than a plain-text projection.
 
 Wix also uses explicit resource capability classes in the bundled adapter and live suite:
@@ -315,7 +324,7 @@ api2file <command> [arguments]
 Commands:
   init              Initialize ~/API2File-Data/ with global config
   list              List available bundled adapters
-  add <service>     Set up a new service (demo/monday/wix/github/airtable)
+  add <service> [id] Set up a new service instance (demo/monday/wix/github/airtable)
   status            Show all services and their sync status
   sync [service]    Trigger immediate sync (all or specific service)
   pull [service]    Pull from API to local files (all or specific service)
@@ -324,6 +333,7 @@ Commands:
 Examples:
   api2file init
   api2file add demo
+  api2file add wix wix-client-a
   api2file add github
   api2file status
   api2file sync
@@ -397,12 +407,14 @@ Connect any REST or GraphQL API by dropping an `.adapter.json` file into `Source
 
 | Field | Type | Description |
 | --- | --- | --- |
-| `service` | string | Unique ID used in folder name and CLI (`api2file add <service>`) |
+| `service` | string | Adapter/template ID. Installed service instances can use a different folder/instance ID, such as `api2file add wix wix-client-a`. |
 | `displayName` | string | Human-readable name shown in the menu bar app |
 | `version` | string | Adapter schema version (currently `"1.0"`) |
 | `auth` | object | Auth config (see below) |
 | `globals` | object | Shared `baseUrl`, `headers`, and default `method` |
 | `resources` | array | One entry per synced resource |
+
+Multiple service instances can reuse the same adapter template. Each installed instance gets its own service folder and instance-specific keychain key, while the bundled adapter template stays shared.
 
 ---
 

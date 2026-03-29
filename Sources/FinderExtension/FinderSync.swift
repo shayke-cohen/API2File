@@ -243,7 +243,8 @@ final class FinderSync: FIFinderSync {
             return "API2File"
         }
 
-        if serviceId == "wix" {
+        let serviceRoot = syncFolderURL.appendingPathComponent(serviceId, isDirectory: true)
+        if serviceConfig(for: serviceId, serviceRoot: serviceRoot)?.service == "wix" {
             return "API2File - Wix"
         }
         return "API2File"

@@ -388,6 +388,7 @@ GitManager.commitAll("sync: push {service} — canonical + projections updated")
 
 - **Canonical object files** preserve the structured record shape needed for safe sync back to the server
 - **Human-facing files** are projections optimized for native apps like Numbers, Calendar, Contacts, Preview, Pages, and editors
+- **Derived agent artifacts** are optional hidden files under `.api2file/derived/` for browser-rendered context, manifests, and other read-only sidecars
 - A resource may map to more than one local file surface, but only the canonical structured representation is authoritative
 - Editing both the canonical and projected files before the same sync cycle should be treated as a conflict, not a merge heuristic
 - `.api2file/file-links.json` explicitly links projections to canonical object files
@@ -420,6 +421,8 @@ adapter.json
 Adding a new service requires only a JSON file — no Swift code, no recompilation.
 
 Wix CMS is a good example of why this matters: the bundled adapter uses collection metadata, not site-specific name filters, to decide which generic `cms/*.csv` files are writable. `collections.json` remains the read-only catalog, while only true `NATIVE` collections with write-capable metadata are surfaced as writable CSV projections.
+
+Wix site snapshots are the main exception to the pure adapter-only model. The `site-urls` resource is still adapter-defined and writes the canonical URL catalog, but rendered HTML and PNG snapshots are generated after pull via an optional browser-backed snapshot service injected through `PlatformServices`. Those artifacts are hidden, linked from `.api2file/file-links.json`, and excluded from push/object-file flows.
 
 ## Concurrency Model
 
@@ -493,8 +496,9 @@ API2FileApp.swift
 selectService → enterCredentials → connecting → done
                      │
                      ├── API key (SecureField)
+                     ├── Workspace folder / service instance ID
                      ├── ExtraFields (Wix: Site ID + Site URL, Airtable: Base ID + Table Name)
-                     └── Placeholder substitution in adapter config JSON
+                     └── Placeholder substitution + instance-specific keychain key in adapter config JSON
 ```
 
 ### Bundled Adapter Configs

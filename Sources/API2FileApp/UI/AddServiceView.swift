@@ -5,11 +5,13 @@ struct AddServiceView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var templates: [AdapterTemplate] = []
     @State private var selectedTemplate: AdapterTemplate?
+    @State private var serviceID: String = ""
     @State private var apiKey: String = ""
     @State private var extraFieldValues: [String: String] = [:]
     @State private var isConnecting = false
     @State private var error: String?
     @State private var step: SetupStep = .selectService
+    @State private var completedServiceID: String?
 
     var onComplete: ((String?) -> Void)?
 
@@ -46,9 +48,9 @@ struct AddServiceView: View {
 
     private var dynamicHeight: CGFloat {
         if step == .enterCredentials, let template = selectedTemplate, !(template.config.setupFields ?? []).isEmpty {
-            return 300 + CGFloat((template.config.setupFields ?? []).count) * 60
+            return 360 + CGFloat((template.config.setupFields ?? []).count) * 60
         }
-        return 300
+        return step == .enterCredentials ? 360 : 300
     }
 
     // MARK: - Steps
@@ -71,7 +73,11 @@ struct AddServiceView: View {
                 ForEach(templates, id: \.config.service) { template in
                     Button {
                         selectedTemplate = template
+                        serviceID = template.config.service
                         extraFieldValues = [:]
+                        apiKey = ""
+                        completedServiceID = nil
+                        error = nil
                         step = .enterCredentials
                     } label: {
                         HStack {
@@ -121,6 +127,14 @@ struct AddServiceView: View {
                 SecureField("API Key or Token", text: $apiKey)
                     .textFieldStyle(.roundedBorder)
                     .testId("wizard-api-key-field")
+
+                TextField("Workspace Folder", text: $serviceID)
+                    .textFieldStyle(.roundedBorder)
+                    .testId("wizard-service-id-field")
+
+                Text("Creates a separate folder under the sync root. Use a unique name for a second Wix site.")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
 
                 // Service-specific extra fields from adapter config
                 ForEach(template.config.setupFields ?? [], id: \.key) { field in
@@ -193,7 +207,7 @@ struct AddServiceView: View {
                 .fontWeight(.bold)
                 .testId("wizard-done-title")
 
-            Text("\(selectedTemplate?.config.displayName ?? "") is now syncing to ~/API2File/\(selectedTemplate?.config.service ?? "")/")
+            Text("\(selectedTemplate?.config.displayName ?? "") is now syncing to ~/API2File/\(completedServiceID ?? selectedTemplate?.config.service ?? "")/")
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
 
@@ -220,6 +234,7 @@ struct AddServiceView: View {
     private var canConnect: Bool {
         guard let template = selectedTemplate else { return false }
         if apiKey.isEmpty { return false }
+        if serviceID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return false }
         for field in template.config.setupFields ?? [] {
             if (extraFieldValues[field.key] ?? "").isEmpty { return false }
         }
@@ -234,38 +249,57 @@ struct AddServiceView: View {
 
         Task {
             do {
-                // Save API key to Keychain
-                let keychain = KeychainManager()
-                await keychain.save(key: template.config.auth.keychainKey, value: apiKey)
+                let normalizedServiceID = ServiceIdentity.normalizedServiceID(from: serviceID)
+                guard !normalizedServiceID.isEmpty else {
+                    throw NSError(
+                        domain: "API2FileApp",
+                        code: 1,
+                        userInfo: [NSLocalizedDescriptionKey: "Enter a valid workspace folder name."]
+                    )
+                }
 
                 // Create service directory with adapter config
                 let syncFolder = GlobalConfig().resolvedSyncFolder
-                let serviceDir = syncFolder.appendingPathComponent(template.config.service)
+                let serviceDir = syncFolder.appendingPathComponent(normalizedServiceID)
                 let api2fileDir = serviceDir.appendingPathComponent(".api2file")
+                let adapterURL = api2fileDir.appendingPathComponent("adapter.json")
+
+                if FileManager.default.fileExists(atPath: adapterURL.path) {
+                    throw NSError(
+                        domain: "API2FileApp",
+                        code: 2,
+                        userInfo: [NSLocalizedDescriptionKey: "A workspace folder named '\(normalizedServiceID)' already exists."]
+                    )
+                }
+
+                // Save API key to Keychain
+                let keychain = KeychainManager()
+                let keychainKey = ServiceIdentity.keychainKey(
+                    for: normalizedServiceID,
+                    adapterService: template.config.service,
+                    templateKeychainKey: template.config.auth.keychainKey
+                )
+                await keychain.save(key: keychainKey, value: apiKey)
 
                 try FileManager.default.createDirectory(at: api2fileDir, withIntermediateDirectories: true)
 
-                // Apply extra field substitutions to the adapter config
-                var configJSON = template.rawJSON
-                for field in template.config.setupFields ?? [] {
-                    if let value = extraFieldValues[field.key] {
-                        configJSON = configJSON.replacingOccurrences(of: field.templateKey, with: value)
-                    }
-                }
-
+                let configJSON = try ServiceIdentity.installedAdapterJSON(
+                    template: template,
+                    serviceID: normalizedServiceID,
+                    extraFieldValues: extraFieldValues
+                )
                 let configData = configJSON.data(using: .utf8)!
-                try configData.write(to: api2fileDir.appendingPathComponent("adapter.json"), options: .atomic)
+                try configData.write(to: adapterURL, options: .atomic)
 
                 // Init git
                 let git = GitManager(repoPath: serviceDir)
                 try await git.initRepo()
                 try await git.createGitignore()
 
-                let completedServiceId = template.config.service
-
                 await MainActor.run {
+                    completedServiceID = normalizedServiceID
                     step = .done
-                    onComplete?(completedServiceId)
+                    onComplete?(normalizedServiceID)
                 }
             } catch {
                 await MainActor.run {

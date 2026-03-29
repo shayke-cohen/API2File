@@ -219,6 +219,7 @@ final class FullSyncCycleTests: XCTestCase {
 
         // Generate service CLAUDE.md
         let guide = AgentGuideGenerator.generateServiceGuide(
+            serviceId: "monday",
             config: config,
             serverPort: 7422
         )

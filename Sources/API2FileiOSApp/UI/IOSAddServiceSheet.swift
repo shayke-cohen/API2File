@@ -7,6 +7,7 @@ struct AddServiceSheet: View {
 
     @State private var templates: [AdapterTemplate] = []
     @State private var selectedTemplate: AdapterTemplate?
+    @State private var serviceID = ""
     @State private var apiKey = ""
     @State private var extraFieldValues: [String: String] = [:]
     @State private var isConnecting = false
@@ -98,6 +99,7 @@ struct AddServiceSheet: View {
                     ForEach(templates, id: \.config.service) { template in
                         Button {
                             selectedTemplate = template
+                            serviceID = template.config.service
                             apiKey = ""
                             extraFieldValues = [:]
                             error = nil
@@ -165,6 +167,16 @@ struct AddServiceSheet: View {
                         .accessibilityIdentifier("add-service.oauth-note")
                 }
 
+                inputField(title: "Workspace Folder") {
+                    TextField("wix-client-a", text: $serviceID)
+                        .textInputAutocapitalization(.never)
+                        .accessibilityIdentifier("add-service.service-id")
+                }
+
+                Text("Use a unique folder name when you want multiple connections from the same adapter.")
+                    .font(.footnote)
+                    .foregroundStyle(IOSTheme.textSecondary)
+
                 ForEach(selectedTemplate.config.setupFields ?? [], id: \.key) { field in
                     inputField(title: field.label) {
                         let placeholder = field.placeholder ?? field.label
@@ -209,6 +221,9 @@ struct AddServiceSheet: View {
         if selectedTemplate.config.auth.type != .oauth2 && apiKey.isEmpty {
             return false
         }
+        if serviceID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return false
+        }
         for field in selectedTemplate.config.setupFields ?? [] where (extraFieldValues[field.key] ?? "").isEmpty {
             return false
         }
@@ -230,6 +245,7 @@ struct AddServiceSheet: View {
         do {
             try await appState.addService(
                 template: selectedTemplate,
+                serviceID: serviceID,
                 apiKey: apiKey,
                 extraFieldValues: extraFieldValues
             )

@@ -138,7 +138,8 @@ final class AppState: ObservableObject {
     private var refreshTask: Task<Void, Never>?
     private var engineStarted = false
     private var addServiceWindow: NSWindow?
-    private var webViewBridge: WebViewBridge?
+    private let webViewBridge = WebViewBridge()
+    private let snapshotWebViewBridge = WebViewBridge(presentationMode: .hiddenSnapshot)
     /// Shared WebViewStore for the Browser pane — also serves as BrowserControlDelegate for MCP
     let sharedWebViewStore = WebViewStore()
     private var lastSyncTimes: [String: Date] = [:]
@@ -170,7 +171,14 @@ final class AppState: ObservableObject {
         self.config = config
         publishFinderBadgeSnapshot()
 
-        let engine = SyncEngine(config: config)
+        let engine = SyncEngine(
+            config: config,
+            platformServices: PlatformServices(
+                renderedPageSnapshotService: WixRenderedPageSnapshotService(
+                    browserDelegate: snapshotWebViewBridge
+                )
+            )
+        )
         self.syncEngine = engine
 
         // Wire up deletion confirmation — shows a modal NSAlert before any remote delete
@@ -198,8 +206,8 @@ final class AppState: ObservableObject {
                 self.localServer = server
                 NSLog("AppState LocalServer started on port %ld", config.serverPort)
 
-                // Register shared WebViewStore as browser delegate for MCP
-                await server.setBrowserDelegate(self.sharedWebViewStore)
+                // Register the visible browser bridge for browser routes and debugging flows.
+                await server.setBrowserDelegate(self.webViewBridge)
 
                 // Write port discovery file for MCP binary
                 Self.writeServerInfo(port: config.serverPort)
@@ -319,7 +327,8 @@ final class AppState: ObservableObject {
 
     func updateAPIKey(serviceId: String, newKey: String) {
         Task {
-            let keychainKey = "api2file.\(serviceId).key"
+            guard let service = services.first(where: { $0.serviceId == serviceId }) else { return }
+            let keychainKey = service.config.auth.keychainKey
             let keychain = KeychainManager()
             await keychain.save(key: keychainKey, value: newKey)
             // Reload the service to pick up the new credential
@@ -436,10 +445,7 @@ final class AppState: ObservableObject {
     func openBrowserWindow() {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
-            if self.webViewBridge == nil {
-                self.webViewBridge = WebViewBridge()
-            }
-            self.webViewBridge?.openWindow()
+            self.webViewBridge.openWindow()
             // Inject into LocalServer so HTTP routes can reach the WebView
             Task {
                 await self.localServer?.setBrowserDelegate(self.webViewBridge)
@@ -477,7 +483,7 @@ final class AppState: ObservableObject {
     // MARK: - Live Reload
 
     private func checkLiveReload() async {
-        guard let bridge = webViewBridge, await bridge.isBrowserOpen() else { return }
+        guard await webViewBridge.isBrowserOpen() else { return }
         var anyChanged = false
         for service in services {
             if let syncTime = service.lastSyncTime {
@@ -488,7 +494,7 @@ final class AppState: ObservableObject {
             }
         }
         if anyChanged {
-            try? await bridge.reload()
+            try? await webViewBridge.reload()
         }
     }
 

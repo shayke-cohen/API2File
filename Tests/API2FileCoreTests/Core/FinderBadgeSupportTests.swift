@@ -77,5 +77,27 @@ final class FinderBadgeSupportTests: XCTestCase {
             "https://manage.wix.com/dashboard/site-id/contacts"
         )
     }
+
+    func testCustomWixInstanceUsesWixBadgeIdentifiersWhenConfigIsStored() {
+        guard let defaults = UserDefaults(suiteName: "tests.api2file.finder-wix-instance.\(UUID().uuidString)") else {
+            XCTFail("Expected isolated user defaults suite")
+            return
+        }
+
+        let config = AdapterConfig(
+            service: "wix",
+            displayName: "Wix",
+            version: "1.0",
+            auth: AuthConfig(type: .apiKey, keychainKey: "api2file.wix-client-a.key"),
+            resources: []
+        )
+
+        FinderBadgeSupport.setServiceConfig(config, forServiceId: "wix-client-a", in: defaults)
+
+        XCTAssertEqual(
+            FinderBadgeSupport.badgeIdentifier(for: "syncing", relativePath: "wix-client-a/blog/post.md", defaults: defaults),
+            "wix-syncing"
+        )
+    }
 }
 #endif

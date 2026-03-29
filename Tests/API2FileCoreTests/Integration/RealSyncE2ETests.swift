@@ -559,7 +559,7 @@ final class RealSyncE2ETests: XCTestCase {
         let config = try AdapterEngine.loadConfig(from: serviceDir)
 
         // Generate CLAUDE.md
-        let guide = AgentGuideGenerator.generateServiceGuide(config: config, serverPort: 21567)
+        let guide = AgentGuideGenerator.generateServiceGuide(serviceId: "demo", config: config, serverPort: 21567)
 
         // Write to disk
         try guide.write(to: serviceDir.appendingPathComponent("CLAUDE.md"), atomically: true, encoding: .utf8)

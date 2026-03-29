@@ -33,6 +33,7 @@ AI agents should prefer the canonical structured files for high-fidelity edits a
 - Config specifies: auth, API endpoints, data extraction paths, file format, sync interval
 - Bundled adapter configs ship with the app; users can create custom ones
 - Each service config lives at `~/API2File-Data/{service}/.api2file/adapter.json` by default
+- Multiple installed services may reuse the same adapter template while keeping separate instance IDs, folders, and credentials
 
 ### FR-2: Bidirectional Sync
 

@@ -154,7 +154,7 @@ func commandHelp() {
     print("    \(Color.cyan)status\(Color.reset)            Show all services and their sync status")
     print("    \(Color.cyan)sync\(Color.reset) [service]    Trigger immediate sync (all or specific service)")
     print("    \(Color.cyan)pull\(Color.reset) [service]    Pull from API to local files")
-    print("    \(Color.cyan)add\(Color.reset) <service>     Set up a new service (demo/monday/wix/github/airtable)")
+    print("    \(Color.cyan)add\(Color.reset) <service> [id] Set up a new service instance (demo/monday/wix/github/airtable)")
     print("    \(Color.cyan)list\(Color.reset)              List available bundled adapters")
     print("    \(Color.cyan)init\(Color.reset)              Initialize ~/API2File-Data/ with global config")
     print("    \(Color.cyan)help\(Color.reset)              Show this help message")
@@ -163,6 +163,7 @@ func commandHelp() {
     print("    api2file init                 Set up the data directory")
     print("    api2file add demo             Add the demo service")
     print("    api2file add github           Add GitHub integration")
+    print("    api2file add wix wix-client-a Add a second Wix workspace in its own folder")
     print("    api2file status               Show status of all services")
     print("    api2file sync                 Sync all services now")
     print("    api2file sync github          Sync only GitHub")
@@ -305,7 +306,7 @@ func commandStatus() {
     }
 }
 
-func commandAdd(serviceName: String) {
+func commandAdd(serviceName: String, instanceID requestedInstanceID: String? = nil) {
     guard let adapter = BundledAdapter(rawValue: serviceName.lowercased()) else {
         printError("Unknown service: '\(serviceName)'")
         print("  Available services: \(BundledAdapter.allCases.map { $0.rawValue }.joined(separator: ", "))")
@@ -316,9 +317,21 @@ func commandAdd(serviceName: String) {
     let config = loadGlobalConfig()
     let syncFolder = config.resolvedSyncFolder
     let fm = FileManager.default
-    let serviceDir = syncFolder.appendingPathComponent(adapter.rawValue)
+    let rawInstanceID = requestedInstanceID ?? adapter.rawValue
+    let serviceID = ServiceIdentity.normalizedServiceID(from: rawInstanceID)
+    guard !serviceID.isEmpty else {
+        printError("Invalid service instance id '\(rawInstanceID)'. Use letters, numbers, or dashes.")
+        exit(1)
+    }
+
+    let serviceDir = syncFolder.appendingPathComponent(serviceID)
     let api2fileDir = serviceDir.appendingPathComponent(".api2file")
     let adapterConfigPath = api2fileDir.appendingPathComponent("adapter.json")
+    let keychainKey = ServiceIdentity.keychainKey(
+        for: serviceID,
+        adapterService: adapter.rawValue,
+        templateKeychainKey: adapter.keychainKey
+    )
 
     // Check if already exists
     if fm.fileExists(atPath: adapterConfigPath.path) {
@@ -361,7 +374,14 @@ func commandAdd(serviceName: String) {
         }
 
         // Pretty-print the JSON
-        let jsonObj = try JSONSerialization.jsonObject(with: configData)
+        guard var jsonObj = try JSONSerialization.jsonObject(with: configData) as? [String: Any] else {
+            printError("Failed to decode adapter config.")
+            exit(1)
+        }
+        if var auth = jsonObj["auth"] as? [String: Any] {
+            auth["keychainKey"] = keychainKey
+            jsonObj["auth"] = auth
+        }
         let prettyData = try JSONSerialization.data(withJSONObject: jsonObj, options: [.prettyPrinted, .sortedKeys])
         try prettyData.write(to: adapterConfigPath, options: .atomic)
     } catch {
@@ -375,7 +395,7 @@ func commandAdd(serviceName: String) {
 
     Task {
         let keychain = KeychainManager()
-        keychainSuccess = await keychain.save(key: adapter.keychainKey, value: trimmedKey)
+        keychainSuccess = await keychain.save(key: keychainKey, value: trimmedKey)
         semaphore.signal()
     }
     semaphore.wait()
@@ -407,14 +427,15 @@ func commandAdd(serviceName: String) {
     print("")
     printSuccess("  \u{2713} \(adapter.displayName) configured successfully!")
     print("")
+    print("  Service ID:        \(Color.dim)\(serviceID)\(Color.reset)")
     print("  Service directory: \(Color.dim)\(serviceDir.path)\(Color.reset)")
     print("  Adapter config:   \(Color.dim)\(adapterConfigPath.path)\(Color.reset)")
     if keychainSuccess {
-        print("  API key:           \(Color.dim)saved to Keychain (\(adapter.keychainKey))\(Color.reset)")
+        print("  API key:           \(Color.dim)saved to Keychain (\(keychainKey))\(Color.reset)")
     }
     print("")
     print("  Next steps:")
-    print("    \(Color.cyan)api2file sync \(adapter.rawValue)\(Color.reset)   — Pull data from \(adapter.displayName)")
+    print("    \(Color.cyan)api2file sync \(serviceID)\(Color.reset)   — Pull data from \(adapter.displayName)")
     print("    \(Color.cyan)api2file status\(Color.reset)              — Check sync status")
     print("")
 }
@@ -557,7 +578,7 @@ func commandPull(serviceName: String?) {
                         await httpClient.setAuthHeader("Authorization", value: "Bearer \(token)")
                     }
                 } else {
-                    printWarning("  No API key found for \(serviceId). Set one with: api2file add \(serviceId)")
+                    printWarning("  No API key found for \(serviceId). Re-add it with: api2file add \(adapterConfig.service) \(serviceId)")
                 }
 
                 let engine = AdapterEngine(config: adapterConfig, serviceDir: serviceDir, httpClient: httpClient)
@@ -604,11 +625,12 @@ case "status", "st":
 case "add":
     guard args.count > 2 else {
         printError("Missing service name.")
-        print("  Usage: \(Color.cyan)api2file add <service>\(Color.reset)")
+        print("  Usage: \(Color.cyan)api2file add <service> [service-id]\(Color.reset)")
         print("  Run \(Color.cyan)api2file list\(Color.reset) to see available services.")
         exit(1)
     }
-    commandAdd(serviceName: args[2])
+    let serviceID = args.count > 3 ? args[3] : nil
+    commandAdd(serviceName: args[2], instanceID: serviceID)
 
 case "sync":
     let service = args.count > 2 ? args[2] : nil

@@ -116,11 +116,16 @@ public enum FinderBadgeSupport {
         return normalized.split(separator: "/").first.map(String.init)
     }
 
-    public static func badgeIdentifier(for status: String, relativePath: String) -> String {
+    public static func badgeIdentifier(
+        for status: String,
+        relativePath: String,
+        defaults: UserDefaults? = sharedDefaults()
+    ) -> String {
         let normalizedStatus = normalizeStatus(status)
         guard !normalizedStatus.isEmpty else { return "" }
 
-        if serviceId(forRelativePath: relativePath) == "wix" {
+        if let serviceId = serviceId(forRelativePath: relativePath),
+           serviceId == "wix" || serviceConfig(forServiceId: serviceId, in: defaults)?.service == "wix" {
             return "wix-\(normalizedStatus)"
         }
         return normalizedStatus

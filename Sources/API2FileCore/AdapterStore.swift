@@ -269,6 +269,16 @@ public actor AdapterStore {
 
     private func mergedConfig(templateConfig: AdapterConfig, deployedConfig: AdapterConfig) -> AdapterConfig {
         let mergedGlobals = mergedGlobalsConfig(templateConfig.globals, deployedConfig.globals)
+        let mergedAuth = AuthConfig(
+            type: templateConfig.auth.type,
+            keychainKey: deployedConfig.auth.keychainKey,
+            setup: templateConfig.auth.setup,
+            authorizeUrl: templateConfig.auth.authorizeUrl,
+            tokenUrl: templateConfig.auth.tokenUrl,
+            refreshUrl: templateConfig.auth.refreshUrl,
+            scopes: templateConfig.auth.scopes,
+            callbackPort: templateConfig.auth.callbackPort
+        )
         let deployedResourcesByName = Dictionary(uniqueKeysWithValues: deployedConfig.resources.map { ($0.name, $0) })
         var mergedResources = templateConfig.resources.map { templateResource in
             guard let deployedResource = deployedResourcesByName[templateResource.name] else { return templateResource }
@@ -292,7 +302,7 @@ public actor AdapterStore {
             service: templateConfig.service,
             displayName: templateConfig.displayName,
             version: templateConfig.version,
-            auth: templateConfig.auth,
+            auth: mergedAuth,
             globals: mergedGlobals,
             resources: mergedResources,
             icon: templateConfig.icon,

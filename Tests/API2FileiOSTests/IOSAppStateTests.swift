@@ -108,7 +108,7 @@ final class IOSAppStateTests: XCTestCase {
 
         await appState.startEngineIfNeeded()
 
-        let serviceRoot = tempRoot.appendingPathComponent("wix", isDirectory: true)
+        let serviceRoot = tempRoot.appendingPathComponent("wix-secondary", isDirectory: true)
         let adapterURL = serviceRoot.appendingPathComponent(".api2file/adapter.json")
         let manifestURL = serviceRoot.appendingPathComponent(".api2file-git/manifest.json")
         let gitURL = serviceRoot.appendingPathComponent(".git")
@@ -238,7 +238,7 @@ final class IOSAppStateTests: XCTestCase {
         history.append(
             SyncHistoryEntry(
                 timestamp: Date(timeIntervalSince1970: 1_700_000_100),
-                serviceId: "wix",
+                serviceId: "wix-secondary",
                 serviceName: "Wix",
                 direction: .pull,
                 status: .success,
@@ -254,12 +254,44 @@ final class IOSAppStateTests: XCTestCase {
 
         await appState.refresh()
 
-        let service = try XCTUnwrap(appState.services.first(where: { $0.serviceId == "wix" }))
-        XCTAssertEqual(service.displayName, "Wix")
+        let service = try XCTUnwrap(appState.services.first(where: { $0.serviceId == "wix-secondary" }))
+        XCTAssertEqual(service.serviceId, "wix-secondary")
+        XCTAssertEqual(service.displayName, "Wix (wix-secondary)")
         XCTAssertEqual(service.fileCount, 1)
         XCTAssertEqual(service.status, .connected)
-        XCTAssertEqual(appState.selectedServiceID, "wix")
-        XCTAssertEqual(appState.history.first?.serviceId, "wix")
+        XCTAssertEqual(appState.selectedServiceID, "wix-secondary")
+        XCTAssertEqual(appState.history.first?.serviceId, "wix-secondary")
+    }
+
+    func testAddServiceSupportsCustomServiceFolderAndKeychainKey() async throws {
+        let appState = IOSAppState(
+            platformServices: makePlatformServices(),
+            launchEnvironment: [:]
+        )
+
+        try await appState.platformServices.adapterStore.seedIfNeeded()
+        let templates = try await appState.platformServices.adapterStore.loadAll()
+        let wixTemplate = try XCTUnwrap(templates.first(where: { $0.config.service == "wix" }))
+
+        try await appState.addService(
+            template: wixTemplate,
+            serviceID: "wix-client-a",
+            apiKey: "custom-wix-key",
+            extraFieldValues: [
+                "wix-site-id": "site-abc",
+                "wix-site-url": "https://example.com/client-a"
+            ]
+        )
+
+        let serviceRoot = tempRoot.appendingPathComponent("wix-client-a", isDirectory: true)
+        let config = try AdapterEngine.loadConfig(from: serviceRoot)
+        let storedKey = await appState.platformServices.keychainManager.load(key: "api2file.wix-client-a.key")
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: serviceRoot.appendingPathComponent(".api2file/adapter.json").path))
+        XCTAssertEqual(config.service, "wix")
+        XCTAssertEqual(config.auth.keychainKey, "api2file.wix-client-a.key")
+        XCTAssertEqual(storedKey, "custom-wix-key")
+        XCTAssertTrue(appState.services.contains(where: { $0.serviceId == "wix-client-a" }))
     }
 
     private var configURL: URL {

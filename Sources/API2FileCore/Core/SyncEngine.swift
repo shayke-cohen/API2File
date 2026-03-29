@@ -187,7 +187,7 @@ public actor SyncEngine {
             let state = (try? SyncState.load(from: stateURL)) ?? SyncState()
             serviceInfos[serviceId] = ServiceInfo(
                 serviceId: serviceId,
-                displayName: config.displayName,
+                displayName: ServiceIdentity.runtimeDisplayName(for: config, serviceID: serviceId),
                 config: config,
                 status: .paused,
                 fileCount: state.files.count
@@ -327,7 +327,7 @@ public actor SyncEngine {
         // Track service info
         serviceInfos[serviceId] = ServiceInfo(
             serviceId: serviceId,
-            displayName: config.displayName,
+            displayName: ServiceIdentity.runtimeDisplayName(for: config, serviceID: serviceId),
             config: config,
             status: .connected,
             fileCount: state.files.count
@@ -531,6 +531,13 @@ public actor SyncEngine {
                 }
             }
 
+            await refreshWixSiteArtifacts(
+                serviceId: serviceId,
+                serviceDir: serviceDir,
+                engine: engine,
+                state: &localState
+            )
+
             let stateURL = serviceDir.appendingPathComponent(".api2file/state.json")
             try localState.save(to: stateURL)
             syncStates[serviceId] = localState
@@ -695,8 +702,9 @@ public actor SyncEngine {
                 }
 
                 let collectionContextId = collectionFileContextId(
-                    existingRemoteId: localState.files[file.relativePath]?.remoteId,
-                    rawRecords: mergeResult.rawRecords
+                    existingRemoteId: file.remoteId ?? localState.files[file.relativePath]?.remoteId,
+                    rawRecords: mergeResult.rawRecords,
+                    resource: resource
                 )
                 localState.files[file.relativePath] = FileSyncState(
                     remoteId: collectionContextId ?? "",
@@ -735,8 +743,9 @@ public actor SyncEngine {
             if let resource = findResource(for: file.relativePath, in: engine.config),
                resource.fileMapping.strategy == .collection {
                 let collectionContextId = collectionFileContextId(
-                    existingRemoteId: localState.files[file.relativePath]?.remoteId,
-                    rawRecords: result.rawRecordsByFile[file.relativePath] ?? []
+                    existingRemoteId: file.remoteId ?? localState.files[file.relativePath]?.remoteId,
+                    rawRecords: result.rawRecordsByFile[file.relativePath] ?? [],
+                    resource: resource
                 )
                 localState.files[file.relativePath] = FileSyncState(
                     remoteId: collectionContextId ?? "",
@@ -981,6 +990,7 @@ public actor SyncEngine {
 
             // Skip internal, temp, and hidden files
             if filePath.hasPrefix(".api2file/") || filePath.hasPrefix(".git/") { continue }
+            if filePath.hasPrefix("Snapshots/") { continue }
             if filePath == "CLAUDE.md" { continue }
             if filePath.contains("~$") { continue } // Office temp files
             if filePath.contains(".dat.nosync") { continue } // macOS temp files
@@ -1022,9 +1032,12 @@ public actor SyncEngine {
         return false
     }
 
-    private func collectionFileContextId(existingRemoteId: String?, rawRecords: [[String: Any]]) -> String? {
+    private func collectionFileContextId(existingRemoteId: String?, rawRecords: [[String: Any]], resource: ResourceConfig? = nil) -> String? {
         if let existingRemoteId, !existingRemoteId.isEmpty {
             return existingRemoteId
+        }
+        if let resourceId = collectionContextId(from: resource), !resourceId.isEmpty {
+            return resourceId
         }
         for record in rawRecords {
             if let id = record["dataCollectionId"] as? String, !id.isEmpty {
@@ -1037,9 +1050,108 @@ public actor SyncEngine {
         return nil
     }
 
+    private func collectionContextId(from resource: ResourceConfig?) -> String? {
+        guard let body = resource?.pull?.body else { return nil }
+        return jsonString(body, path: ["dataCollectionId"])
+    }
+
+    private func jsonString(_ value: JSONValue, path: [String]) -> String? {
+        if path.isEmpty {
+            if case .string(let string) = value, !string.isEmpty, !string.contains("{") {
+                return string
+            }
+            return nil
+        }
+
+        guard case .object(let object) = value,
+              let child = object[path[0]] else {
+            return nil
+        }
+
+        return jsonString(child, path: Array(path.dropFirst()))
+    }
+
     private func collectionDeleteTemplateVars(collectionContextId: String?) -> [String: Any] {
         guard let collectionContextId, !collectionContextId.isEmpty else { return [:] }
         return ["dataCollectionId": collectionContextId]
+    }
+
+    private func wixGroupOwnerId(
+        from rawRecord: [String: Any]?,
+        rawRecords: [[String: Any]],
+        siblingContext: [String: Any]
+    ) -> String? {
+        if let ownerId = siblingContext["ownerId"] as? String, !ownerId.isEmpty {
+            return ownerId
+        }
+        let candidates = [rawRecord].compactMap { $0 } + rawRecords
+        for candidate in candidates {
+            if let ownerId = candidate["ownerId"] as? String, !ownerId.isEmpty {
+                return ownerId
+            }
+            if let createdBy = candidate["createdBy"] as? [String: Any],
+               let ownerId = createdBy["id"] as? String,
+               !ownerId.isEmpty {
+                return ownerId
+            }
+        }
+        return nil
+    }
+
+    private func enrichWixHumanRecordForPush(
+        _ record: [String: Any],
+        resource: ResourceConfig,
+        rawRecord: [String: Any]?,
+        rawRecords: [[String: Any]],
+        siblingContext: [String: Any],
+        collectionContextId: String?
+    ) -> [String: Any] {
+        var enriched = record
+
+        switch resource.name {
+        case "groups":
+            if enriched["ownerId"] == nil,
+               let ownerId = wixGroupOwnerId(from: rawRecord, rawRecords: rawRecords, siblingContext: siblingContext) {
+                enriched["ownerId"] = ownerId
+            }
+        case "bookings-services":
+            let template = rawRecord ?? rawRecords.first
+
+            if enriched["type"] == nil {
+                enriched["type"] = template?["type"] ?? "APPOINTMENT"
+            }
+            if enriched["capacity"] == nil {
+                if let defaultCapacity = template?["defaultCapacity"] {
+                    enriched["capacity"] = defaultCapacity
+                } else if let capacity = template?["capacity"] {
+                    enriched["capacity"] = capacity
+                } else {
+                    enriched["capacity"] = 1
+                }
+            }
+            if enriched["onlineBookingEnabled"] == nil {
+                if let onlineBooking = template?["onlineBooking"] as? [String: Any],
+                   let enabled = onlineBooking["enabled"] {
+                    enriched["onlineBookingEnabled"] = enabled
+                } else {
+                    enriched["onlineBookingEnabled"] = true
+                }
+            }
+
+            for key in ["onlineBooking", "payment", "locations", "schedule", "staffMemberIds"] {
+                if enriched[key] == nil, let value = template?[key] {
+                    enriched[key] = value
+                }
+            }
+        case let name where name.hasPrefix("collections.items"):
+            if enriched["dataCollectionId"] == nil, let collectionContextId {
+                enriched["dataCollectionId"] = collectionContextId
+            }
+        default:
+            break
+        }
+
+        return enriched
     }
 
     private func extractServiceAndPath(from fullPath: String) -> (serviceId: String, filePath: String)? {
@@ -1242,7 +1354,8 @@ public actor SyncEngine {
         let shouldInverse = resource.fileMapping.effectivePushMode == .autoReverse && !inverseOps.isEmpty
         let collectionContextId = collectionFileContextId(
             existingRemoteId: syncStates[serviceId]?.files[filePath]?.remoteId,
-            rawRecords: rawRecords ?? []
+            rawRecords: rawRecords ?? [],
+            resource: resource
         )
 
         // Build raw record lookup by ID for merging and revision injection
@@ -1278,11 +1391,14 @@ public actor SyncEngine {
                 }
             }
 
-            if usesCustomPushTransforms,
-               enriched["dataCollectionId"] == nil,
-               let collectionContextId {
-                enriched["dataCollectionId"] = collectionContextId
-            }
+            enriched = enrichWixHumanRecordForPush(
+                enriched,
+                resource: resource,
+                rawRecord: nil,
+                rawRecords: oldRawRecords,
+                siblingContext: siblingContext,
+                collectionContextId: collectionContextId
+            )
 
             // For creates there is no cached raw record to merge with, so skip
             // mechanical inverse — it would relocate fields (e.g. boardId → board.boardId)
@@ -1298,8 +1414,9 @@ public actor SyncEngine {
             && resource.push?.update?.bodyType == nil
         for (id, record) in diff.updated {
             var pushRecord: [String: Any]
+            let existingRawRecord = rawLookup[id]
             if usesCustomPushTransforms {
-                if let rawRecord = rawLookup[id] {
+                if let rawRecord = existingRawRecord {
                     pushRecord = rawRecord
                     for (key, value) in record {
                         pushRecord[key] = value
@@ -1315,15 +1432,18 @@ public actor SyncEngine {
                 pushRecord = record
             }
 
-            if usesCustomPushTransforms,
-               pushRecord["dataCollectionId"] == nil,
-               let collectionContextId {
-                pushRecord["dataCollectionId"] = collectionContextId
-            }
+            pushRecord = enrichWixHumanRecordForPush(
+                pushRecord,
+                resource: resource,
+                rawRecord: existingRawRecord,
+                rawRecords: oldRawRecords,
+                siblingContext: siblingContext,
+                collectionContextId: collectionContextId
+            )
 
             // Inject latest revision from raw API record for optimistic concurrency.
             // APIs like Wix silently reject updates with stale revision numbers.
-            if let rawRecord = rawLookup[id] {
+            if let rawRecord = existingRawRecord {
                 if let rev = rawRecord["revision"] { pushRecord["revision"] = rev }
                 if let rev = rawRecord["_revision"] { pushRecord["_revision"] = rev }
             }
@@ -1865,6 +1985,283 @@ public actor SyncEngine {
             derivedPaths: derivedPaths
         )
         try? FileLinkManager.upsert(entry, in: serviceDir)
+    }
+
+    private func refreshWixSiteArtifacts(
+        serviceId: String,
+        serviceDir: URL,
+        engine: AdapterEngine,
+        state: inout SyncState
+    ) async {
+        guard engine.config.service == "wix",
+              let resource = findResource(named: WixSiteSnapshotSupport.catalogResourceName, in: engine.config) else {
+            return
+        }
+
+        var catalogRecord = loadExistingWixSiteCatalog(serviceDir: serviceDir)
+
+        if let refreshedRecord = try? await fetchWixSiteURLCatalogRecord(engine: engine) {
+            catalogRecord = refreshedRecord
+        } else {
+            await ActivityLogger.shared.warn(
+                .sync,
+                "Wix site URL catalog refresh failed for \(serviceId); using the most recent local catalog for snapshots if available"
+            )
+        }
+
+        guard let catalogRecord else { return }
+
+        do {
+            state = try await writeWixSiteCatalogAndSnapshots(
+                serviceDir: serviceDir,
+                config: engine.config,
+                resource: resource,
+                state: state,
+                catalogRecord: catalogRecord
+            )
+        } catch {
+            await ActivityLogger.shared.warn(
+                .sync,
+                "Wix site artifacts refresh failed for \(serviceId) — \(error.localizedDescription)"
+            )
+        }
+    }
+
+    internal func writeWixSiteCatalogAndSnapshots(
+        serviceDir: URL,
+        config: AdapterConfig,
+        resource: ResourceConfig,
+        state: SyncState,
+        catalogRecord: [String: Any]
+    ) async throws -> SyncState {
+        var nextState = state
+        let userPath = FileMapper.filePath(for: catalogRecord, config: resource.fileMapping)
+        let userURL = serviceDir.appendingPathComponent(userPath)
+        try FileManager.default.createDirectory(at: userURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+
+        let data = try JSONFormat.encode(records: [catalogRecord], options: resource.fileMapping.effectiveFormatOptions)
+        suppressPath(userPath)
+        try data.write(to: userURL, options: .atomic)
+
+        let objectPath = ObjectFileManager.objectFilePath(
+            forUserFile: userPath,
+            strategy: resource.fileMapping.strategy
+        )
+        let objectURL = serviceDir.appendingPathComponent(objectPath)
+        suppressPath(objectPath)
+        try ObjectFileManager.writeCollectionObjectFile(records: [catalogRecord], to: objectURL)
+
+        let derivedPaths = try await writeRenderedWixSiteSnapshotsIfAvailable(
+            serviceDir: serviceDir,
+            config: config,
+            catalogRecord: catalogRecord
+        )
+
+        nextState.files[userPath] = FileSyncState(
+            remoteId: "",
+            lastSyncedHash: data.sha256Hex,
+            lastSyncTime: Date(),
+            status: .synced
+        )
+
+        upsertFileLink(
+            serviceDir: serviceDir,
+            resource: resource,
+            userPath: userPath,
+            remoteId: nextState.files[userPath]?.remoteId,
+            derivedPaths: derivedPaths
+        )
+
+        return nextState
+    }
+
+    private func fetchWixSiteURLCatalogRecord(engine: AdapterEngine) async throws -> [String: Any] {
+        let publishedResponse = try await requestJSON(
+            url: "https://www.wixapis.com/urls-server/v2/published-site-urls",
+            engine: engine
+        )
+        let editorResponse = try await requestJSON(
+            url: "https://www.wixapis.com/editor-urls",
+            engine: engine
+        )
+        return WixSiteSnapshotSupport.buildSiteURLCatalog(
+            publishedResponse: publishedResponse,
+            editorResponse: editorResponse
+        )
+    }
+
+    private func requestJSON(url: String, engine: AdapterEngine) async throws -> [String: Any] {
+        let request = APIRequest(
+            method: .GET,
+            url: url,
+            headers: engine.config.globals?.headers ?? [:],
+            body: nil
+        )
+        let response = try await engine.httpClient.request(request)
+        guard let json = try JSONSerialization.jsonObject(with: response.body) as? [String: Any] else {
+            throw AdapterError.invalidResponseData
+        }
+        return json
+    }
+
+    private func loadExistingWixSiteCatalog(serviceDir: URL) -> [String: Any]? {
+        let catalogURL = serviceDir.appendingPathComponent(WixSiteSnapshotSupport.catalogRelativePath)
+        guard let data = try? Data(contentsOf: catalogURL) else { return nil }
+        return try? JSONFormat.decode(data: data, options: nil).first
+    }
+
+    private func writeRenderedWixSiteSnapshotsIfAvailable(
+        serviceDir: URL,
+        config: AdapterConfig,
+        catalogRecord: [String: Any]
+    ) async throws -> [String] {
+        let targets = WixSiteSnapshotSupport.snapshotTargets(config: config, catalogRecord: catalogRecord)
+        guard !targets.isEmpty else { return [] }
+        guard let snapshotService = platformServices.renderedPageSnapshotService else { return [] }
+
+        let fileManager = FileManager.default
+        let derivedRootURL = serviceDir.appendingPathComponent(WixSiteSnapshotSupport.derivedDirectory)
+        try fileManager.createDirectory(at: derivedRootURL, withIntermediateDirectories: true)
+
+        let previousManifest = WixSiteSnapshotSupport.loadManifest(from: serviceDir)
+        let previousEntries = Dictionary(uniqueKeysWithValues: (previousManifest?.entries ?? []).map { ($0.id, $0) })
+        let now = Date()
+        var entries: [SiteSnapshotManifestEntry] = []
+
+        for target in targets {
+            let htmlPath = WixSiteSnapshotSupport.htmlPath(for: target.id)
+            let screenshotPath = WixSiteSnapshotSupport.screenshotPath(for: target.id)
+            let htmlURL = serviceDir.appendingPathComponent(htmlPath)
+            let screenshotURL = serviceDir.appendingPathComponent(screenshotPath)
+
+            do {
+                let snapshot = try await snapshotService.capture(url: target.url)
+                suppressPath(htmlPath)
+                guard let htmlData = snapshot.html.data(using: .utf8) else {
+                    throw AdapterError.invalidResponseData
+                }
+                try htmlData.write(to: htmlURL, options: .atomic)
+                suppressPath(screenshotPath)
+                try snapshot.screenshotData.write(to: screenshotURL, options: .atomic)
+
+                entries.append(
+                    SiteSnapshotManifestEntry(
+                        id: target.id,
+                        label: target.label,
+                        sourceURL: snapshot.sourceURL,
+                        finalURL: snapshot.finalURL,
+                        title: snapshot.title,
+                        capturedAt: WixSiteSnapshotSupport.iso8601String(snapshot.capturedAt),
+                        status: "success",
+                        htmlPath: htmlPath,
+                        screenshotPath: screenshotPath
+                    )
+                )
+            } catch {
+                await ActivityLogger.shared.warn(
+                    .sync,
+                    "Rendered snapshot failed for \(target.url) — \(error.localizedDescription)"
+                )
+
+                let previous = previousEntries[target.id]
+                entries.append(
+                    SiteSnapshotManifestEntry(
+                        id: target.id,
+                        label: target.label,
+                        sourceURL: target.url,
+                        finalURL: previous?.finalURL ?? target.url,
+                        title: previous?.title ?? "",
+                        capturedAt: previous?.capturedAt ?? WixSiteSnapshotSupport.iso8601String(now),
+                        status: "error",
+                        htmlPath: previous?.htmlPath,
+                        screenshotPath: previous?.screenshotPath,
+                        error: error.localizedDescription
+                    )
+                )
+            }
+        }
+
+        let manifest = SiteSnapshotManifest(
+            generatedAt: WixSiteSnapshotSupport.iso8601String(now),
+            entries: entries.sorted { $0.id < $1.id }
+        )
+        try WixSiteSnapshotSupport.saveManifest(manifest, to: serviceDir)
+        let exposedPaths = try exposeWixSiteSnapshots(
+            currentManifest: manifest,
+            previousManifest: previousManifest,
+            serviceDir: serviceDir
+        )
+        return Array(Set(WixSiteSnapshotSupport.manifestFilePaths(manifest) + exposedPaths)).sorted()
+    }
+
+    private func exposeWixSiteSnapshots(
+        currentManifest: SiteSnapshotManifest,
+        previousManifest: SiteSnapshotManifest?,
+        serviceDir: URL
+    ) throws -> [String] {
+        let fileManager = FileManager.default
+        let currentPaths = Set(WixSiteSnapshotSupport.exposedManifestFilePaths(currentManifest))
+        let previousPaths = Set(previousManifest.map(WixSiteSnapshotSupport.exposedManifestFilePaths) ?? [])
+
+        for path in previousPaths.subtracting(currentPaths).sorted(by: >) {
+            let url = serviceDir.appendingPathComponent(path)
+            suppressPath(path)
+            try? fileManager.removeItem(at: url)
+        }
+
+        let exposedRootURL = serviceDir.appendingPathComponent(WixSiteSnapshotSupport.exposedDirectory)
+        try fileManager.createDirectory(at: exposedRootURL, withIntermediateDirectories: true)
+
+        let readmePath = WixSiteSnapshotSupport.exposedReadmeRelativePath
+        let readmeURL = serviceDir.appendingPathComponent(readmePath)
+        suppressPath(readmePath)
+        try WixSiteSnapshotSupport.exposedReadme().write(to: readmeURL, atomically: true, encoding: .utf8)
+
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let manifestURL = serviceDir.appendingPathComponent(WixSiteSnapshotSupport.exposedManifestRelativePath)
+        suppressPath(WixSiteSnapshotSupport.exposedManifestRelativePath)
+        try encoder.encode(WixSiteSnapshotSupport.exposedManifest(from: currentManifest)).write(
+            to: manifestURL,
+            options: .atomic
+        )
+
+        for entry in currentManifest.entries {
+            if let hiddenHTMLPath = entry.htmlPath {
+                try copyExposedSnapshotFile(
+                    fromHiddenPath: hiddenHTMLPath,
+                    toExposedPath: WixSiteSnapshotSupport.exposedPath(forDerivedPath: hiddenHTMLPath),
+                    serviceDir: serviceDir
+                )
+            }
+            if let hiddenScreenshotPath = entry.screenshotPath {
+                try copyExposedSnapshotFile(
+                    fromHiddenPath: hiddenScreenshotPath,
+                    toExposedPath: WixSiteSnapshotSupport.exposedPath(forDerivedPath: hiddenScreenshotPath),
+                    serviceDir: serviceDir
+                )
+            }
+        }
+
+        return currentPaths.sorted()
+    }
+
+    private func copyExposedSnapshotFile(
+        fromHiddenPath hiddenPath: String,
+        toExposedPath exposedPath: String,
+        serviceDir: URL
+    ) throws {
+        let fileManager = FileManager.default
+        let sourceURL = serviceDir.appendingPathComponent(hiddenPath)
+        guard fileManager.fileExists(atPath: sourceURL.path) else { return }
+
+        let destinationURL = serviceDir.appendingPathComponent(exposedPath)
+        try fileManager.createDirectory(at: destinationURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        if fileManager.fileExists(atPath: destinationURL.path) {
+            try fileManager.removeItem(at: destinationURL)
+        }
+        suppressPath(exposedPath)
+        try fileManager.copyItem(at: sourceURL, to: destinationURL)
     }
 
     private func synchronizeFileLinks(serviceDir: URL, config: AdapterConfig, state: SyncState) {

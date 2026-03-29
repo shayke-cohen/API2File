@@ -171,11 +171,13 @@ final class IOSAppState {
 
     func addService(
         template: AdapterTemplate,
+        serviceID requestedServiceID: String? = nil,
         apiKey: String,
         extraFieldValues: [String: String]
     ) async throws {
         let serviceID = try await persistService(
             template: template,
+            serviceID: requestedServiceID,
             apiKey: apiKey,
             extraFieldValues: extraFieldValues
         )
@@ -435,43 +437,49 @@ final class IOSAppState {
 
     private func persistService(
         template: AdapterTemplate,
+        serviceID requestedServiceID: String? = nil,
         apiKey: String,
         extraFieldValues: [String: String],
         customizeConfig: ((inout [String: Any]) -> Void)? = nil
     ) async throws -> String {
-        let serviceID = template.config.service
+        let rawServiceID = requestedServiceID ?? template.config.service
+        let serviceID = ServiceIdentity.normalizedServiceID(from: rawServiceID)
+        guard !serviceID.isEmpty else {
+            throw NSError(
+                domain: "API2FileiOSApp",
+                code: 2,
+                userInfo: [NSLocalizedDescriptionKey: "Enter a valid workspace folder name."]
+            )
+        }
+
         let serviceDir = syncRootURL.appendingPathComponent(serviceID, isDirectory: true)
         let api2fileDir = serviceDir.appendingPathComponent(".api2file", isDirectory: true)
+        let configURL = api2fileDir.appendingPathComponent("adapter.json")
+
+        if requestedServiceID != nil, FileManager.default.fileExists(atPath: configURL.path) {
+            throw NSError(
+                domain: "API2FileiOSApp",
+                code: 3,
+                userInfo: [NSLocalizedDescriptionKey: "A workspace folder named '\(serviceID)' already exists."]
+            )
+        }
 
         try FileManager.default.createDirectory(at: api2fileDir, withIntermediateDirectories: true)
         if !apiKey.isEmpty {
-            await platformServices.keychainManager.save(key: template.config.auth.keychainKey, value: apiKey)
-        }
-
-        var configJSON = template.rawJSON
-        for field in template.config.setupFields ?? [] {
-            let value = extraFieldValues[field.key] ?? ""
-            configJSON = configJSON.replacingOccurrences(of: field.templateKey, with: value)
-        }
-
-        if let customizeConfig {
-            let data = Data(configJSON.utf8)
-            guard var json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-                throw NSError(
-                    domain: "API2FileiOSApp",
-                    code: 1,
-                    userInfo: [NSLocalizedDescriptionKey: "Invalid adapter JSON"]
-                )
-            }
-            customizeConfig(&json)
-            let updatedData = try JSONSerialization.data(
-                withJSONObject: json,
-                options: [.prettyPrinted, .sortedKeys]
+            let keychainKey = ServiceIdentity.keychainKey(
+                for: serviceID,
+                adapterService: template.config.service,
+                templateKeychainKey: template.config.auth.keychainKey
             )
-            configJSON = String(decoding: updatedData, as: UTF8.self)
+            await platformServices.keychainManager.save(key: keychainKey, value: apiKey)
         }
 
-        let configURL = api2fileDir.appendingPathComponent("adapter.json")
+        let configJSON = try ServiceIdentity.installedAdapterJSON(
+            template: template,
+            serviceID: serviceID,
+            extraFieldValues: extraFieldValues,
+            customizeConfig: customizeConfig
+        )
         try Data(configJSON.utf8).write(to: configURL, options: .atomic)
 
         let git = GitManager(repoPath: serviceDir, backendFactory: platformServices.versionControlFactory)
@@ -515,8 +523,8 @@ final class IOSAppState {
                 }
 
                 return ServiceInfo(
-                    serviceId: config.service,
-                    displayName: config.displayName,
+                    serviceId: serviceDir.lastPathComponent,
+                    displayName: ServiceIdentity.runtimeDisplayName(for: config, serviceID: serviceDir.lastPathComponent),
                     config: config,
                     status: status,
                     lastSyncTime: latestEntry?.timestamp,
