@@ -1,9 +1,9 @@
 {
   "service": "wix",
   "displayName": "Wix — Website & Business Platform",
-  "version": "2.6",
+  "version": "2.7",
   "icon": "globe",
-  "wizardDescription": "Contacts, products, orders, forms, members, blog, bookings, groups, media",
+  "wizardDescription": "Contacts, blog, products, orders, coupons, pricing plans, gift cards, events, restaurants, bookings, groups, media",
   "siteUrl": "YOUR_SITE_URL_HERE",
   "dashboardUrl": "https://www.wix.com/dashboard/YOUR_SITE_ID_HERE/home/",
   "setupFields": [
@@ -375,6 +375,127 @@
       "sync": {
         "interval": 120,
         "debounceMs": 1000
+      }
+    },
+    {
+      "name": "coupons",
+      "description": "Wix Coupons as a CSV spreadsheet",
+      "capabilityClass": "read_only",
+      "dashboardUrl": "https://www.wix.com/dashboard/YOUR_SITE_ID_HERE/store/coupons",
+
+      "pull": {
+        "method": "POST",
+        "url": "https://www.wixapis.com/stores/v2/coupons/query",
+        "body": {
+          "query": {
+            "paging": {
+              "limit": 100
+            }
+          }
+        },
+        "dataPath": "$.coupons"
+      },
+
+      "fileMapping": {
+        "strategy": "collection",
+        "directory": ".",
+        "filename": "coupons.csv",
+        "format": "csv",
+        "idField": "id",
+        "readOnly": true,
+        "transforms": {
+          "pull": [
+            { "op": "rename", "from": "specification.name", "to": "name" },
+            { "op": "rename", "from": "specification.code", "to": "code" },
+            { "op": "rename", "from": "specification.startTime", "to": "startTime" },
+            { "op": "rename", "from": "specification.expirationTime", "to": "expirationTime" },
+            { "op": "rename", "from": "displayData.summary", "to": "summary" },
+            { "op": "omit", "fields": ["specification", "displayData"] },
+            { "op": "set", "field": "_url", "value": "https://manage.wix.com/dashboard/YOUR_SITE_ID_HERE/store/coupons/{id}" }
+          ]
+        }
+      },
+
+      "sync": {
+        "interval": 300
+      }
+    },
+    {
+      "name": "pricing-plans",
+      "description": "Wix Pricing Plans as a CSV catalog",
+      "capabilityClass": "read_only",
+      "dashboardUrl": "https://www.wix.com/dashboard/YOUR_SITE_ID_HERE/pricing-plans",
+
+      "pull": {
+        "method": "POST",
+        "url": "https://www.wixapis.com/pricing-plans/v3/plans/query",
+        "body": {
+          "cursorPaging": {
+            "limit": 100
+          }
+        },
+        "dataPath": "$.plans"
+      },
+
+      "fileMapping": {
+        "strategy": "collection",
+        "directory": ".",
+        "filename": "pricing-plans.csv",
+        "format": "csv",
+        "idField": "id",
+        "readOnly": true,
+        "transforms": {
+          "pull": [
+            { "op": "omit", "fields": ["image", "pricingVariants", "perks", "extendedFields"] },
+            { "op": "set", "field": "_url", "value": "https://manage.wix.com/dashboard/YOUR_SITE_ID_HERE/pricing-plans/{id}" }
+          ]
+        }
+      },
+
+      "sync": {
+        "interval": 300
+      }
+    },
+    {
+      "name": "gift-cards",
+      "description": "Wix Gift Cards as a CSV spreadsheet",
+      "capabilityClass": "read_only",
+      "dashboardUrl": "https://www.wix.com/dashboard/YOUR_SITE_ID_HERE/gift-cards",
+
+      "pull": {
+        "method": "POST",
+        "url": "https://www.wixapis.com/gift-cards/v1/gift-cards/query",
+        "body": {
+          "query": {
+            "paging": {
+              "limit": 100
+            }
+          }
+        },
+        "dataPath": "$.giftCards"
+      },
+
+      "fileMapping": {
+        "strategy": "collection",
+        "directory": ".",
+        "filename": "gift-cards.csv",
+        "format": "csv",
+        "idField": "id",
+        "readOnly": true,
+        "transforms": {
+          "pull": [
+            { "op": "rename", "from": "balance.amount", "to": "balanceAmount" },
+            { "op": "rename", "from": "balance.currency", "to": "balanceCurrency" },
+            { "op": "rename", "from": "initialValue.amount", "to": "initialValueAmount" },
+            { "op": "rename", "from": "initialValue.currency", "to": "initialValueCurrency" },
+            { "op": "omit", "fields": ["balance", "initialValue", "sender", "recipient", "delivery", "extendedFields"] },
+            { "op": "set", "field": "_url", "value": "https://manage.wix.com/dashboard/YOUR_SITE_ID_HERE/gift-cards/{id}" }
+          ]
+        }
+      },
+
+      "sync": {
+        "interval": 300
       }
     },
     {
@@ -1084,6 +1205,261 @@
             { "op": "set", "field": "appId", "value": "14bcded7-0066-7c35-14d7-466cb3f09103" },
             { "op": "set", "field": "content.plainText", "value": "{text}" },
             { "op": "omit", "fields": ["id", "authorMemberId", "createdDate", "updatedDate", "status", "text"] }
+          ]
+        }
+      },
+
+      "sync": {
+        "interval": 300
+      }
+    },
+    {
+      "name": "events",
+      "description": "Wix Events as a CSV spreadsheet",
+      "capabilityClass": "partial_writable",
+      "dashboardUrl": "https://www.wix.com/dashboard/YOUR_SITE_ID_HERE/events",
+
+      "pull": {
+        "method": "POST",
+        "url": "https://www.wixapis.com/events/v3/events/query",
+        "body": {
+          "query": {
+            "paging": {
+              "limit": 100
+            }
+          }
+        },
+        "dataPath": "$.events"
+      },
+
+      "push": {
+        "update": {
+          "method": "PATCH",
+          "url": "https://www.wixapis.com/events/v1/events/{id}",
+          "bodyWrapper": "event"
+        }
+      },
+
+      "fileMapping": {
+        "strategy": "collection",
+        "directory": ".",
+        "filename": "events.csv",
+        "format": "csv",
+        "idField": "id",
+        "transforms": {
+          "pull": [
+            { "op": "rename", "from": "dateAndTimeSettings.startDate", "to": "startDate" },
+            { "op": "rename", "from": "dateAndTimeSettings.endDate", "to": "endDate" },
+            { "op": "rename", "from": "timeZone", "to": "timeZone" },
+            { "op": "omit", "fields": ["dateAndTimeSettings", "registration", "scheduling", "location", "form", "participants", "extendedFields"] },
+            { "op": "set", "field": "_url", "value": "https://manage.wix.com/dashboard/YOUR_SITE_ID_HERE/events/{id}" }
+          ],
+          "push": [
+            { "op": "rename", "from": "startDate", "to": "dateAndTimeSettings.startDate" },
+            { "op": "rename", "from": "endDate", "to": "dateAndTimeSettings.endDate" },
+            { "op": "rename", "from": "timeZone", "to": "timeZone" },
+            { "op": "omit", "fields": ["_url", "createdDate", "updatedDate", "status"] }
+          ]
+        }
+      },
+
+      "sync": {
+        "interval": 300
+      }
+    },
+    {
+      "name": "events-rsvps",
+      "description": "Wix Event RSVPs and guest responses as a CSV spreadsheet",
+      "capabilityClass": "read_only",
+      "dashboardUrl": "https://www.wix.com/dashboard/YOUR_SITE_ID_HERE/events",
+
+      "pull": {
+        "method": "POST",
+        "url": "https://www.wixapis.com/events/v2/rsvps/query",
+        "body": {
+          "query": {
+            "paging": {
+              "limit": 100
+            }
+          }
+        },
+        "dataPath": "$.rsvps"
+      },
+
+      "fileMapping": {
+        "strategy": "collection",
+        "directory": "events",
+        "filename": "rsvps.csv",
+        "format": "csv",
+        "idField": "id",
+        "readOnly": true,
+        "transforms": {
+          "pull": [
+            { "op": "omit", "fields": ["form", "guestList", "additionalGuestDetails", "onlineConferencingLogin", "extendedFields"] }
+          ]
+        }
+      },
+
+      "sync": {
+        "interval": 300
+      }
+    },
+    {
+      "name": "events-tickets",
+      "description": "Wix Event ticket definitions as a CSV spreadsheet",
+      "capabilityClass": "read_only",
+      "dashboardUrl": "https://www.wix.com/dashboard/YOUR_SITE_ID_HERE/events",
+
+      "pull": {
+        "method": "POST",
+        "url": "https://www.wixapis.com/events-ticket-definitions/v3/ticket-definitions/query",
+        "body": {
+          "query": {
+            "paging": {
+              "limit": 100
+            }
+          }
+        },
+        "dataPath": "$.ticketDefinitions"
+      },
+
+      "fileMapping": {
+        "strategy": "collection",
+        "directory": "events",
+        "filename": "tickets.csv",
+        "format": "csv",
+        "idField": "id",
+        "readOnly": true,
+        "transforms": {
+          "pull": [
+            { "op": "rename", "from": "name", "to": "title" },
+            { "op": "rename", "from": "pricing.fixedPrice.amount", "to": "price" },
+            { "op": "rename", "from": "pricing.fixedPrice.currency", "to": "currency" },
+            { "op": "rename", "from": "pricing.priceOptions.0.amount", "to": "price" },
+            { "op": "rename", "from": "pricing.priceOptions.0.currency", "to": "currency" },
+            { "op": "omit", "fields": ["pricing", "availability", "salePeriod", "extendedFields"] }
+          ]
+        }
+      },
+
+      "sync": {
+        "interval": 300
+      }
+    },
+    {
+      "name": "restaurant-menus",
+      "description": "Wix Restaurants menus as a CSV spreadsheet",
+      "capabilityClass": "partial_writable",
+      "dashboardUrl": "https://www.wix.com/dashboard/YOUR_SITE_ID_HERE/restaurants",
+
+      "pull": {
+        "method": "POST",
+        "url": "https://www.wixapis.com/restaurants/menus-menu/v1/menus/query",
+        "body": {
+          "query": {
+            "paging": {
+              "limit": 100
+            }
+          }
+        },
+        "dataPath": "$.menus"
+      },
+
+      "push": {
+        "create": {
+          "method": "POST",
+          "url": "https://www.wixapis.com/restaurants/menus-menu/v1/menus",
+          "bodyWrapper": "menu"
+        },
+        "update": {
+          "method": "PATCH",
+          "url": "https://www.wixapis.com/restaurants/menus-menu/v1/menus/{id}",
+          "bodyWrapper": "menu"
+        },
+        "delete": {
+          "method": "DELETE",
+          "url": "https://www.wixapis.com/restaurants/menus-menu/v1/menus/{id}"
+        }
+      },
+
+      "fileMapping": {
+        "strategy": "collection",
+        "directory": "restaurant",
+        "filename": "menus.csv",
+        "format": "csv",
+        "idField": "id",
+        "transforms": {
+          "pull": [
+            { "op": "omit", "fields": ["sectionIds", "businessLocationIds", "visibility", "seoData", "menuOrderingSettingsIds", "extendedFields"] }
+          ]
+        }
+      },
+
+      "sync": {
+        "interval": 300
+      }
+    },
+    {
+      "name": "restaurant-reservations",
+      "description": "Wix restaurant reservations as a CSV spreadsheet",
+      "capabilityClass": "read_only",
+      "dashboardUrl": "https://www.wix.com/dashboard/YOUR_SITE_ID_HERE/restaurants",
+
+      "pull": {
+        "method": "POST",
+        "url": "https://www.wixapis.com/table-reservations/reservations/v1/reservations/query",
+        "body": {
+          "query": {
+            "paging": {
+              "limit": 100
+            }
+          }
+        },
+        "dataPath": "$.reservations"
+      },
+
+      "fileMapping": {
+        "strategy": "collection",
+        "directory": "restaurant",
+        "filename": "reservations.csv",
+        "format": "csv",
+        "idField": "id",
+        "readOnly": true,
+        "transforms": {
+          "pull": [
+            { "op": "rename", "from": "details.partySize", "to": "partySize" },
+            { "op": "rename", "from": "details.startDate", "to": "reservationDate" },
+            { "op": "omit", "fields": ["details", "reservee", "source", "extendedFields"] }
+          ]
+        }
+      },
+
+      "sync": {
+        "interval": 300
+      }
+    },
+    {
+      "name": "restaurant-orders",
+      "description": "Wix Restaurants orders as a CSV spreadsheet",
+      "capabilityClass": "read_only",
+      "dashboardUrl": "https://www.wix.com/dashboard/YOUR_SITE_ID_HERE/restaurants",
+
+      "pull": {
+        "method": "GET",
+        "url": "https://www.wixapis.com/restaurants/v3/orders",
+        "dataPath": "$.orders"
+      },
+
+      "fileMapping": {
+        "strategy": "collection",
+        "directory": "restaurant",
+        "filename": "orders.csv",
+        "format": "csv",
+        "idField": "id",
+        "readOnly": true,
+        "transforms": {
+          "pull": [
+            { "op": "omit", "fields": ["lineItems", "discounts", "customer", "totals", "deliveryInfo", "payment", "extendedFields"] }
           ]
         }
       },

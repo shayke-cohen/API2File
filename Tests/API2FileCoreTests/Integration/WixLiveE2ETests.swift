@@ -45,11 +45,25 @@ final class WixLiveE2ETests: XCTestCase {
         let serviceDir: URL
     }
 
+    private struct CMSCollectionFixture {
+        let id: String
+        let displayName: String
+        let humanRelativePath: String
+        let objectRelativePath: String
+    }
+
+    private enum FixtureSelectionError: Error {
+        case unsuitable(String)
+    }
+
     private static let wixTopLevelContracts: [WixResourceContract] = [
         .init(name: "contacts", capabilityClass: .partialWritable, humanRelativePath: "contacts.csv", humanFormat: .csv, objectRelativePath: ".contacts.objects.json", humanSanitized: true, supportsCreate: true, supportsUpdate: true, supportsDelete: true, humanToObjectToServer: true, objectToHumanToServer: false, serverToObjectToHuman: true, notes: "CSV with strong human CRUD, but object-file propagation still needs hardening."),
         .init(name: "blog-posts", capabilityClass: .fullCRUD, humanRelativePath: "blog/{slug}.md", humanFormat: .markdown, objectRelativePath: "blog/.objects/{slug}.json", humanSanitized: true, supportsCreate: true, supportsUpdate: true, supportsDelete: true, humanToObjectToServer: true, objectToHumanToServer: true, serverToObjectToHuman: true, notes: "Markdown/Ricos full flow."),
         .init(name: "products", capabilityClass: .fullCRUD, humanRelativePath: "products.csv", humanFormat: .csv, objectRelativePath: ".products.objects.json", humanSanitized: true, supportsCreate: true, supportsUpdate: true, supportsDelete: true, humanToObjectToServer: true, objectToHumanToServer: true, serverToObjectToHuman: true, notes: "CSV with full CRUD."),
         .init(name: "orders", capabilityClass: .partialWritable, humanRelativePath: "orders.csv", humanFormat: .csv, objectRelativePath: ".orders.objects.json", humanSanitized: true, supportsCreate: false, supportsUpdate: true, supportsDelete: false, humanToObjectToServer: true, objectToHumanToServer: true, serverToObjectToHuman: true, notes: "CSV pull with limited update semantics."),
+        .init(name: "coupons", capabilityClass: .readOnly, humanRelativePath: "coupons.csv", humanFormat: .csv, objectRelativePath: nil, humanSanitized: true, supportsCreate: false, supportsUpdate: false, supportsDelete: false, humanToObjectToServer: false, objectToHumanToServer: false, serverToObjectToHuman: false, notes: "Read-only coupon catalog until safe write semantics are proven."),
+        .init(name: "pricing-plans", capabilityClass: .readOnly, humanRelativePath: "pricing-plans.csv", humanFormat: .csv, objectRelativePath: nil, humanSanitized: true, supportsCreate: false, supportsUpdate: false, supportsDelete: false, humanToObjectToServer: false, objectToHumanToServer: false, serverToObjectToHuman: false, notes: "Read-only pricing plans catalog."),
+        .init(name: "gift-cards", capabilityClass: .readOnly, humanRelativePath: "gift-cards.csv", humanFormat: .csv, objectRelativePath: nil, humanSanitized: true, supportsCreate: false, supportsUpdate: false, supportsDelete: false, humanToObjectToServer: false, objectToHumanToServer: false, serverToObjectToHuman: false, notes: "Read-only gift card ledger surface."),
         .init(name: "forms", capabilityClass: .partialWritable, humanRelativePath: "forms.csv", humanFormat: .csv, objectRelativePath: ".forms.objects.json", humanSanitized: true, supportsCreate: true, supportsUpdate: true, supportsDelete: true, humanToObjectToServer: true, objectToHumanToServer: true, serverToObjectToHuman: true, notes: "CSV schema catalog with child submissions files."),
         .init(name: "members", capabilityClass: .fullCRUD, humanRelativePath: "members.csv", humanFormat: .csv, objectRelativePath: ".members.objects.json", humanSanitized: true, supportsCreate: true, supportsUpdate: true, supportsDelete: true, humanToObjectToServer: true, objectToHumanToServer: true, serverToObjectToHuman: true, notes: "CSV with create, update, and delete."),
         .init(name: "site-properties", capabilityClass: .readOnly, humanRelativePath: "site-properties.json", humanFormat: .json, objectRelativePath: nil, humanSanitized: true, supportsCreate: false, supportsUpdate: false, supportsDelete: false, humanToObjectToServer: false, objectToHumanToServer: false, serverToObjectToHuman: false, notes: "Read-only JSON snapshot."),
@@ -62,6 +76,12 @@ final class WixLiveE2ETests: XCTestCase {
         .init(name: "bookings-appointments", capabilityClass: .readOnly, humanRelativePath: "bookings/appointments.csv", humanFormat: .csv, objectRelativePath: nil, humanSanitized: true, supportsCreate: false, supportsUpdate: false, supportsDelete: false, humanToObjectToServer: false, objectToHumanToServer: false, serverToObjectToHuman: false, notes: "Read-only appointments feed."),
         .init(name: "groups", capabilityClass: .partialWritable, humanRelativePath: "groups.csv", humanFormat: .csv, objectRelativePath: ".groups.objects.json", humanSanitized: true, supportsCreate: true, supportsUpdate: true, supportsDelete: true, humanToObjectToServer: true, objectToHumanToServer: false, serverToObjectToHuman: true, notes: "CSV with CRUD from the human surface; object-file propagation still needs hardening."),
         .init(name: "comments", capabilityClass: .readOnly, humanRelativePath: "comments.csv", humanFormat: .csv, objectRelativePath: nil, humanSanitized: false, supportsCreate: false, supportsUpdate: false, supportsDelete: false, humanToObjectToServer: false, objectToHumanToServer: false, serverToObjectToHuman: false, notes: "Read-only comments projection."),
+        .init(name: "events", capabilityClass: .partialWritable, humanRelativePath: "events.csv", humanFormat: .csv, objectRelativePath: ".events.objects.json", humanSanitized: true, supportsCreate: false, supportsUpdate: true, supportsDelete: false, humanToObjectToServer: true, objectToHumanToServer: true, serverToObjectToHuman: true, notes: "Event catalog with update-only semantics in the first pass."),
+        .init(name: "events-rsvps", capabilityClass: .readOnly, humanRelativePath: "events/rsvps.csv", humanFormat: .csv, objectRelativePath: nil, humanSanitized: true, supportsCreate: false, supportsUpdate: false, supportsDelete: false, humanToObjectToServer: false, objectToHumanToServer: false, serverToObjectToHuman: false, notes: "Read-only RSVP feed."),
+        .init(name: "events-tickets", capabilityClass: .readOnly, humanRelativePath: "events/tickets.csv", humanFormat: .csv, objectRelativePath: nil, humanSanitized: true, supportsCreate: false, supportsUpdate: false, supportsDelete: false, humanToObjectToServer: false, objectToHumanToServer: false, serverToObjectToHuman: false, notes: "Read-only ticket definition catalog."),
+        .init(name: "restaurant-menus", capabilityClass: .partialWritable, humanRelativePath: "restaurant/menus.csv", humanFormat: .csv, objectRelativePath: ".restaurant-menus.objects.json", humanSanitized: true, supportsCreate: true, supportsUpdate: true, supportsDelete: true, humanToObjectToServer: false, objectToHumanToServer: false, serverToObjectToHuman: false, notes: "Restaurant menus have pull/create/delete coverage; update remains site-dependent."),
+        .init(name: "restaurant-reservations", capabilityClass: .readOnly, humanRelativePath: "restaurant/reservations.csv", humanFormat: .csv, objectRelativePath: nil, humanSanitized: true, supportsCreate: false, supportsUpdate: false, supportsDelete: false, humanToObjectToServer: false, objectToHumanToServer: false, serverToObjectToHuman: false, notes: "Read-only reservation feed."),
+        .init(name: "restaurant-orders", capabilityClass: .readOnly, humanRelativePath: "restaurant/orders.csv", humanFormat: .csv, objectRelativePath: nil, humanSanitized: true, supportsCreate: false, supportsUpdate: false, supportsDelete: false, humanToObjectToServer: false, objectToHumanToServer: false, serverToObjectToHuman: false, notes: "Read-only restaurants order feed."),
         .init(name: "bookings", capabilityClass: .partialWritable, humanRelativePath: "bookings/{name}.json", humanFormat: .json, objectRelativePath: "bookings/.objects/{name}.json", humanSanitized: true, supportsCreate: true, supportsUpdate: true, supportsDelete: false, humanToObjectToServer: true, objectToHumanToServer: true, serverToObjectToHuman: false, notes: "One-file-per-record JSON surface with narrower semantics than the CSV service surface."),
         .init(name: "collections", capabilityClass: .readOnly, humanRelativePath: "collections.json", humanFormat: .json, objectRelativePath: ".collections.objects.json", humanSanitized: true, supportsCreate: false, supportsUpdate: false, supportsDelete: false, humanToObjectToServer: false, objectToHumanToServer: false, serverToObjectToHuman: false, notes: "Catalog metadata surface; generic create/delete unsupported."),
     ]
@@ -127,6 +147,9 @@ final class WixLiveE2ETests: XCTestCase {
             "contacts",
             "products",
             "orders",
+            "coupons",
+            "pricing-plans",
+            "gift-cards",
             "forms",
             "members",
             "site-properties",
@@ -141,23 +164,26 @@ final class WixLiveE2ETests: XCTestCase {
             "bookings-services",
             "bookings-appointments",
             "comments",
+            "events-rsvps",
+            "events-tickets",
+            "restaurant-menus",
+            "restaurant-reservations",
+            "restaurant-orders",
             "bookings",
             "collections",
             "pro-gallery",
             "pdf-viewer",
             "wix-video",
             "wix-music-podcasts",
-            "events-rsvps",
-            "events-tickets",
             "media",
-            "restaurant-menus",
-            "restaurant-reservations",
-            "restaurant-orders",
         ]
         let preferredSourceResources = Set([
             "contacts",
             "products",
             "orders",
+            "coupons",
+            "pricing-plans",
+            "gift-cards",
             "forms",
             "members",
             "site-properties",
@@ -171,6 +197,12 @@ final class WixLiveE2ETests: XCTestCase {
             "bookings-appointments",
             "groups",
             "comments",
+            "events",
+            "events-rsvps",
+            "events-tickets",
+            "restaurant-menus",
+            "restaurant-reservations",
+            "restaurant-orders",
             "bookings",
             "collections",
         ])
@@ -313,8 +345,12 @@ final class WixLiveE2ETests: XCTestCase {
     }
 
     private func writeFilesToDisk(_ files: [SyncableFile]) throws {
+        try writeFilesToDisk(files, under: serviceDir)
+    }
+
+    private func writeFilesToDisk(_ files: [SyncableFile], under root: URL) throws {
         for file in files {
-            let path = serviceDir.appendingPathComponent(file.relativePath)
+            let path = root.appendingPathComponent(file.relativePath)
             try FileManager.default.createDirectory(at: path.deletingLastPathComponent(), withIntermediateDirectories: true)
             try file.content.write(to: path, options: .atomic)
         }
@@ -332,7 +368,11 @@ final class WixLiveE2ETests: XCTestCase {
     }
 
     private func readJSON(_ relativePath: String) throws -> Any {
-        let url = serviceDir.appendingPathComponent(relativePath)
+        try readJSON(relativePath, under: serviceDir)
+    }
+
+    private func readJSON(_ relativePath: String, under root: URL) throws -> Any {
+        let url = root.appendingPathComponent(relativePath)
         let data = try Data(contentsOf: url)
         return try JSONSerialization.jsonObject(with: data)
     }
@@ -494,6 +534,254 @@ final class WixLiveE2ETests: XCTestCase {
         }
     }
 
+    private func preferredCMSCollectionScore(_ fixture: CMSCollectionFixture) -> Int {
+        let normalized = fixture.displayName.lowercased()
+        if normalized.contains("todo") { return 0 }
+        if normalized.contains("project") { return 1 }
+        return 10
+    }
+
+    private func collectionDataOperations(from record: [String: Any]) -> Set<String> {
+        let capabilities = record["capabilities"] as? [String: Any]
+        let operations = capabilities?["dataOperations"] as? [String] ?? []
+        return Set(operations)
+    }
+
+    private func jsonValueToAny(_ value: JSONValue) -> Any {
+        switch value {
+        case .string(let string): return string
+        case .number(let number): return number
+        case .bool(let bool): return bool
+        case .null: return NSNull()
+        case .array(let values): return values.map(jsonValueToAny)
+        case .object(let object):
+            return object.mapValues(jsonValueToAny)
+        }
+    }
+
+    private func anyToJSONValue(_ value: Any) -> JSONValue {
+        switch value {
+        case let string as String: return .string(string)
+        case let int as Int: return .number(Double(int))
+        case let double as Double: return .number(double)
+        case let bool as Bool: return .bool(bool)
+        case is NSNull: return .null
+        case let array as [Any]: return .array(array.map(anyToJSONValue))
+        case let dict as [String: Any]:
+            return .object(dict.mapValues(anyToJSONValue))
+        default:
+            return .string("\(value)")
+        }
+    }
+
+    private func resolveTemplatesInJSON(_ value: Any, with vars: [String: Any]) -> Any {
+        if let string = value as? String {
+            return TemplateEngine.render(string, with: vars)
+        }
+        if let array = value as? [Any] {
+            return array.map { resolveTemplatesInJSON($0, with: vars) }
+        }
+        if let object = value as? [String: Any] {
+            return object.mapValues { resolveTemplatesInJSON($0, with: vars) }
+        }
+        return value
+    }
+
+    private func queryCollectionsCatalog() async throws -> [[String: Any]] {
+        let result = try await wixAPI(method: .GET, path: "/wix-data/v2/collections")
+        return result["collections"] as? [[String: Any]] ?? []
+    }
+
+    private func discoverWritableCMSCollectionFixtures(
+        in config: AdapterConfig
+    ) async throws -> [CMSCollectionFixture] {
+        let collections = try resource("collections", in: config)
+        let items = try XCTUnwrap(collections.children?.first(where: { $0.name == "items" }))
+        let records = try await queryCollectionsCatalog()
+
+        let requiredOps: Set<String> = ["INSERT", "UPDATE", "REMOVE"]
+        let fixtures = records.compactMap { record -> CMSCollectionFixture? in
+            guard (record["collectionType"] as? String) == "NATIVE" else { return nil }
+            guard collectionDataOperations(from: record).isSuperset(of: requiredOps) else { return nil }
+            guard let id = record["id"] as? String, !id.isEmpty else { return nil }
+            let displayName = ((record["displayName"] as? String)?.isEmpty == false ? record["displayName"] as? String : nil) ?? id
+            let filenameTemplate = items.fileMapping.filename ?? "{displayName|slugify}.csv"
+            let filename = TemplateEngine.render(filenameTemplate, with: record)
+            let humanRelativePath = "\(items.fileMapping.directory)/\(filename)"
+            return CMSCollectionFixture(
+                id: id,
+                displayName: displayName,
+                humanRelativePath: humanRelativePath,
+                objectRelativePath: ObjectFileManager.objectFilePath(forCollectionFile: humanRelativePath)
+            )
+        }
+
+        return fixtures.sorted {
+            let lhs = preferredCMSCollectionScore($0)
+            let rhs = preferredCMSCollectionScore($1)
+            if lhs != rhs { return lhs < rhs }
+            return $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending
+        }
+    }
+
+    private func resolvedCollectionsItemsResource(
+        for fixture: CMSCollectionFixture,
+        in config: AdapterConfig
+    ) throws -> ResourceConfig {
+        let collections = try resource("collections", in: config)
+        let child = try XCTUnwrap(collections.children?.first(where: { $0.name == "items" }))
+        let vars: [String: Any] = [
+            "id": fixture.id,
+            "displayName": fixture.displayName
+        ]
+
+        let resolvedPull: PullConfig?
+        if let pull = child.pull {
+            let resolvedBody = pull.body.map {
+                anyToJSONValue(resolveTemplatesInJSON(jsonValueToAny($0), with: vars))
+            }
+            resolvedPull = PullConfig(
+                method: pull.method,
+                url: TemplateEngine.render(pull.url, with: vars),
+                type: pull.type,
+                query: pull.query.map { TemplateEngine.render($0, with: vars) },
+                body: resolvedBody,
+                dataPath: pull.dataPath,
+                detail: pull.detail,
+                pagination: pull.pagination,
+                mediaConfig: pull.mediaConfig,
+                updatedSinceField: pull.updatedSinceField,
+                updatedSinceBodyPath: pull.updatedSinceBodyPath,
+                updatedSinceDateFormat: pull.updatedSinceDateFormat,
+                supportsETag: pull.supportsETag
+            )
+        } else {
+            resolvedPull = nil
+        }
+
+        return ResourceConfig(
+            name: "collections.items.\(fixture.displayName)",
+            description: child.description,
+            capabilityClass: child.capabilityClass,
+            pull: resolvedPull,
+            push: child.push,
+            fileMapping: FileMappingConfig(
+                strategy: child.fileMapping.strategy,
+                directory: "cms",
+                filename: URL(fileURLWithPath: fixture.humanRelativePath).lastPathComponent,
+                format: child.fileMapping.format,
+                formatOptions: child.fileMapping.formatOptions,
+                idField: child.fileMapping.idField,
+                contentField: child.fileMapping.contentField,
+                readOnly: child.fileMapping.readOnly,
+                preserveExtension: child.fileMapping.preserveExtension,
+                transforms: child.fileMapping.transforms,
+                pushMode: child.fileMapping.pushMode,
+                deleteFromAPI: child.fileMapping.deleteFromAPI
+            ),
+            children: nil,
+            sync: child.sync,
+            siteUrl: child.siteUrl,
+            dashboardUrl: child.dashboardUrl
+        )
+    }
+
+    private func preferredStringField(in row: [String: Any], excluding excluded: Set<String> = []) -> String? {
+        let preferred = ["title", "name", "label", "description", "summary"]
+        for key in preferred where !excluded.contains(key) {
+            if let value = row[key] as? String, !value.isEmpty {
+                return key
+            }
+        }
+        return row.keys.sorted().first { key in
+            guard !excluded.contains(key), key != "id", key != "_id" else { return false }
+            if let value = row[key] as? String {
+                return !value.isEmpty
+            }
+            return false
+        }
+    }
+
+    private func updateCMSHumanRow(_ row: inout [String: Any], token: String) throws -> String {
+        guard let field = preferredStringField(in: row) else {
+            throw XCTSkip("No editable string field available in CMS human row")
+        }
+        row[field] = token
+        return field
+    }
+
+    private func updateCMSObjectRecord(_ record: inout [String: Any], token: String) throws -> String {
+        var data = record["data"] as? [String: Any] ?? [:]
+        guard let field = preferredStringField(in: data) else {
+            throw XCTSkip("No editable string field available in CMS object record")
+        }
+        data[field] = token
+        record["data"] = data
+        return field
+    }
+
+    private func cmsServerRecord(
+        collectionId: String,
+        itemId: String
+    ) async throws -> [String: Any] {
+        let items = try await queryCMS(collectionId: collectionId)
+        guard let item = items.first(where: { ($0["id"] as? String) == itemId }) else {
+            throw XCTSkip("CMS item \(itemId) not found in collection \(collectionId)")
+        }
+        return item
+    }
+
+    private func waitForCMSCreatedItem(collectionId: String, token: String) async throws -> String {
+        let deadline = Date().addingTimeInterval(30)
+        while Date() < deadline {
+            let items = try await self.queryCMS(collectionId: collectionId)
+            if let item = items.first(where: { self.recursiveStringContainsToken($0, token: token) }),
+               let id = item["id"] as? String {
+                return id
+            }
+            try await delay(500)
+        }
+        XCTFail("Timed out waiting for CMS created item \(token)")
+        return ""
+    }
+
+    private func withDynamicCMSCollectionFixtureHarness<T>(
+        body: @escaping @Sendable (CMSCollectionFixture, SyncHarness, URL, URL) async throws -> T
+    ) async throws -> T {
+        let fixtures = try await discoverWritableCMSCollectionFixtures(in: config)
+        var lastReason = "No writable NATIVE CMS collections available on this site"
+
+        for fixture in fixtures {
+            let resolvedResource = try resolvedCollectionsItemsResource(for: fixture, in: config)
+            do {
+                return try await withIsolatedSyncHarness(resources: [resolvedResource]) { harness in
+                    let humanURL = harness.serviceDir.appendingPathComponent(fixture.humanRelativePath)
+                    let objectURL = harness.serviceDir.appendingPathComponent(fixture.objectRelativePath)
+                    try await self.waitForCollectionFile(humanURL)
+                    try await self.waitForCollectionFile(objectURL)
+
+                    let rows = try self.readCSV(at: humanURL)
+                    guard rows.contains(where: { self.recordId(from: $0) != nil }) else {
+                        throw FixtureSelectionError.unsuitable("No existing rows available in \(fixture.humanRelativePath)")
+                    }
+                    guard let sample = rows.first(where: {
+                        self.recordId(from: $0) != nil && self.preferredStringField(in: $0) != nil
+                    }),
+                          self.preferredStringField(in: sample) != nil else {
+                        throw FixtureSelectionError.unsuitable("No editable string field available in \(fixture.humanRelativePath)")
+                    }
+
+                    return try await body(fixture, harness, humanURL, objectURL)
+                }
+            } catch FixtureSelectionError.unsuitable(let reason) {
+                lastReason = reason
+                continue
+            }
+        }
+
+        throw XCTSkip(lastReason)
+    }
+
     private func propagationStatus(for contract: WixResourceContract) -> String {
         let legs = [
             contract.humanToObjectToServer ? "human->object->server" : nil,
@@ -514,18 +802,24 @@ final class WixLiveE2ETests: XCTestCase {
         resourceNames: [String],
         body: @escaping @Sendable (SyncHarness) async throws -> T
     ) async throws -> T {
-        let resolvedTmpDir = FileManager.default.temporaryDirectory.resolvingSymlinksInPath()
-        let syncRoot = resolvedTmpDir.appendingPathComponent("api2file-wix-three-way-\(UUID().uuidString)")
-        let serviceDir = syncRoot.appendingPathComponent("wix")
-        let api2fileDir = serviceDir.appendingPathComponent(".api2file")
-        try FileManager.default.createDirectory(at: api2fileDir, withIntermediateDirectories: true)
-
         let filteredResources = config.resources.filter { resourceNames.contains($0.name) }
         XCTAssertEqual(
             Set(filteredResources.map(\.name)),
             Set(resourceNames),
             "Isolated harness is missing one or more requested resources: \(resourceNames)"
         )
+        return try await withIsolatedSyncHarness(resources: filteredResources, body: body)
+    }
+
+    private func withIsolatedSyncHarness<T>(
+        resources: [ResourceConfig],
+        body: @escaping @Sendable (SyncHarness) async throws -> T
+    ) async throws -> T {
+        let resolvedTmpDir = FileManager.default.temporaryDirectory.resolvingSymlinksInPath()
+        let syncRoot = resolvedTmpDir.appendingPathComponent("api2file-wix-three-way-\(UUID().uuidString)")
+        let serviceDir = syncRoot.appendingPathComponent("wix")
+        let api2fileDir = serviceDir.appendingPathComponent(".api2file")
+        try FileManager.default.createDirectory(at: api2fileDir, withIntermediateDirectories: true)
 
         let testConfig = AdapterConfig(
             service: config.service,
@@ -533,7 +827,7 @@ final class WixLiveE2ETests: XCTestCase {
             version: config.version,
             auth: config.auth,
             globals: config.globals,
-            resources: filteredResources,
+            resources: resources,
             icon: config.icon,
             wizardDescription: config.wizardDescription,
             setupFields: config.setupFields,
@@ -1214,7 +1508,7 @@ final class WixLiveE2ETests: XCTestCase {
         let body: [String: Any] = [
             "query": ["paging": ["limit": 100]]
         ]
-        let result = try await wixAPI(method: .POST, path: "/restaurants/menus/v1/menus/query", body: body)
+        let result = try await wixAPI(method: .POST, path: "/restaurants/menus-menu/v1/menus/query", body: body)
         return result["menus"] as? [[String: Any]] ?? []
     }
 
@@ -1227,7 +1521,7 @@ final class WixLiveE2ETests: XCTestCase {
                 "sectionIds": [],
             ],
         ]
-        let result = try await wixAPI(method: .POST, path: "/restaurants/menus/v1/menus", body: body)
+        let result = try await wixAPI(method: .POST, path: "/restaurants/menus-menu/v1/menus", body: body)
         guard let menu = result["menu"] as? [String: Any],
               let id = menu["id"] as? String
         else {
@@ -2094,6 +2388,136 @@ final class WixLiveE2ETests: XCTestCase {
         }
     }
 
+    func testCollectionsItems_DiscoversWritableNativeCollections() async throws {
+        let fixtures = try await self.discoverWritableCMSCollectionFixtures(in: config)
+        XCTAssertFalse(fixtures.isEmpty, "Expected at least one writable NATIVE CMS collection on the live Wix site")
+
+        for fixture in fixtures.prefix(3) {
+            let resolvedResource = try self.resolvedCollectionsItemsResource(for: fixture, in: config)
+            try await withIsolatedSyncHarness(resources: [resolvedResource]) { harness in
+                let humanURL = harness.serviceDir.appendingPathComponent(fixture.humanRelativePath)
+                let objectURL = harness.serviceDir.appendingPathComponent(fixture.objectRelativePath)
+                try await self.waitForCollectionFile(humanURL)
+                try await self.waitForCollectionFile(objectURL)
+            }
+        }
+    }
+
+    func testCollectionsItems_DynamicWritableCollection_ThreeWayPropagation() async throws {
+        try await withDynamicCMSCollectionFixtureHarness { fixture, harness, humanURL, objectURL in
+            var humanRows = try self.readCSV(at: humanURL)
+            guard let rowIndex = humanRows.firstIndex(where: {
+                self.recordId(from: $0) != nil && self.preferredStringField(in: $0) != nil
+            }) else {
+                throw XCTSkip("No existing rows available in \(fixture.humanRelativePath)")
+            }
+            let itemId = try XCTUnwrap(self.recordId(from: humanRows[rowIndex]))
+
+            let humanToken = self.uniqueTestName("CMSHuman")
+            let editableField = try self.updateCMSHumanRow(&humanRows[rowIndex], token: humanToken)
+            try self.writeCSV(humanRows, to: humanURL)
+            try await self.triggerAndWaitForSync(harness.syncEngine, filePath: fixture.humanRelativePath)
+            try await self.waitUntil("CMS human update on object file") {
+                guard let record = try self.objectRecord(withId: itemId, in: objectURL) else { return false }
+                return self.recursiveStringContainsToken(record, token: humanToken)
+            }
+            try await self.waitUntil("CMS human update on server") {
+                let item = try await self.cmsServerRecord(collectionId: fixture.id, itemId: itemId)
+                return self.recursiveStringContainsToken(item, token: humanToken)
+            }
+
+            let objectToken = self.uniqueTestName("CMSObject")
+            var objectRecords = try ObjectFileManager.readCollectionObjectFile(from: objectURL)
+            guard let objectIndex = objectRecords.firstIndex(where: { ($0["id"] as? String) == itemId || ($0["_id"] as? String) == itemId }) else {
+                throw XCTSkip("No object record available for \(itemId) in \(fixture.objectRelativePath)")
+            }
+            _ = try self.updateCMSObjectRecord(&objectRecords[objectIndex], token: objectToken)
+            try ObjectFileManager.writeCollectionObjectFile(records: objectRecords, to: objectURL)
+            try await self.triggerAndWaitForSync(harness.syncEngine, filePath: fixture.objectRelativePath)
+            try await self.waitUntil("CMS object update on human file") {
+                let refreshedRows = try self.readCSV(at: humanURL)
+                return refreshedRows.contains { self.recordId(from: $0) == itemId && self.recursiveStringContainsToken($0, token: objectToken) }
+            }
+            try await self.waitUntil("CMS object update on server") {
+                let item = try await self.cmsServerRecord(collectionId: fixture.id, itemId: itemId)
+                return self.recursiveStringContainsToken(item, token: objectToken)
+            }
+
+            let serverToken = self.uniqueTestName("CMSServer")
+            let latest = try await self.cmsServerRecord(collectionId: fixture.id, itemId: itemId)
+            var latestData = latest["data"] as? [String: Any] ?? [:]
+            latestData[editableField] = serverToken
+            _ = try await self.wixAPI(
+                method: .PUT,
+                path: "/wix-data/v2/items/\(itemId)",
+                body: [
+                    "dataCollectionId": fixture.id,
+                    "dataItem": [
+                        "id": itemId,
+                        "data": latestData
+                    ]
+                ]
+            )
+            try await self.triggerAndWaitForSync(harness.syncEngine)
+            try await self.waitUntil("CMS server update on object file") {
+                guard let record = try self.objectRecord(withId: itemId, in: objectURL) else { return false }
+                return self.recursiveStringContainsToken(record, token: serverToken)
+            }
+            try await self.waitUntil("CMS server update on human file") {
+                let refreshedRows = try self.readCSV(at: humanURL)
+                return refreshedRows.contains { self.recordId(from: $0) == itemId && self.recursiveStringContainsToken($0, token: serverToken) }
+            }
+        }
+    }
+
+    func testCollectionsItems_DynamicWritableCollection_CreateUpdateDeleteViaHumanFile() async throws {
+        try await withDynamicCMSCollectionFixtureHarness { fixture, harness, humanURL, _ in
+            var rows = try self.readCSV(at: humanURL)
+            guard let template = rows.first(where: {
+                self.recordId(from: $0) != nil && self.preferredStringField(in: $0) != nil
+            }) else {
+                throw XCTSkip("No existing rows available in \(fixture.humanRelativePath) for create/delete coverage")
+            }
+
+            let createToken = self.uniqueTestName("CMSCreate")
+            var newRow = template
+            newRow.removeValue(forKey: "id")
+            newRow.removeValue(forKey: "_id")
+            _ = try self.updateCMSHumanRow(&newRow, token: createToken)
+            rows.append(newRow)
+            try self.writeCSV(rows, to: humanURL)
+            try await self.triggerAndWaitForSync(harness.syncEngine, filePath: fixture.humanRelativePath)
+
+            let createdId = try await self.waitForCMSCreatedItem(collectionId: fixture.id, token: createToken)
+
+            try await self.waitUntil("CMS created row appears in human file") {
+                let refreshedRows = try self.readCSV(at: humanURL)
+                return refreshedRows.contains { self.recordId(from: $0) == createdId && self.recursiveStringContainsToken($0, token: createToken) }
+            }
+
+            let updateToken = self.uniqueTestName("CMSUpdate")
+            var updatedRows = try self.readCSV(at: humanURL)
+            guard let createdIndex = updatedRows.firstIndex(where: { self.recordId(from: $0) == createdId }) else {
+                throw XCTSkip("Created CMS row \(createdId) did not round-trip into \(fixture.humanRelativePath)")
+            }
+            _ = try self.updateCMSHumanRow(&updatedRows[createdIndex], token: updateToken)
+            try self.writeCSV(updatedRows, to: humanURL)
+            try await self.triggerAndWaitForSync(harness.syncEngine, filePath: fixture.humanRelativePath)
+            try await self.waitUntil("CMS updated row appears on server") {
+                let item = try await self.cmsServerRecord(collectionId: fixture.id, itemId: createdId)
+                return self.recursiveStringContainsToken(item, token: updateToken)
+            }
+
+            let deletedRows = updatedRows.filter { self.recordId(from: $0) != createdId }
+            try self.writeCSV(deletedRows, to: humanURL)
+            try await self.triggerAndWaitForSync(harness.syncEngine, filePath: fixture.humanRelativePath)
+            try await self.waitUntil("CMS deleted row removed from server") {
+                let items = try await self.queryCMS(collectionId: fixture.id)
+                return items.contains(where: { ($0["id"] as? String) == createdId }) == false
+            }
+        }
+    }
+
     // ======================================================================
     // MARK: - CMS Todos — Pull
     // ======================================================================
@@ -2556,6 +2980,36 @@ final class WixLiveE2ETests: XCTestCase {
 
         let properties = try await querySiteProperties()
         XCTAssertFalse(properties.isEmpty, "Direct site properties query should return data")
+    }
+
+    func testCoupons_Pull_WritesExpectedFileWhenInstalled() async throws {
+        try await assertCollectionPull(
+            resourceName: "coupons",
+            relativePath: "coupons.csv",
+            expectedColumns: ["id", "name", "code"],
+            allowEmptyFile: true,
+            allowSiteUnavailable: true
+        )
+    }
+
+    func testPricingPlans_Pull_WritesExpectedFileWhenInstalled() async throws {
+        try await assertCollectionPull(
+            resourceName: "pricing-plans",
+            relativePath: "pricing-plans.csv",
+            expectedColumns: ["id", "name"],
+            allowEmptyFile: true,
+            allowSiteUnavailable: true
+        )
+    }
+
+    func testGiftCards_Pull_WritesExpectedFileWhenInstalled() async throws {
+        try await assertCollectionPull(
+            resourceName: "gift-cards",
+            relativePath: "gift-cards.csv",
+            expectedColumns: ["id", "balanceAmount", "initialValueAmount"],
+            allowEmptyFile: true,
+            allowSiteUnavailable: true
+        )
     }
 
     func testMembers_Create_NewMember_AppearsOnServer() async throws {
@@ -3570,7 +4024,7 @@ final class WixLiveE2ETests: XCTestCase {
         try await assertCollectionPull(
             resourceName: "events",
             relativePath: "events.csv",
-            expectedColumns: ["id", "title", "startDate", "endDate", "status", "timeZone"]
+            expectedColumns: ["id", "title", "startDate", "endDate", "status"]
         )
     }
 

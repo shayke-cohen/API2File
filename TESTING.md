@@ -607,6 +607,17 @@ swift test --filter WixLiveE2ETests/testMembers_Delete_RemoveMember_DeletedFromS
 swift test --filter WixLiveE2ETests/testMembers_ThreeWayUpdatePropagation
 swift test --filter WixLiveE2ETests/testSiteProperties_Pull_ReturnsJSONSnapshotWhenInstalled
 swift test --filter WixLiveE2ETests/testThreeWayUpdatePropagation_WritableCollectionResources
+swift test --filter WixLiveE2ETests/testCollectionsItems_DiscoversWritableNativeCollections
+swift test --filter WixLiveE2ETests/testCollectionsItems_DynamicWritableCollection_CreateUpdateDeleteViaHumanFile
+swift test --filter WixLiveE2ETests/testCollectionsItems_DynamicWritableCollection_ThreeWayPropagation
+swift test --filter WixLiveE2ETests/testEvents_Pull_ReturnsCSVWithExpectedFields
+swift test --filter WixLiveE2ETests/testEvents_Update_ModifyTitle_ReflectedOnServer
+swift test --filter WixLiveE2ETests/testRestaurantMenus_Pull_WritesExpectedFileWhenInstalled
+swift test --filter WixLiveE2ETests/testRestaurantMenus_Create_NewMenu_AppearsOnServer
+swift test --filter WixLiveE2ETests/testRestaurantMenus_Delete_RemoveMenu_DeletedFromServer
+swift test --filter WixLiveE2ETests/testCoupons_Pull_WritesExpectedFileWhenInstalled
+swift test --filter WixLiveE2ETests/testPricingPlans_Pull_WritesExpectedFileWhenInstalled
+swift test --filter WixLiveE2ETests/testGiftCards_Pull_WritesExpectedFileWhenInstalled
 
 # Live monday file/API CRUD tests (requires api2file.monday.api-key in Keychain)
 swift test --filter MondayLiveE2ETests

@@ -190,7 +190,7 @@ Tests/
 | --- | --- | --- | --- | --- |
 | **Demo** | `demo.adapter.json` | None | tasks, contacts, events, notes, pages, config, services, incidents, logos, photos, documents, spreadsheets, reports, presentations, emails, bookmarks, settings, snippets | CSV, VCF, ICS, MD, HTML, JSON, SVG, XLSX, DOCX, PPTX, EML, WEBLOC, YAML, TXT, Raw |
 | **Monday.com** | `monday.adapter.json` | Bearer token | boards (with items via GraphQL) | CSV |
-| **Wix** | `wix.adapter.json` | API key + Site ID header | contacts, blog-posts, products, orders, forms (+ submissions child), members, site-properties, media, pro-gallery, pdf-viewer, wix-video, wix-music-podcasts, bookings-services, bookings-appointments, groups, comments, bookings, collections (+ items child) | CSV, MD, JSON, Raw |
+| **Wix** | `wix.adapter.json` | API key + Site ID header | contacts, blog-posts, products, orders, coupons, pricing-plans, gift-cards, forms (+ submissions child), members, site-properties, media, pro-gallery, pdf-viewer, wix-video, wix-music-podcasts, bookings-services, bookings-appointments, groups, comments, events, events-rsvps, events-tickets, restaurant-menus, restaurant-reservations, restaurant-orders, bookings, collections (+ items child) | CSV, MD, JSON, Raw |
 | **GitHub** | `github.adapter.json` | Bearer (PAT) | repos, issues, gists, notifications, starred | CSV, JSON |
 | **Airtable** | `airtable.adapter.json` | Bearer (PAT) + Base/Table ID | records, bases | JSON |
 

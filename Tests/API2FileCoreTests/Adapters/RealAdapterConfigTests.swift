@@ -160,6 +160,9 @@ final class RealAdapterConfigTests: XCTestCase {
             "blog-posts",
             "products",
             "orders",
+            "coupons",
+            "pricing-plans",
+            "gift-cards",
             "forms",
             "members",
             "site-properties",
@@ -172,6 +175,12 @@ final class RealAdapterConfigTests: XCTestCase {
             "bookings-appointments",
             "groups",
             "comments",
+            "events",
+            "events-rsvps",
+            "events-tickets",
+            "restaurant-menus",
+            "restaurant-reservations",
+            "restaurant-orders",
             "bookings",
             "collections",
         ]
@@ -186,6 +195,9 @@ final class RealAdapterConfigTests: XCTestCase {
             "blog-posts": .fullCRUD,
             "products": .fullCRUD,
             "orders": .partialWritable,
+            "coupons": .readOnly,
+            "pricing-plans": .readOnly,
+            "gift-cards": .readOnly,
             "forms": .partialWritable,
             "members": .fullCRUD,
             "site-properties": .readOnly,
@@ -198,6 +210,12 @@ final class RealAdapterConfigTests: XCTestCase {
             "bookings-appointments": .readOnly,
             "groups": .partialWritable,
             "comments": .readOnly,
+            "events": .partialWritable,
+            "events-rsvps": .readOnly,
+            "events-tickets": .readOnly,
+            "restaurant-menus": .partialWritable,
+            "restaurant-reservations": .readOnly,
+            "restaurant-orders": .readOnly,
             "bookings": .partialWritable,
             "collections": .readOnly,
         ]
@@ -342,6 +360,74 @@ final class RealAdapterConfigTests: XCTestCase {
         XCTAssertEqual(siteProperties.fileMapping.readOnly, true)
         XCTAssertEqual(siteProperties.pull?.url, "https://www.wixapis.com/site-properties/v4/properties")
         XCTAssertNil(siteProperties.push, "Site properties should stay read-only in the first pass")
+    }
+
+    func testWixAdapterAddsBusinessCatalogResources() throws {
+        let config = try loadBundledAdapter(named: "wix.adapter")
+
+        let coupons = try XCTUnwrap(config.resources.first(where: { $0.name == "coupons" }))
+        XCTAssertEqual(coupons.capabilityClass, .readOnly)
+        XCTAssertEqual(coupons.fileMapping.filename, "coupons.csv")
+        XCTAssertEqual(coupons.fileMapping.format, .csv)
+        XCTAssertEqual(coupons.fileMapping.readOnly, true)
+        XCTAssertEqual(coupons.pull?.url, "https://www.wixapis.com/stores/v2/coupons/query")
+
+        let pricingPlans = try XCTUnwrap(config.resources.first(where: { $0.name == "pricing-plans" }))
+        XCTAssertEqual(pricingPlans.capabilityClass, .readOnly)
+        XCTAssertEqual(pricingPlans.fileMapping.filename, "pricing-plans.csv")
+        XCTAssertEqual(pricingPlans.fileMapping.format, .csv)
+        XCTAssertEqual(pricingPlans.fileMapping.readOnly, true)
+        XCTAssertEqual(pricingPlans.pull?.url, "https://www.wixapis.com/pricing-plans/v3/plans/query")
+
+        let giftCards = try XCTUnwrap(config.resources.first(where: { $0.name == "gift-cards" }))
+        XCTAssertEqual(giftCards.capabilityClass, .readOnly)
+        XCTAssertEqual(giftCards.fileMapping.filename, "gift-cards.csv")
+        XCTAssertEqual(giftCards.fileMapping.format, .csv)
+        XCTAssertEqual(giftCards.fileMapping.readOnly, true)
+        XCTAssertEqual(giftCards.pull?.url, "https://www.wixapis.com/gift-cards/v1/gift-cards/query")
+
+        let events = try XCTUnwrap(config.resources.first(where: { $0.name == "events" }))
+        XCTAssertEqual(events.capabilityClass, .partialWritable)
+        XCTAssertEqual(events.fileMapping.filename, "events.csv")
+        XCTAssertEqual(events.fileMapping.format, .csv)
+        XCTAssertEqual(events.pull?.url, "https://www.wixapis.com/events/v3/events/query")
+        XCTAssertEqual(events.push?.update?.url, "https://www.wixapis.com/events/v1/events/{id}")
+
+        let eventRSVPs = try XCTUnwrap(config.resources.first(where: { $0.name == "events-rsvps" }))
+        XCTAssertEqual(eventRSVPs.capabilityClass, .readOnly)
+        XCTAssertEqual(eventRSVPs.fileMapping.directory, "events")
+        XCTAssertEqual(eventRSVPs.fileMapping.filename, "rsvps.csv")
+        XCTAssertEqual(eventRSVPs.fileMapping.readOnly, true)
+        XCTAssertEqual(eventRSVPs.pull?.url, "https://www.wixapis.com/events/v2/rsvps/query")
+
+        let eventTickets = try XCTUnwrap(config.resources.first(where: { $0.name == "events-tickets" }))
+        XCTAssertEqual(eventTickets.capabilityClass, .readOnly)
+        XCTAssertEqual(eventTickets.fileMapping.directory, "events")
+        XCTAssertEqual(eventTickets.fileMapping.filename, "tickets.csv")
+        XCTAssertEqual(eventTickets.fileMapping.readOnly, true)
+        XCTAssertEqual(eventTickets.pull?.url, "https://www.wixapis.com/events-ticket-definitions/v3/ticket-definitions/query")
+
+        let restaurantMenus = try XCTUnwrap(config.resources.first(where: { $0.name == "restaurant-menus" }))
+        XCTAssertEqual(restaurantMenus.capabilityClass, .partialWritable)
+        XCTAssertEqual(restaurantMenus.fileMapping.directory, "restaurant")
+        XCTAssertEqual(restaurantMenus.fileMapping.filename, "menus.csv")
+        XCTAssertEqual(restaurantMenus.pull?.url, "https://www.wixapis.com/restaurants/menus-menu/v1/menus/query")
+        XCTAssertEqual(restaurantMenus.push?.create?.url, "https://www.wixapis.com/restaurants/menus-menu/v1/menus")
+        XCTAssertEqual(restaurantMenus.push?.delete?.url, "https://www.wixapis.com/restaurants/menus-menu/v1/menus/{id}")
+
+        let restaurantReservations = try XCTUnwrap(config.resources.first(where: { $0.name == "restaurant-reservations" }))
+        XCTAssertEqual(restaurantReservations.capabilityClass, .readOnly)
+        XCTAssertEqual(restaurantReservations.fileMapping.directory, "restaurant")
+        XCTAssertEqual(restaurantReservations.fileMapping.filename, "reservations.csv")
+        XCTAssertEqual(restaurantReservations.fileMapping.readOnly, true)
+        XCTAssertEqual(restaurantReservations.pull?.url, "https://www.wixapis.com/table-reservations/reservations/v1/reservations/query")
+
+        let restaurantOrders = try XCTUnwrap(config.resources.first(where: { $0.name == "restaurant-orders" }))
+        XCTAssertEqual(restaurantOrders.capabilityClass, .readOnly)
+        XCTAssertEqual(restaurantOrders.fileMapping.directory, "restaurant")
+        XCTAssertEqual(restaurantOrders.fileMapping.filename, "orders.csv")
+        XCTAssertEqual(restaurantOrders.fileMapping.readOnly, true)
+        XCTAssertEqual(restaurantOrders.pull?.url, "https://www.wixapis.com/restaurants/v3/orders")
     }
 
     func testWixAdapterLocksDownMediaAndReadOnlyBehavior() throws {
