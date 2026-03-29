@@ -77,6 +77,19 @@ struct Dashboard2View: View {
             selectedFileURL = nil
             expandedFolders = []
         }
+        .onChange(of: appState.pendingOpenPath?.serviceId) { serviceId in
+            guard let serviceId else { return }
+            selectedServiceId = serviceId
+            if let relativePath = appState.pendingOpenPath?.relativePath,
+               let dir = appState.config.resolvedSyncFolder
+                   .appendingPathComponent(serviceId) as URL? {
+                let fileURL = dir.appendingPathComponent(relativePath)
+                if FileManager.default.fileExists(atPath: fileURL.path) {
+                    selectedFileURL = fileURL
+                }
+            }
+            appState.pendingOpenPath = nil
+        }
         .task(id: selectedServiceId) {
             guard let selectedServiceId else { return }
             isLoadingHistory = true

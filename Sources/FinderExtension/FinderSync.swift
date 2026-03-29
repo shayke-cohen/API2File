@@ -59,6 +59,11 @@ final class FinderSync: FIFinderSync {
         NSLog("FinderSync menu requested kind=%ld title=%@", menuKind.rawValue, title)
         let menu = NSMenu(title: title)
 
+        let openItem = NSMenuItem(title: "Open in API2File", action: #selector(openInAppAction(_:)), keyEquivalent: "")
+        openItem.target = self
+        openItem.image = NSImage(systemSymbolName: "arrow.up.forward.app", accessibilityDescription: nil)
+        menu.addItem(openItem)
+
         let syncItem = NSMenuItem(title: "Force Sync", action: #selector(forceSyncAction(_:)), keyEquivalent: "")
         syncItem.target = self
         syncItem.image = NSImage(systemSymbolName: "arrow.triangle.2.circlepath", accessibilityDescription: nil)
@@ -110,6 +115,29 @@ final class FinderSync: FIFinderSync {
     }
 
     // MARK: - Actions
+
+    @objc func openInAppAction(_ sender: AnyObject?) {
+        NSLog("FinderSync openInAppAction fired")
+        guard let targetURL = currentTargetURL(),
+              let serviceId = extractServiceId(from: targetURL) else {
+            NSLog("FinderSync openInAppAction could not resolve service id")
+            return
+        }
+        var userInfo: [String: String] = ["serviceId": serviceId]
+        if let relativePath = FinderBadgeSupport.relativePath(for: targetURL, syncRootURL: syncFolderURL) {
+            let pathWithinService = String(relativePath.dropFirst(serviceId.count + 1))
+            if !pathWithinService.isEmpty {
+                userInfo["path"] = pathWithinService
+            }
+        }
+        NSLog("FinderSync openInAppAction posting serviceId=%@ path=%@", serviceId, userInfo["path"] ?? "")
+        DistributedNotificationCenter.default().postNotificationName(
+            Notification.Name("com.api2file.open-path"),
+            object: nil,
+            userInfo: userInfo,
+            deliverImmediately: true
+        )
+    }
 
     @objc func forceSyncAction(_ sender: AnyObject?) {
         NSLog("FinderSync forceSyncAction fired")
