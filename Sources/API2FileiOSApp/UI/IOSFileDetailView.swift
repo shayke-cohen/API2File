@@ -62,6 +62,12 @@ struct IOSFileDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
+                if let externalDestination {
+                    Button(externalDestination.title) {
+                        UIApplication.shared.open(externalDestination.url)
+                    }
+                    .accessibilityIdentifier("file-detail.external-link")
+                }
                 if let objectURL = canonicalObjectFileURL {
                     Button("Object") {
                         onOpenFile(objectURL)
@@ -298,6 +304,22 @@ struct IOSFileDetailView: View {
         let objectURL = serviceDir.appendingPathComponent(objectPath)
         guard FileManager.default.fileExists(atPath: objectURL.path) else { return nil }
         return objectURL
+    }
+
+    private var externalDestination: (title: String, url: URL)? {
+        let resource = ResourceBrowserSupport.resource(for: fileURL, in: service.config.resources, serviceRoot: serviceDir)
+
+        if let dashboardURL = resource?.dashboardUrl ?? service.config.dashboardUrl,
+           let url = URL(string: dashboardURL) {
+            return ("Dashboard", url)
+        }
+
+        if let siteURL = resource?.siteUrl ?? service.config.siteUrl,
+           let url = URL(string: siteURL) {
+            return ("Website", url)
+        }
+
+        return nil
     }
 
     private func owningResource(for fileURL: URL) -> ResourceConfig? {

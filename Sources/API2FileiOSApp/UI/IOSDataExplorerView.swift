@@ -435,7 +435,7 @@ struct IOSDataExplorerView: View {
 
     @ViewBuilder
     private var openFileActions: some View {
-        if let currentService, let currentTable, let selectedRow?.recordId {
+        if let currentService, let currentTable, let recordID = selectedRow?.recordId {
             VStack(alignment: .leading, spacing: 12) {
                 IOSSectionTitle("Open Files", detail: "Jump from the local SQL mirror back to the canonical or projection file.")
 
@@ -453,10 +453,7 @@ struct IOSDataExplorerView: View {
                     .accessibilityIdentifier("data-explorer.open-projection")
                 }
             }
-            .onAppear {
-                _ = currentService
-                _ = currentTable
-            }
+            .accessibilityIdentifier(IOSAccessibility.id("data-explorer", currentService.serviceId, currentTable.tableName, recordID))
         }
     }
 
