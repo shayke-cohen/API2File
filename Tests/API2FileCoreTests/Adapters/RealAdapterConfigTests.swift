@@ -166,6 +166,7 @@ final class RealAdapterConfigTests: XCTestCase {
             "forms",
             "members",
             "site-properties",
+            "site-urls",
             "media",
             "pro-gallery",
             "pdf-viewer",
@@ -201,6 +202,7 @@ final class RealAdapterConfigTests: XCTestCase {
             "forms": .partialWritable,
             "members": .fullCRUD,
             "site-properties": .readOnly,
+            "site-urls": .readOnly,
             "media": .readOnly,
             "pro-gallery": .readOnly,
             "pdf-viewer": .readOnly,
@@ -278,6 +280,10 @@ final class RealAdapterConfigTests: XCTestCase {
             "Wix CMS item files should omit sync metadata from the human CSV projection"
         )
         XCTAssertEqual(items.push?.delete?.url, "https://www.wixapis.com/wix-data/v2/items/{id}?dataCollectionId={dataCollectionId}")
+        XCTAssertEqual(items.push?.create?.bodyType, "wix-cms-item-create")
+        XCTAssertEqual(items.push?.update?.bodyType, "wix-cms-item-update")
+        XCTAssertNil(items.push?.create?.bodyWrapper)
+        XCTAssertNil(items.push?.update?.bodyWrapper)
     }
 
     func testWixAdapterAddsHumanFriendlyOrdersFormsMembersAndSiteProperties() throws {
@@ -311,6 +317,18 @@ final class RealAdapterConfigTests: XCTestCase {
             jsonString(forms.pull?.body, path: ["query", "filter", "namespace", "$eq"]),
             "wix.form_platform.form",
             "Forms should target the live Wix form platform namespace"
+        )
+        XCTAssertTrue(
+            forms.fileMapping.transforms?.push?.contains(where: {
+                $0.op == "set" && $0.field == "namespace" && $0.value == "wix.form_platform.form"
+            }) == true,
+            "Forms push should inject the live Wix form namespace"
+        )
+        XCTAssertFalse(
+            forms.fileMapping.transforms?.push?.contains(where: {
+                $0.op == "omit" && ($0.fields ?? []).contains("namespace")
+            }) == true,
+            "Forms push must not omit namespace after injecting it for create/update requests"
         )
         XCTAssertEqual(forms.children?.count, 1)
 
@@ -360,6 +378,15 @@ final class RealAdapterConfigTests: XCTestCase {
         XCTAssertEqual(siteProperties.fileMapping.readOnly, true)
         XCTAssertEqual(siteProperties.pull?.url, "https://www.wixapis.com/site-properties/v4/properties")
         XCTAssertNil(siteProperties.push, "Site properties should stay read-only in the first pass")
+
+        let siteURLs = try XCTUnwrap(config.resources.first(where: { $0.name == "site-urls" }))
+        XCTAssertEqual(siteURLs.capabilityClass, .readOnly)
+        XCTAssertEqual(siteURLs.fileMapping.directory, "site")
+        XCTAssertEqual(siteURLs.fileMapping.filename, "site-urls.json")
+        XCTAssertEqual(siteURLs.fileMapping.format, .json)
+        XCTAssertEqual(siteURLs.fileMapping.readOnly, true)
+        XCTAssertEqual(siteURLs.pull?.url, "https://www.wixapis.com/urls-server/v2/published-site-urls")
+        XCTAssertNil(siteURLs.push, "Site URLs should stay read-only")
     }
 
     func testWixAdapterAddsBusinessCatalogResources() throws {
@@ -472,15 +499,17 @@ final class RealAdapterConfigTests: XCTestCase {
             contacts.fileMapping.transforms?.pull?.contains(where: {
                 $0.op == "omit" &&
                 ($0.fields?.contains("revision") == true) &&
-                ($0.fields?.contains("source") == true)
+                ($0.fields?.contains("source") == true) &&
+                ($0.fields?.contains("createdDate") == true) &&
+                ($0.fields?.contains("memberInfo") == true)
             }) == true,
             "Contacts CSV should hide sync-heavy fields from the human file"
         )
         XCTAssertTrue(
-            contacts.fileMapping.transforms?.push?.contains(where: {
-                $0.op == "omit" && ($0.fields?.contains("_url") == true)
+            contacts.fileMapping.transforms?.pull?.contains(where: {
+                $0.op == "rename" && $0.from == "info.emails.items.0.email" && $0.to == "primaryEmail"
             }) == true,
-            "Contacts CSV should omit sync-only helper fields before push"
+            "Contacts CSV should flatten the primary email into a simple human field"
         )
 
         let blogPosts = try XCTUnwrap(config.resources.first(where: { $0.name == "blog-posts" }))
@@ -494,6 +523,14 @@ final class RealAdapterConfigTests: XCTestCase {
 
         let groups = try XCTUnwrap(config.resources.first(where: { $0.name == "groups" }))
         XCTAssertTrue(
+            groups.fileMapping.transforms?.pull?.contains(where: {
+                $0.op == "omit" &&
+                ($0.fields?.contains("ownerId") == true) &&
+                ($0.fields?.contains("membersCount") == true)
+            }) == true,
+            "Groups CSV should hide owner/member-count bookkeeping from the human file"
+        )
+        XCTAssertTrue(
             groups.fileMapping.transforms?.push?.contains(where: {
                 $0.op == "omit" &&
                 ($0.fields?.contains("createdDate") == true) &&
@@ -501,6 +538,82 @@ final class RealAdapterConfigTests: XCTestCase {
             }) == true,
             "Groups CSV should drop server-managed fields from the human push payload"
         )
+
+        let products = try XCTUnwrap(config.resources.first(where: { $0.name == "products" }))
+        XCTAssertTrue(
+            products.fileMapping.transforms?.pull?.contains(where: {
+                $0.op == "omit" &&
+                ($0.fields?.contains("revision") == true) &&
+                ($0.fields?.contains("createdDate") == true) &&
+                ($0.fields?.contains("updatedDate") == true)
+            }) == true,
+            "Products CSV should keep revision/timestamp metadata out of the human file"
+        )
+
+        let members = try XCTUnwrap(config.resources.first(where: { $0.name == "members" }))
+        XCTAssertTrue(
+            members.fileMapping.transforms?.pull?.contains(where: {
+                $0.op == "omit" &&
+                ($0.fields?.contains("contactId") == true) &&
+                ($0.fields?.contains("status") == true)
+            }) == true,
+            "Members CSV should hide contact linkage and server state bookkeeping"
+        )
+
+        let events = try XCTUnwrap(config.resources.first(where: { $0.name == "events" }))
+        XCTAssertTrue(
+            events.fileMapping.transforms?.pull?.contains(where: {
+                $0.op == "omit" &&
+                ($0.fields?.contains("createdDate") == true) &&
+                ($0.fields?.contains("instanceId") == true) &&
+                ($0.fields?.contains("eventPageUrl") == true)
+            }) == true,
+            "Events CSV should hide dashboard and publication metadata"
+        )
+
+        let bookingsServices = try XCTUnwrap(config.resources.first(where: { $0.name == "bookings-services" }))
+        XCTAssertTrue(
+            bookingsServices.fileMapping.transforms?.pull?.contains(where: {
+                $0.op == "omit" &&
+                ($0.fields?.contains("revision") == true) &&
+                ($0.fields?.contains("serviceResources") == true) &&
+                ($0.fields?.contains("urls") == true)
+            }) == true,
+            "Bookings services CSV should hide internal service scaffolding"
+        )
+
+        let collections = try XCTUnwrap(config.resources.first(where: { $0.name == "collections" }))
+        XCTAssertTrue(
+            collections.fileMapping.transforms?.pull?.contains(where: {
+                $0.op == "omit" &&
+                ($0.fields?.contains("revision") == true) &&
+                ($0.fields?.contains("fields") == true) &&
+                ($0.fields?.contains("plugins") == true)
+            }) == true,
+            "Collections catalog should hide bulky implementation metadata from the human JSON"
+        )
+    }
+
+    func testWixHumanFacingFormatsDoNotProjectUnderscoreURLs() throws {
+        let config = try loadBundledAdapter(named: "wix.adapter")
+
+        for resource in config.resources {
+            XCTAssertFalse(
+                resource.fileMapping.transforms?.pull?.contains(where: {
+                    $0.op == "set" && $0.field == "_url"
+                }) == true,
+                "Wix \(resource.name) should not expose _url in the human projection"
+            )
+
+            for child in resource.children ?? [] {
+                XCTAssertFalse(
+                    child.fileMapping.transforms?.pull?.contains(where: {
+                        $0.op == "set" && $0.field == "_url"
+                    }) == true,
+                    "Wix \(resource.name).\(child.name) should not expose _url in the human projection"
+                )
+            }
+        }
     }
 
     func testWixBlogPostsDoNotUseUnsupportedIncrementalFilter() throws {

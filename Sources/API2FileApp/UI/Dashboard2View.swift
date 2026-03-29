@@ -1597,13 +1597,8 @@ private struct PortalPreviewWorkspace: View {
                 case .markdown(let html), .html(let html):
                     PortalHTMLView(html: html)
                 case .image(let image):
-                    ScrollView {
-                        Image(nsImage: image)
-                            .resizable()
-                            .aspectRatio(contentMode: .fit)
-                            .frame(maxWidth: .infinity)
-                            .padding(12)
-                    }
+                    PreviewImageView(image: image)
+                        .padding(12)
                 case .unsupported:
                     VStack(spacing: 10) {
                         Image(systemName: "doc.questionmark")
@@ -1719,7 +1714,7 @@ private func loadPreviewContent(for fileURL: URL) -> PortalPreviewContent {
     let ext = fileURL.pathExtension.lowercased()
     let imageExts = ["png", "jpg", "jpeg", "gif", "tiff", "bmp", "webp", "svg"]
 
-    if imageExts.contains(ext), let image = NSImage(contentsOf: fileURL) {
+    if imageExts.contains(ext), let image = PreviewImageLoader.load(from: fileURL) {
         return .image(image)
     }
 

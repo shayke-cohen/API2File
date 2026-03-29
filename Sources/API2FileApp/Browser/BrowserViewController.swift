@@ -2,7 +2,7 @@ import AppKit
 import WebKit
 
 /// NSViewController managing the browser toolbar and WKWebView.
-final class BrowserViewController: NSViewController, WKNavigationDelegate, NSTextFieldDelegate {
+final class BrowserViewController: NSViewController, WKNavigationDelegate, WKUIDelegate, NSTextFieldDelegate {
     private(set) var webView: WKWebView!
     private var addressBar: NSTextField!
     private var backButton: NSButton!
@@ -46,9 +46,11 @@ final class BrowserViewController: NSViewController, WKNavigationDelegate, NSTex
         addressBar.setContentHuggingPriority(.defaultLow, for: .horizontal)
 
         // --- WebView ---
-        let config = WKWebViewConfiguration()
+        let config = BrowserWebViewDefaults.makeConfiguration()
         webView = WKWebView(frame: .zero, configuration: config)
         webView.navigationDelegate = self
+        webView.uiDelegate = self
+        BrowserWebViewDefaults.configure(webView)
         webView.translatesAutoresizingMaskIntoConstraints = false
 
         root.addSubview(toolbar)
@@ -117,11 +119,39 @@ final class BrowserViewController: NSViewController, WKNavigationDelegate, NSTex
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
         isLoading = false
         updateNavigationButtons()
+        onNavigationFinished?()
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
         isLoading = false
         updateNavigationButtons()
+        onNavigationFinished?()
+    }
+
+    func webView(
+        _ webView: WKWebView,
+        runJavaScriptAlertPanelWithMessage message: String,
+        initiatedByFrame frame: WKFrameInfo,
+        completionHandler: @escaping () -> Void
+    ) {
+        let alert = NSAlert()
+        alert.messageText = message
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
+        completionHandler()
+    }
+
+    func webView(
+        _ webView: WKWebView,
+        runJavaScriptConfirmPanelWithMessage message: String,
+        initiatedByFrame frame: WKFrameInfo,
+        completionHandler: @escaping (Bool) -> Void
+    ) {
+        let alert = NSAlert()
+        alert.messageText = message
+        alert.addButton(withTitle: "OK")
+        alert.addButton(withTitle: "Cancel")
+        completionHandler(alert.runModal() == .alertFirstButtonReturn)
     }
 
     // MARK: - Helpers

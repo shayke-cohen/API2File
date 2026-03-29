@@ -258,6 +258,10 @@ Default sync folder: `~/API2File-Data/` (configurable in `GlobalConfig`).
           home.png            Hidden browser screenshot snapshot
     .git/                     Auto-committed history
     CLAUDE.md                 Service-specific agent guide
+    Snapshots/
+      manifest.json           Visible read-only snapshot manifest
+      home.rendered.html      Visible copy of rendered DOM snapshot
+      home.png                Visible copy of rendered screenshot
     contacts.csv              CRM contacts (Numbers)
     products.csv              Store products (Numbers)
     orders.csv                Store orders (Numbers)
@@ -304,7 +308,7 @@ API2File now keeps a hidden structured JSON representation next to synced files:
 
 The object file is the canonical local record. Human-facing files like `contacts.csv` or `blog/my-post.md` are editable projections regenerated from that canonical state.
 
-Some services can also emit hidden, read-only derived artifacts for agents. Wix now generates browser-rendered site snapshots under `.api2file/derived/site-snapshots/` after pull. Those files are agent context only and are not editable sync surfaces.
+Some services can also emit hidden, read-only derived artifacts for agents. Wix now generates browser-rendered site snapshots under `.api2file/derived/site-snapshots/` after pull and exposes visible read-only copies under `Snapshots/`. The hidden files remain the canonical derived artifacts; the visible copies are convenience previews only and are not editable sync surfaces.
 
 For Wix blog posts specifically, the Markdown file is a projection of Wix `richContent` / Ricos data. API2File uses Wix's official Ricos conversion API when available so Markdown pull/push preserves headings, lists, and other rich-content structure more accurately than a plain-text projection.
 

@@ -56,6 +56,94 @@ final class WixLiveE2ETests: XCTestCase {
         case unsuitable(String)
     }
 
+    @MainActor
+    private final class LiveBrowserSnapshotDelegate: BrowserControlDelegate {
+        private static let pngBytes = Data(base64Encoded:
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+        )!
+
+        private(set) var isOpen = false
+        private(set) var currentURL: String?
+        private(set) var navigatedURLs: [String] = []
+        private var storedHTML = ""
+
+        func openBrowser() async throws {
+            isOpen = true
+        }
+
+        func isBrowserOpen() async -> Bool {
+            isOpen
+        }
+
+        func navigate(to url: String) async throws -> String {
+            if !isOpen { isOpen = true }
+            guard let requestURL = URL(string: url) else {
+                throw BrowserError.navigationFailed("Invalid URL: \(url)")
+            }
+            navigatedURLs.append(url)
+
+            do {
+                let (data, response) = try await URLSession.shared.data(from: requestURL)
+                if let http = response as? HTTPURLResponse,
+                   !(200..<300).contains(http.statusCode) {
+                    throw BrowserError.navigationFailed("HTTP \(http.statusCode) for \(url)")
+                }
+                storedHTML = String(data: data, encoding: .utf8) ?? ""
+                let finalURL = response.url?.absoluteString ?? url
+                currentURL = finalURL
+                if finalURL != url {
+                    navigatedURLs.append(finalURL)
+                }
+                return finalURL
+            } catch {
+                throw BrowserError.navigationFailed("HTTP request failed: \(error.localizedDescription)")
+            }
+        }
+
+        func goBack() async throws {}
+        func goForward() async throws {}
+        func reload() async throws {}
+
+        func captureScreenshot(width: Int?, height: Int?) async throws -> Data {
+            Self.pngBytes
+        }
+
+        func getDOM(selector: String?) async throws -> String {
+            storedHTML
+        }
+
+        func click(selector: String) async throws {}
+        func type(selector: String, text: String) async throws {}
+
+        func evaluateJS(_ code: String) async throws -> String {
+            if code == "document.title" {
+                return extractedTitle(from: storedHTML)
+            }
+            if code.contains("JSON.stringify") {
+                return #"{"readyState":"complete","fontsReady":true,"width":1280,"height":2400}"#
+            }
+            return "OK"
+        }
+
+        func getCurrentURL() async -> String? {
+            currentURL
+        }
+
+        func waitFor(selector: String, timeout: TimeInterval) async throws {}
+        func scroll(direction: ScrollDirection, amount: Int?) async throws {}
+
+        private func extractedTitle(from html: String) -> String {
+            let pattern = "(?is)<title[^>]*>(.*?)</title>"
+            guard let regex = try? NSRegularExpression(pattern: pattern),
+                  let match = regex.firstMatch(in: html, range: NSRange(html.startIndex..., in: html)),
+                  match.numberOfRanges > 1,
+                  let range = Range(match.range(at: 1), in: html) else {
+                return ""
+            }
+            return String(html[range]).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+    }
+
     private static let wixTopLevelContracts: [WixResourceContract] = [
         .init(name: "contacts", capabilityClass: .partialWritable, humanRelativePath: "contacts.csv", humanFormat: .csv, objectRelativePath: ".contacts.objects.json", humanSanitized: true, supportsCreate: true, supportsUpdate: true, supportsDelete: true, humanToObjectToServer: true, objectToHumanToServer: false, serverToObjectToHuman: true, notes: "CSV with strong human CRUD, but object-file propagation still needs hardening."),
         .init(name: "blog-posts", capabilityClass: .fullCRUD, humanRelativePath: "blog/{slug}.md", humanFormat: .markdown, objectRelativePath: "blog/.objects/{slug}.json", humanSanitized: true, supportsCreate: true, supportsUpdate: true, supportsDelete: true, humanToObjectToServer: true, objectToHumanToServer: true, serverToObjectToHuman: true, notes: "Markdown/Ricos full flow."),
@@ -67,6 +155,7 @@ final class WixLiveE2ETests: XCTestCase {
         .init(name: "forms", capabilityClass: .partialWritable, humanRelativePath: "forms.csv", humanFormat: .csv, objectRelativePath: ".forms.objects.json", humanSanitized: true, supportsCreate: true, supportsUpdate: true, supportsDelete: true, humanToObjectToServer: true, objectToHumanToServer: true, serverToObjectToHuman: true, notes: "CSV schema catalog with child submissions files."),
         .init(name: "members", capabilityClass: .fullCRUD, humanRelativePath: "members.csv", humanFormat: .csv, objectRelativePath: ".members.objects.json", humanSanitized: true, supportsCreate: true, supportsUpdate: true, supportsDelete: true, humanToObjectToServer: true, objectToHumanToServer: true, serverToObjectToHuman: true, notes: "CSV with create, update, and delete."),
         .init(name: "site-properties", capabilityClass: .readOnly, humanRelativePath: "site-properties.json", humanFormat: .json, objectRelativePath: nil, humanSanitized: true, supportsCreate: false, supportsUpdate: false, supportsDelete: false, humanToObjectToServer: false, objectToHumanToServer: false, serverToObjectToHuman: false, notes: "Read-only JSON snapshot."),
+        .init(name: "site-urls", capabilityClass: .readOnly, humanRelativePath: "site/site-urls.json", humanFormat: .json, objectRelativePath: "site/.site-urls.objects.json", humanSanitized: true, supportsCreate: false, supportsUpdate: false, supportsDelete: false, humanToObjectToServer: false, objectToHumanToServer: false, serverToObjectToHuman: true, notes: "Read-only merged site URL catalog with hidden rendered snapshot artifacts."),
         .init(name: "media", capabilityClass: .readOnly, humanRelativePath: "media/*", humanFormat: .raw, objectRelativePath: nil, humanSanitized: true, supportsCreate: false, supportsUpdate: false, supportsDelete: false, humanToObjectToServer: false, objectToHumanToServer: false, serverToObjectToHuman: false, notes: "Binary upload/pull/delete only."),
         .init(name: "pro-gallery", capabilityClass: .readOnly, humanRelativePath: "pro-gallery/*", humanFormat: .raw, objectRelativePath: nil, humanSanitized: true, supportsCreate: false, supportsUpdate: false, supportsDelete: false, humanToObjectToServer: false, objectToHumanToServer: false, serverToObjectToHuman: false, notes: "Binary upload/pull/delete only."),
         .init(name: "pdf-viewer", capabilityClass: .readOnly, humanRelativePath: "pdf-viewer/*.pdf", humanFormat: .raw, objectRelativePath: nil, humanSanitized: true, supportsCreate: false, supportsUpdate: false, supportsDelete: false, humanToObjectToServer: false, objectToHumanToServer: false, serverToObjectToHuman: false, notes: "Binary upload/pull/delete only."),
@@ -153,6 +242,7 @@ final class WixLiveE2ETests: XCTestCase {
             "forms",
             "members",
             "site-properties",
+            "site-urls",
             "cms-projects",
             "cms-todos",
             "cms-events",
@@ -187,6 +277,7 @@ final class WixLiveE2ETests: XCTestCase {
             "forms",
             "members",
             "site-properties",
+            "site-urls",
             "blog-posts",
             "media",
             "pro-gallery",
@@ -800,6 +891,7 @@ final class WixLiveE2ETests: XCTestCase {
 
     private func withIsolatedSyncHarness<T>(
         resourceNames: [String],
+        snapshotService: (any RenderedPageSnapshotService)? = nil,
         body: @escaping @Sendable (SyncHarness) async throws -> T
     ) async throws -> T {
         let filteredResources = config.resources.filter { resourceNames.contains($0.name) }
@@ -808,11 +900,12 @@ final class WixLiveE2ETests: XCTestCase {
             Set(resourceNames),
             "Isolated harness is missing one or more requested resources: \(resourceNames)"
         )
-        return try await withIsolatedSyncHarness(resources: filteredResources, body: body)
+        return try await withIsolatedSyncHarness(resources: filteredResources, snapshotService: snapshotService, body: body)
     }
 
     private func withIsolatedSyncHarness<T>(
         resources: [ResourceConfig],
+        snapshotService: (any RenderedPageSnapshotService)? = nil,
         body: @escaping @Sendable (SyncHarness) async throws -> T
     ) async throws -> T {
         let resolvedTmpDir = FileManager.default.temporaryDirectory.resolvingSymlinksInPath()
@@ -868,7 +961,8 @@ final class WixLiveE2ETests: XCTestCase {
             platformServices: PlatformServices(
                 storageLocations: isolatedStorage,
                 fileWatcher: FileWatcher(enabled: false),
-                configWatcher: ConfigWatcher(enabled: false)
+                configWatcher: ConfigWatcher(enabled: false),
+                renderedPageSnapshotService: snapshotService
             )
         )
         try await syncEngine.start()
@@ -910,6 +1004,9 @@ final class WixLiveE2ETests: XCTestCase {
     private func contactEmail(from record: [String: Any]) -> String? {
         if let email = record["email"] as? String, !email.isEmpty {
             return email
+        }
+        if let primaryEmail = record["primaryEmail"] as? String, !primaryEmail.isEmpty {
+            return primaryEmail
         }
         if let primaryEmailObject = jsonObject(from: record["primaryEmail"]),
            let primaryEmail = primaryEmailObject["email"] as? String,
@@ -1408,6 +1505,14 @@ final class WixLiveE2ETests: XCTestCase {
     private func querySiteProperties() async throws -> [String: Any] {
         let result = try await wixAPI(method: .GET, path: "/site-properties/v4/properties")
         return result["properties"] as? [String: Any] ?? result
+    }
+
+    private func queryPublishedSiteURLs() async throws -> [String: Any] {
+        try await wixAPI(method: .GET, path: "/urls-server/v2/published-site-urls")
+    }
+
+    private func queryEditorURLs() async throws -> [String: Any] {
+        try await wixAPI(method: .GET, path: "/editor-urls")
     }
 
     private func queryBookingsServices() async throws -> [[String: Any]] {
@@ -2270,7 +2375,7 @@ final class WixLiveE2ETests: XCTestCase {
         try await assertCollectionPull(
             resourceName: "groups",
             relativePath: "groups.csv",
-            expectedColumns: ["id", "name", "title", "privacyStatus", "ownerId", "membersCount"]
+            expectedColumns: ["id", "name", "description", "privacyStatus"]
         )
     }
 
@@ -2879,6 +2984,7 @@ final class WixLiveE2ETests: XCTestCase {
         for expected in ["id", "orderNumber", "status", "paymentStatus", "fulfillmentStatus"] {
             XCTAssertTrue(columns.contains(expected), "Missing column \(expected) in orders.csv")
         }
+        XCTAssertFalse(columns.contains("_url"), "orders.csv should not expose _url")
     }
 
     func testForms_Pull_ReturnsCSVWhenInstalled() async throws {
@@ -2903,9 +3009,12 @@ final class WixLiveE2ETests: XCTestCase {
         }
 
         let columns = Set(first.keys)
-        for expected in ["id", "name", "namespace"] {
+        for expected in ["id", "name"] {
             XCTAssertTrue(columns.contains(expected), "Missing column \(expected) in forms.csv")
         }
+        XCTAssertFalse(columns.contains("namespace"), "forms.csv should not expose namespace")
+        XCTAssertFalse(columns.contains("_url"), "forms.csv should not expose _url")
+        XCTAssertFalse(columns.contains("updatedDate"), "forms.csv should not expose updatedDate")
     }
 
     func testFormSubmissions_Pull_ReturnsPerFormCSVWhenInstalled() async throws {
@@ -2937,6 +3046,9 @@ final class WixLiveE2ETests: XCTestCase {
         for expected in ["id", "formId", "status", "seen"] {
             XCTAssertTrue(columns.contains(expected), "Missing column \(expected) in \(sampleRelativePath)")
         }
+        XCTAssertFalse(columns.contains("_url"), "Form submissions CSV should not expose _url")
+        XCTAssertFalse(columns.contains("submitterApplicationId"), "Form submissions CSV should hide application internals")
+        XCTAssertFalse(columns.contains("submitterUserId"), "Form submissions CSV should hide user internals")
     }
 
     func testMembers_Pull_ReturnsCSVWithExpectedFields() async throws {
@@ -2953,9 +3065,15 @@ final class WixLiveE2ETests: XCTestCase {
         }
 
         let columns = Set(first.keys)
-        for expected in ["id", "contactId", "nickname", "slug"] {
+        for expected in ["id", "nickname", "slug"] {
             XCTAssertTrue(columns.contains(expected), "Missing column \(expected) in members.csv")
         }
+        XCTAssertTrue(
+            columns.contains("firstName") || columns.contains("lastName") || !columns.isDisjoint(with: ["nickname", "slug"]),
+            "Members CSV should surface at least one human-facing identity field"
+        )
+        XCTAssertFalse(columns.contains("contactId"), "Members CSV should not expose contactId")
+        XCTAssertFalse(columns.contains("_url"), "Members CSV should not expose _url")
     }
 
     func testSiteProperties_Pull_ReturnsJSONSnapshotWhenInstalled() async throws {
@@ -2980,6 +3098,174 @@ final class WixLiveE2ETests: XCTestCase {
 
         let properties = try await querySiteProperties()
         XCTAssertFalse(properties.isEmpty, "Direct site properties query should return data")
+    }
+
+    func testSiteURLs_DirectEndpoints_ReturnPublishedAndEditorURLs() async throws {
+        let published = try await queryPublishedSiteURLs()
+        let editor = try await queryEditorURLs()
+        let catalog = WixSiteSnapshotSupport.buildSiteURLCatalog(
+            publishedResponse: published,
+            editorResponse: editor
+        )
+
+        XCTAssertFalse(published.isEmpty, "Published site URLs endpoint should return data")
+        XCTAssertFalse(editor.isEmpty, "Editor URLs endpoint should return data")
+        XCTAssertFalse((catalog["primaryUrl"] as? String ?? "").isEmpty, "Merged catalog should include a primaryUrl")
+        XCTAssertNotNil(catalog["capturedAt"] as? String)
+        XCTAssertNotNil(catalog["published"] as? [String: Any])
+        XCTAssertNotNil(catalog["editor"] as? [String: Any])
+
+        let publishedURLs =
+            ((published["urls"] as? [[String: Any]]) ?? (published["publishedSiteUrls"] as? [[String: Any]]) ?? [])
+                .compactMap { ($0["url"] as? String) ?? ($0["publishedUrl"] as? String) }
+        XCTAssertFalse(publishedURLs.isEmpty, "Published site URLs response should include at least one URL")
+        XCTAssertTrue(
+            publishedURLs.contains(catalog["primaryUrl"] as? String ?? ""),
+            "Merged primaryUrl should come from the live published URLs payload"
+        )
+    }
+
+    func testSiteURLs_LiveSnapshotTargets_IncludeEditorAndDashboardResourceURLs() async throws {
+        let published = try await queryPublishedSiteURLs()
+        let editor = try await queryEditorURLs()
+        let catalog = WixSiteSnapshotSupport.buildSiteURLCatalog(
+            publishedResponse: published,
+            editorResponse: editor
+        )
+
+        let nestedEditor = editor["urls"] as? [String: Any]
+        let editorURLCandidates: [String?] = [
+            editor["editorUrl"] as? String,
+            editor["previewUrl"] as? String,
+            nestedEditor?["editorUrl"] as? String,
+            nestedEditor?["previewUrl"] as? String,
+        ]
+        let editorURLs = editorURLCandidates.compactMap { value -> String? in
+            guard let value, !value.isEmpty else { return nil }
+            return value
+        }
+
+        XCTAssertFalse(editorURLs.isEmpty, "Live editor URLs payload should include at least one concrete URL")
+
+        let injectedResources = editorURLs.enumerated().map { index, url in
+            ResourceConfig(
+                name: index == 0 ? "live-editor" : "live-preview",
+                description: "Live editor/discovery URL",
+                capabilityClass: .readOnly,
+                pull: nil,
+                push: nil,
+                fileMapping: FileMappingConfig(
+                    strategy: .collection,
+                    directory: "tmp",
+                    filename: "editor-\(index).json",
+                    format: .json
+                ),
+                sync: SyncConfig(interval: 600, debounceMs: nil),
+                siteUrl: url,
+                dashboardUrl: url.contains("manage.wix.com") ? url : nil
+            )
+        }
+
+        let snapshotConfig = AdapterConfig(
+            service: config.service,
+            displayName: config.displayName,
+            version: config.version,
+            auth: config.auth,
+            globals: config.globals,
+            resources: config.resources + injectedResources,
+            icon: config.icon,
+            wizardDescription: config.wizardDescription,
+            setupFields: config.setupFields,
+            hidden: config.hidden,
+            enabled: config.enabled,
+            siteUrl: config.siteUrl,
+            dashboardUrl: config.dashboardUrl
+        )
+
+        let targets = WixSiteSnapshotSupport.snapshotTargets(config: snapshotConfig, catalogRecord: catalog)
+        let targetURLs = Set(targets.map { $0.url })
+
+        for url in editorURLs {
+            XCTAssertTrue(targetURLs.contains(url), "Live editor/dashboard resource URL should remain a snapshot target: \(url)")
+        }
+    }
+
+    func testSiteURLs_IsolatedSync_WritesMergedCatalogAndRenderedSnapshots() async throws {
+        let browser = await MainActor.run { LiveBrowserSnapshotDelegate() }
+        let snapshotService = BrowserRenderedPageSnapshotService(browserDelegate: browser)
+
+        try await withIsolatedSyncHarness(
+            resourceNames: ["site-urls", "blog-posts", "products"],
+            snapshotService: snapshotService
+        ) { harness in
+            let catalogResource = try self.resource("site-urls", in: harness.config)
+            let catalogRelativePath = WixSiteSnapshotSupport.catalogRelativePath
+            let catalogURL = harness.serviceDir.appendingPathComponent(catalogRelativePath)
+            let objectRelativePath = ObjectFileManager.objectFilePath(
+                forUserFile: catalogRelativePath,
+                strategy: catalogResource.fileMapping.strategy
+            )
+            let objectURL = harness.serviceDir.appendingPathComponent(objectRelativePath)
+            let manifestURL = harness.serviceDir.appendingPathComponent(WixSiteSnapshotSupport.manifestRelativePath)
+
+            try await self.waitForCollectionFile(catalogURL)
+            try await self.waitForCollectionFile(objectURL)
+            try await self.waitUntil("site snapshot manifest to exist") {
+                FileManager.default.fileExists(atPath: manifestURL.path)
+            }
+
+            let rawJSON = try self.readJSON(catalogRelativePath, under: harness.serviceDir)
+            let catalogRecord: [String: Any]
+            if let records = rawJSON as? [[String: Any]] {
+                catalogRecord = try XCTUnwrap(records.first, "site/site-urls.json should contain one merged record")
+            } else {
+                catalogRecord = try XCTUnwrap(rawJSON as? [String: Any], "site/site-urls.json should decode to an object or array")
+            }
+
+            XCTAssertNotNil(catalogRecord["published"] as? [String: Any])
+            XCTAssertNotNil(catalogRecord["editor"] as? [String: Any])
+            XCTAssertFalse((catalogRecord["primaryUrl"] as? String ?? "").isEmpty, "Merged catalog should include primaryUrl")
+            XCTAssertNotNil(catalogRecord["capturedAt"] as? String)
+
+            let manifest = try XCTUnwrap(WixSiteSnapshotSupport.loadManifest(from: harness.serviceDir))
+            XCTAssertEqual(manifest.entries.count, 3, "Live snapshot manifest should include the homepage plus the configured public blog and shop URLs")
+            XCTAssertEqual(Set(manifest.entries.map(\.label)), Set(["home", "blog-posts", "products"]))
+            XCTAssertTrue(manifest.entries.contains(where: { $0.id == "home" && $0.status == "success" }))
+            XCTAssertTrue(manifest.entries.contains(where: { $0.id == "amit1-blog" && $0.status == "success" }))
+            XCTAssertTrue(manifest.entries.contains(where: { $0.id == "amit1-shop" && $0.status == "error" }), "The current live Wix shop URL returns 404 and should remain a non-fatal snapshot error")
+
+            for entry in manifest.entries {
+                if let htmlPath = entry.htmlPath {
+                    XCTAssertTrue(FileManager.default.fileExists(atPath: harness.serviceDir.appendingPathComponent(htmlPath).path))
+                    XCTAssertFalse(SyncedFilePreviewSupport.isUserFacingRelativePath(htmlPath))
+                    let exposedHTMLPath = WixSiteSnapshotSupport.exposedPath(forDerivedPath: htmlPath)
+                    XCTAssertTrue(FileManager.default.fileExists(atPath: harness.serviceDir.appendingPathComponent(exposedHTMLPath).path))
+                    XCTAssertTrue(SyncedFilePreviewSupport.isUserFacingRelativePath(exposedHTMLPath))
+                }
+                if let screenshotPath = entry.screenshotPath {
+                    XCTAssertTrue(FileManager.default.fileExists(atPath: harness.serviceDir.appendingPathComponent(screenshotPath).path))
+                    XCTAssertFalse(SyncedFilePreviewSupport.isUserFacingRelativePath(screenshotPath))
+                    let exposedScreenshotPath = WixSiteSnapshotSupport.exposedPath(forDerivedPath: screenshotPath)
+                    XCTAssertTrue(FileManager.default.fileExists(atPath: harness.serviceDir.appendingPathComponent(exposedScreenshotPath).path))
+                    XCTAssertTrue(SyncedFilePreviewSupport.isUserFacingRelativePath(exposedScreenshotPath))
+                }
+            }
+
+            let fileLink = try XCTUnwrap(FileLinkManager.linkForUserPath(catalogRelativePath, in: harness.serviceDir))
+            XCTAssertTrue(fileLink.derivedPaths.contains(WixSiteSnapshotSupport.manifestRelativePath))
+            XCTAssertTrue(fileLink.derivedPaths.contains(WixSiteSnapshotSupport.exposedManifestRelativePath))
+            XCTAssertTrue(fileLink.derivedPaths.contains(where: { $0.hasSuffix("/home.rendered.html") }))
+            for entry in manifest.entries {
+                if let htmlPath = entry.htmlPath {
+                    XCTAssertTrue(fileLink.derivedPaths.contains(htmlPath))
+                    XCTAssertTrue(fileLink.derivedPaths.contains(WixSiteSnapshotSupport.exposedPath(forDerivedPath: htmlPath)))
+                }
+            }
+
+            let navigatedURLs = await MainActor.run { browser.navigatedURLs }
+            XCTAssertTrue(navigatedURLs.contains(where: { $0.contains("/blog") }), "Snapshot browser should fetch the public blog URL")
+            XCTAssertTrue(navigatedURLs.contains(where: { $0.contains("/shop") }), "Snapshot browser should fetch the public shop URL")
+        }
     }
 
     func testCoupons_Pull_WritesExpectedFileWhenInstalled() async throws {
@@ -3514,9 +3800,11 @@ final class WixLiveE2ETests: XCTestCase {
         XCTAssertFalse(records.isEmpty, "No records in products.csv")
 
         let columns = Set(records[0].keys)
-        for expected in ["id", "name", "revision", "slug", "visible"] {
+        for expected in ["id", "name", "priceAmount", "slug", "visible"] {
             XCTAssertTrue(columns.contains(expected), "Missing column: \(expected)")
         }
+        XCTAssertFalse(columns.contains("revision"), "Products human CSV should not expose revision")
+        XCTAssertFalse(columns.contains("_url"), "Products human CSV should not expose _url")
     }
 
     func testProducts_Pull_ContainsKnownProducts() async throws {
@@ -3547,7 +3835,7 @@ final class WixLiveE2ETests: XCTestCase {
         let records = try readCSV("products.csv")
         XCTAssertFalse(records.isEmpty)
 
-        // Pick the first product and note its original name and revision
+        // Pick the first product and note its original name
         let original = records[0]
         guard let productId = recordId(from: original) else {
             XCTFail("Product missing id"); return
@@ -3555,10 +3843,11 @@ final class WixLiveE2ETests: XCTestCase {
         let originalName = original["name"] as? String ?? ""
         let testSuffix = " E2E"
 
-        // Get revision as integer (Wix requires numeric revision)
+        // Get revision directly from the server (human CSV intentionally hides it)
+        let serverOriginal = try await getProduct(id: productId)
         let revision: Int
-        if let rev = original["revision"] as? Int { revision = rev }
-        else if let revStr = original["revision"] as? String, let rev = Int(revStr) { revision = rev }
+        if let rev = serverOriginal["revision"] as? Int { revision = rev }
+        else if let revStr = serverOriginal["revision"] as? String, let rev = Int(revStr) { revision = rev }
         else { XCTFail("Could not parse revision"); return }
 
         // Update via direct API — Wix V3 expects revision inside product object
@@ -3611,9 +3900,10 @@ final class WixLiveE2ETests: XCTestCase {
             XCTFail("Product missing id"); return
         }
         let originalName = original["name"] as? String ?? ""
+        let serverOriginal = try await getProduct(id: productId)
         let revisionBefore: Int
-        if let rev = original["revision"] as? Int { revisionBefore = rev }
-        else if let revStr = original["revision"] as? String, let rev = Int(revStr) { revisionBefore = rev }
+        if let rev = serverOriginal["revision"] as? Int { revisionBefore = rev }
+        else if let revStr = serverOriginal["revision"] as? String, let rev = Int(revStr) { revisionBefore = rev }
         else { XCTFail("Could not parse revision"); return }
 
         // Push a trivial update via direct API — Wix V3 expects revision inside product
@@ -3808,7 +4098,13 @@ final class WixLiveE2ETests: XCTestCase {
 
         let first = try XCTUnwrap(records.first)
         XCTAssertNotNil(first["_id"] ?? first["id"], "contacts.csv should expose a stable identifier column")
+        XCTAssertNotNil(first["primaryEmail"], "contacts.csv should expose a simple primaryEmail column")
         XCTAssertNotNil(contactEmail(from: first), "contacts.csv should expose a readable email representation")
+        XCTAssertNil(first["_url"], "contacts.csv should not expose _url")
+        XCTAssertNil(first["memberInfo"], "contacts.csv should not expose nested memberInfo")
+        XCTAssertNil(first["primaryInfo"], "contacts.csv should not expose nested primaryInfo")
+        XCTAssertNil(first["createdDate"], "contacts.csv should not expose server timestamps")
+        XCTAssertNil(first["updatedDate"], "contacts.csv should not expose server timestamps")
 
         let rawFirst = try XCTUnwrap(result.rawRecordsByFile["contacts.csv"]?.first)
         let rawName = (rawFirst["info"] as? [String: Any])?["name"] as? [String: Any]
@@ -3989,7 +4285,7 @@ final class WixLiveE2ETests: XCTestCase {
     // MARK: - CMS Events — Pull
     // ======================================================================
 
-    func testCollections_Pull_ExcludesDemoAndIntegrationFamilies() async throws {
+    func testCollections_Pull_UsesMetadataDrivenWritableCatalog() async throws {
         let res = try resource("collections")
         let result = try await engine.pull(resource: res)
         XCTAssertFalse(result.files.isEmpty, "collections pull returned no files")
@@ -3997,15 +4293,22 @@ final class WixLiveE2ETests: XCTestCase {
 
         let collections = try JSONSerialization.jsonObject(with: result.files[0].content) as? [[String: Any]]
         let ids = collections?.compactMap { $0["id"] as? String } ?? []
-        let displayNames = collections?.compactMap { $0["displayName"] as? String } ?? []
+        let collectionTypes = collections?.compactMap { $0["collectionType"] as? String } ?? []
+        let operations: [[String]] = (collections ?? []).compactMap {
+            (($0["capabilities"] as? [String: Any])?["dataOperations"] as? [String])
+        }
 
         XCTAssertFalse(ids.isEmpty, "collections pull should include at least one collection")
-        XCTAssertFalse(ids.contains(where: {
-            $0.range(of: #"(?i)(^|[\/_-])(android|ios|web|html)([\/_-]|$)|react[-_ ]native|e2e|skel[-_ ]integ|cms[-_ ]json[-_ ]integ"#, options: .regularExpression) != nil
-        }), "collections pull should exclude test/demo collection ids")
-        XCTAssertFalse(displayNames.contains(where: {
-            $0.range(of: #"(?i)\((android|ios|web|html)\)|react[-_ ]native|e2e|skel[-_ ]integ|cms[-_ ]json[-_ ]integ"#, options: .regularExpression) != nil
-        }), "collections pull should exclude test/demo collection display names")
+        XCTAssertTrue(collectionTypes.allSatisfy { $0 == "NATIVE" }, "collections.json should only surface NATIVE collections")
+        XCTAssertTrue(
+            operations.allSatisfy { Set($0).isSuperset(of: ["INSERT", "UPDATE", "REMOVE"]) },
+            "collections.json should only surface collections whose live metadata proves writable CRUD support"
+        )
+        if let first = collections?.first {
+            XCTAssertNil(first["_url"], "collections.json should not expose dashboard helper URLs")
+            XCTAssertNil(first["revision"], "collections.json should not expose revision")
+            XCTAssertNil(first["fields"], "collections.json should hide bulky field metadata from the user-facing catalog")
+        }
     }
 
     func testCMSEvents_Pull_ReturnsCSVWithExpectedFields() async throws {
@@ -4024,8 +4327,16 @@ final class WixLiveE2ETests: XCTestCase {
         try await assertCollectionPull(
             resourceName: "events",
             relativePath: "events.csv",
-            expectedColumns: ["id", "title", "startDate", "endDate", "status"]
+            expectedColumns: ["id", "title", "startDate", "endDate", "status", "shortDescription"]
         )
+
+        let rows = try readCSV("events.csv")
+        if let first = rows.first {
+            let columns = Set(first.keys)
+            XCTAssertFalse(columns.contains("_url"), "events.csv should not expose _url")
+            XCTAssertFalse(columns.contains("createdDate"), "events.csv should not expose server timestamps")
+            XCTAssertFalse(columns.contains("instanceId"), "events.csv should not expose event instance internals")
+        }
     }
 
     func testEvents_Update_ModifyTitle_ReflectedOnServer() async throws {
@@ -4088,6 +4399,14 @@ final class WixLiveE2ETests: XCTestCase {
             expectedColumns: ["id", "name", "type", "capacity", "onlineBookingEnabled"],
             allowEmptyFile: true
         )
+
+        let records = try readCSV("bookings/services.csv")
+        if let first = records.first {
+            let columns = Set(first.keys)
+            XCTAssertFalse(columns.contains("revision"), "Bookings services CSV should not expose revision")
+            XCTAssertFalse(columns.contains("serviceResources"), "Bookings services CSV should not expose raw scaffolding")
+            XCTAssertFalse(columns.contains("urls"), "Bookings services CSV should not expose dashboard URLs")
+        }
     }
 
     func testBookingsServices_Create_NewService_AppearsOnServer() async throws {
@@ -4515,10 +4834,17 @@ final class WixLiveE2ETests: XCTestCase {
         try await assertCollectionPull(
             resourceName: "restaurant-menus",
             relativePath: "restaurant/menus.csv",
-            expectedColumns: ["id", "name", "description"],
+            expectedColumns: ["id", "name", "description", "visible"],
             allowEmptyFile: true,
             allowSiteUnavailable: true
         )
+
+        let rows = try readCSV("restaurant/menus.csv")
+        if let first = rows.first {
+            let columns = Set(first.keys)
+            XCTAssertFalse(columns.contains("revision"), "restaurant/menus.csv should not expose revision")
+            XCTAssertFalse(columns.contains("urlQueryParam"), "restaurant/menus.csv should not expose URL query params")
+        }
     }
 
     func testRestaurantMenus_Create_NewMenu_AppearsOnServer() async throws {

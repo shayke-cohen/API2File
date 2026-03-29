@@ -422,7 +422,7 @@ Adding a new service requires only a JSON file — no Swift code, no recompilati
 
 Wix CMS is a good example of why this matters: the bundled adapter uses collection metadata, not site-specific name filters, to decide which generic `cms/*.csv` files are writable. `collections.json` remains the read-only catalog, while only true `NATIVE` collections with write-capable metadata are surfaced as writable CSV projections.
 
-Wix site snapshots are the main exception to the pure adapter-only model. The `site-urls` resource is still adapter-defined and writes the canonical URL catalog, but rendered HTML and PNG snapshots are generated after pull via an optional browser-backed snapshot service injected through `PlatformServices`. Those artifacts are hidden, linked from `.api2file/file-links.json`, and excluded from push/object-file flows.
+Wix site snapshots are the main exception to the pure adapter-only model. The `site-urls` resource is still adapter-defined and writes the canonical URL catalog, but rendered HTML and PNG snapshots are generated after pull via an optional browser-backed snapshot service injected through `PlatformServices`. The canonical derived artifacts stay hidden under `.api2file/derived/site-snapshots/`, while visible read-only copies are exposed under `Snapshots/` for discovery. Both remain excluded from push/object-file flows.
 
 ## Concurrency Model
 

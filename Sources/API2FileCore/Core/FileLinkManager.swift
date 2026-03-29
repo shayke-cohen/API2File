@@ -82,6 +82,26 @@ public enum FileLinkManager {
         try save(index, to: serviceDir)
     }
 
+    public static func replace(_ entry: FileLinkEntry, in serviceDir: URL) throws {
+        var index = try load(from: serviceDir)
+        let normalized = normalizedEntry(entry)
+
+        if let existingIndex = index.links.firstIndex(where: { matches($0, normalized) }) {
+            index.links[existingIndex] = normalized
+        } else {
+            index.links.append(normalized)
+        }
+
+        index.links.sort { lhs, rhs in
+            if lhs.userPath == rhs.userPath {
+                return lhs.canonicalPath < rhs.canonicalPath
+            }
+            return lhs.userPath < rhs.userPath
+        }
+
+        try save(index, to: serviceDir)
+    }
+
     public static func removeLinks(referencingAny paths: [String], in serviceDir: URL) throws {
         let normalizedPaths = Set(paths.map(normalizePath))
         guard !normalizedPaths.isEmpty else { return }
