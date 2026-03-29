@@ -752,15 +752,9 @@ final class RealAdapterConfigTests: XCTestCase {
         )
         XCTAssertTrue(
             contacts.fileMapping.transforms?.pull?.contains(where: {
-                $0.op == "spread" && $0.path == "primaryEmail"
+                $0.op == "rename" && $0.from == "info.emails.items.0.email" && $0.to == "primaryEmail"
             }) == true,
-            "Wix contacts should spread primaryEmail so the human CSV projects a plain email value"
-        )
-        XCTAssertTrue(
-            contacts.fileMapping.transforms?.pull?.contains(where: {
-                $0.op == "rename" && $0.from == "email" && $0.to == "primaryEmail"
-            }) == true,
-            "Wix contacts should rename the spread email field back to primaryEmail for a readable human column"
+            "Wix contacts should project the primary email string to a flat primaryEmail column"
         )
     }
 
