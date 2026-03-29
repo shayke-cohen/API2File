@@ -177,7 +177,7 @@
 
       "fileMapping": {
         "strategy": "one-per-record",
-        "directory": "blog",
+        "directory": "blog-posts",
         "filename": "{slug|slugify}.md",
         "format": "md",
         "formatOptions": {
@@ -778,7 +778,7 @@
 
       "fileMapping": {
         "strategy": "collection",
-        "directory": "site",
+        "directory": "site-urls",
         "filename": "site-urls.json",
         "format": "json",
         "readOnly": true
@@ -1069,7 +1069,7 @@
 
       "fileMapping": {
         "strategy": "collection",
-        "directory": "bookings",
+        "directory": "bookings-services",
         "filename": "services.csv",
         "format": "csv",
         "idField": "id",
@@ -1129,7 +1129,7 @@
 
       "fileMapping": {
         "strategy": "collection",
-        "directory": "bookings",
+        "directory": "bookings-appointments",
         "filename": "appointments.csv",
         "format": "csv",
         "idField": "id",
@@ -1359,7 +1359,7 @@
 
       "fileMapping": {
         "strategy": "collection",
-        "directory": "inbox",
+        "directory": "inbox-conversations",
         "filename": "conversations.csv",
         "format": "csv",
         "idField": "id",
@@ -1583,7 +1583,7 @@
 
       "fileMapping": {
         "strategy": "collection",
-        "directory": "events",
+        "directory": "events-rsvps",
         "filename": "rsvps.csv",
         "format": "csv",
         "idField": "id",
@@ -1620,7 +1620,7 @@
 
       "fileMapping": {
         "strategy": "collection",
-        "directory": "events",
+        "directory": "events-tickets",
         "filename": "tickets.csv",
         "format": "csv",
         "idField": "id",
@@ -1679,7 +1679,7 @@
 
       "fileMapping": {
         "strategy": "collection",
-        "directory": "restaurant",
+        "directory": "restaurant-menus",
         "filename": "menus.csv",
         "format": "csv",
         "idField": "id",
@@ -1715,7 +1715,7 @@
 
       "fileMapping": {
         "strategy": "collection",
-        "directory": "restaurant",
+        "directory": "restaurant-reservations",
         "filename": "reservations.csv",
         "format": "csv",
         "idField": "id",
@@ -1747,7 +1747,7 @@
 
       "fileMapping": {
         "strategy": "collection",
-        "directory": "restaurant",
+        "directory": "restaurant-orders",
         "filename": "orders.csv",
         "format": "csv",
         "idField": "id",
