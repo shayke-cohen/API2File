@@ -135,7 +135,7 @@ struct IOSBrowserView: View {
                     .navigationTitle(service.displayName)
             } else {
                 browserEmptyState
-                    .navigationTitle("Browser")
+                    .navigationTitle("File Explorer")
             }
         } detail: {
             detailContent
@@ -154,7 +154,7 @@ struct IOSBrowserView: View {
                     browserEmptyState
                 }
             }
-            .navigationTitle("Browser")
+            .navigationTitle("File Explorer")
             .navigationBarTitleDisplayMode(.inline)
         }
     }
@@ -170,7 +170,7 @@ struct IOSBrowserView: View {
                 }
 
                 IOSSectionTitle(
-                    "Files",
+                    "File Explorer",
                     eyebrow: "File browser",
                     detail: "Browse the real files in this service folder first. Resource tools stay tucked away until you need them."
                 )

@@ -3809,6 +3809,9 @@ final class WixLiveE2ETests: XCTestCase {
         let first = try XCTUnwrap(records.first)
         XCTAssertNotNil(first["_id"] ?? first["id"], "contacts.csv should expose a stable identifier column")
         XCTAssertNotNil(contactEmail(from: first), "contacts.csv should expose a readable email representation")
+        if let primaryEmail = first["primaryEmail"] as? String, !primaryEmail.isEmpty {
+            XCTAssertFalse(primaryEmail.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("{"), "contacts.csv should project primaryEmail as a plain string, not a JSON object blob")
+        }
 
         let rawFirst = try XCTUnwrap(result.rawRecordsByFile["contacts.csv"]?.first)
         let rawName = (rawFirst["info"] as? [String: Any])?["name"] as? [String: Any]

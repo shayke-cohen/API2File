@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 private enum Dashboard3Tab: Hashable {
@@ -8,10 +9,17 @@ private enum Dashboard3Tab: Hashable {
 
 struct DashboardRootView: View {
     @ObservedObject var appState: AppState
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         Dashboard3WorkspaceView(appState: appState)
             .frame(minWidth: 900, idealWidth: 1280, minHeight: 620, idealHeight: 820)
+            .onAppear {
+                appState.registerDashboardWindowOpener {
+                    openWindow(id: "dashboard")
+                    NSApp.activate(ignoringOtherApps: true)
+                }
+            }
     }
 }
 

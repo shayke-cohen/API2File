@@ -51,8 +51,8 @@ final class IOSAppState {
             syncFolder: platformServices.storageLocations.syncRootDirectory,
             defaultConfig: defaultConfig
         )
-        if let initialTab = launchEnvironment["API2FILE_INITIAL_TAB"].map({ $0.lowercased() }),
-           let tab = IOSRootTab(rawValue: initialTab) {
+        if let initialTab = launchEnvironment["API2FILE_INITIAL_TAB"],
+           let tab = IOSRootTab.launchValue(initialTab) {
             self.selectedTab = tab
         }
     }
@@ -205,6 +205,86 @@ final class IOSAppState {
     func setShowNotificationsEnabled(_ enabled: Bool) {
         config.showNotifications = enabled
         persistConfig()
+    }
+
+    func listSQLTables(serviceID: String) async -> [SQLMirrorTableSummary] {
+        guard let syncEngine else { return [] }
+        do {
+            let data = try await syncEngine.listSQLTables(serviceId: serviceID)
+            let payload = try JSONDecoder().decode(SQLTablesPayload.self, from: data)
+            return payload.tables
+        } catch {
+            lastError = error.localizedDescription
+            return []
+        }
+    }
+
+    func describeSQLTable(serviceID: String, table: String) async -> SQLMirrorTableDescription? {
+        guard let syncEngine else { return nil }
+        do {
+            let data = try await syncEngine.describeSQLTable(serviceId: serviceID, table: table)
+            return try JSONDecoder().decode(SQLMirrorTableDescription.self, from: data)
+        } catch {
+            lastError = error.localizedDescription
+            return nil
+        }
+    }
+
+    func runSQLQuery(serviceID: String, query: String) async throws -> SQLMirrorQueryResult {
+        guard let syncEngine else {
+            throw SQLExplorerError.unavailable
+        }
+
+        let data = try await syncEngine.querySQL(serviceId: serviceID, query: query)
+        guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw SQLExplorerError.invalidResponse
+        }
+
+        let rawRows = object["rows"] as? [[String: Any]] ?? []
+        let columns = resolvedSQLColumns(from: object, rows: rawRows)
+        let rows = rawRows.map { row in
+            SQLMirrorQueryRow(
+                values: Dictionary(uniqueKeysWithValues: columns.map { column in
+                    (column, Self.sqlDisplayString(row[column]))
+                }),
+                recordId: Self.sqlRecordIdentifier(from: row)
+            )
+        }
+
+        return SQLMirrorQueryResult(
+            databasePath: object["databasePath"] as? String,
+            query: object["query"] as? String ?? query,
+            rowCount: object["rowCount"] as? Int ?? rows.count,
+            columns: columns,
+            rows: rows
+        )
+    }
+
+    func openSQLRecordFile(
+        serviceID: String,
+        resource: String,
+        recordID: String,
+        surface: String
+    ) async throws -> URL {
+        guard let syncEngine else {
+            throw SQLExplorerError.unavailable
+        }
+
+        let data = try await syncEngine.getRecordByID(serviceId: serviceID, resource: resource, recordId: recordID)
+        guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw SQLExplorerError.invalidResponse
+        }
+
+        let key = surface == "canonical" ? "canonicalFile" : "projectionFile"
+        guard let path = object[key] as? String else {
+            throw SQLExplorerError.invalidResponse
+        }
+
+        let fileURL = URL(fileURLWithPath: path)
+        guard FileManager.default.fileExists(atPath: fileURL.path) else {
+            throw SQLExplorerError.missingFilePath(path)
+        }
+        return fileURL
     }
 
     func setGitAutoCommitEnabled(_ enabled: Bool) {
@@ -408,6 +488,63 @@ final class IOSAppState {
         Task { @MainActor in
             await refreshAfterStartupSync()
         }
+    }
+
+    private func resolvedSQLColumns(from object: [String: Any], rows: [[String: Any]]) -> [String] {
+        if let columns = object["columns"] as? [String], !columns.isEmpty {
+            return columns
+        }
+        return rows.first.map { $0.keys.sorted() } ?? []
+    }
+
+    private static func sqlDisplayString(_ value: Any?) -> String {
+        switch value {
+        case nil, is NSNull:
+            return ""
+        case let string as String:
+            return string
+        case let int as Int:
+            return String(int)
+        case let double as Double:
+            return double.rounded() == double ? String(Int(double)) : String(double)
+        case let bool as Bool:
+            return bool ? "true" : "false"
+        case let number as NSNumber:
+            return number.stringValue
+        case let array as [Any]:
+            if let data = try? JSONSerialization.data(withJSONObject: array, options: [.sortedKeys]),
+               let string = String(data: data, encoding: .utf8) {
+                return string
+            }
+            return "\(array)"
+        case let dictionary as [String: Any]:
+            if let data = try? JSONSerialization.data(withJSONObject: dictionary, options: [.sortedKeys]),
+               let string = String(data: data, encoding: .utf8) {
+                return string
+            }
+            return "\(dictionary)"
+        default:
+            return String(describing: value ?? "")
+        }
+    }
+
+    private static func sqlRecordIdentifier(from row: [String: Any]) -> String? {
+        for key in ["_remote_id", "id", "_id"] {
+            if let string = row[key] as? String {
+                let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty { return trimmed }
+            }
+            if let int = row[key] as? Int {
+                return String(int)
+            }
+            if let double = row[key] as? Double {
+                return double.rounded() == double ? String(Int(double)) : String(double)
+            }
+            if let number = row[key] as? NSNumber {
+                return number.stringValue
+            }
+        }
+        return nil
     }
 
     private func refreshAfterStartupSync() async {

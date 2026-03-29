@@ -614,6 +614,18 @@ final class RealAdapterConfigTests: XCTestCase {
             }) == true,
             "Wix contacts should spread info.name so first/last are visible in the human CSV"
         )
+        XCTAssertTrue(
+            contacts.fileMapping.transforms?.pull?.contains(where: {
+                $0.op == "spread" && $0.path == "primaryEmail"
+            }) == true,
+            "Wix contacts should spread primaryEmail so the human CSV projects a plain email value"
+        )
+        XCTAssertTrue(
+            contacts.fileMapping.transforms?.pull?.contains(where: {
+                $0.op == "rename" && $0.from == "email" && $0.to == "primaryEmail"
+            }) == true,
+            "Wix contacts should rename the spread email field back to primaryEmail for a readable human column"
+        )
     }
 
     // MARK: - 8. Airtable: Verify Pagination Config Exists

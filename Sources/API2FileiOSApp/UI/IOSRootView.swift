@@ -32,6 +32,16 @@ struct IOSRootView: View {
                     }
 
                 NavigationStack {
+                    IOSDataExplorerView(appState: appState)
+                }
+                .background(Color.clear)
+                .tag(IOSRootTab.dataExplorer)
+                .tabItem {
+                    Label(IOSRootTab.dataExplorer.title, systemImage: IOSRootTab.dataExplorer.systemImage)
+                        .accessibilityIdentifier(IOSRootTab.dataExplorer.accessibilityID)
+                }
+
+                NavigationStack {
                     IOSActivityView(appState: appState)
                 }
                 .background(Color.clear)

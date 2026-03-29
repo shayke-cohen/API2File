@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import API2FileCore
 #if DEBUG
@@ -12,10 +13,18 @@ struct API2FileApp: App {
     @StateObject private var appState: AppState
 
     init() {
-        let state = AppState()
+        NSApplication.shared.setActivationPolicy(.regular)
+
+        let handedOffToExistingInstance = Self.activateExistingInstanceIfNeeded()
+        let state = AppState(autoStart: !handedOffToExistingInstance)
         _appState = StateObject(wrappedValue: state)
 
-        NSApplication.shared.setActivationPolicy(.regular)
+        if handedOffToExistingInstance {
+            DispatchQueue.main.async {
+                NSApp.terminate(nil)
+            }
+        }
+
         #if DEBUG
         #if canImport(AppXray)
         let xrayMode: AppXrayConnectionMode =
@@ -47,83 +56,43 @@ struct API2FileApp: App {
         .defaultSize(width: 1280, height: 820)
         .windowResizability(.contentMinSize)
     }
-}
 
-struct SQLMirrorTableSummary: Decodable, Identifiable {
-    let tableName: String
-    let resourceName: String
-    let rowCount: Int
+    private static func activateExistingInstanceIfNeeded() -> Bool {
+        let currentPID = ProcessInfo.processInfo.processIdentifier
+        let currentExecutablePath = Bundle.main.executableURL?.resolvingSymlinksInPath().path
+        let bundleIdentifier = Bundle.main.bundleIdentifier
 
-    var id: String { tableName }
+        let existingInstance = NSWorkspace.shared.runningApplications.first { app in
+            guard app.processIdentifier != currentPID else { return false }
 
-    private enum CodingKeys: String, CodingKey {
-        case tableName = "table_name"
-        case resourceName = "resource_name"
-        case rowCount = "row_count"
-    }
-}
+            if let bundleIdentifier, app.bundleIdentifier == bundleIdentifier {
+                return true
+            }
 
-struct SQLMirrorTableColumn: Decodable, Identifiable {
-    let cid: Int
-    let name: String
-    let type: String
-    let notNull: Int
-    let defaultValue: String?
-    let primaryKey: Int
+            if let currentExecutablePath,
+               app.executableURL?.resolvingSymlinksInPath().path == currentExecutablePath {
+                return true
+            }
 
-    var id: String { name }
-
-    private enum CodingKeys: String, CodingKey {
-        case cid
-        case name
-        case type
-        case notNull = "notnull"
-        case defaultValue = "dflt_value"
-        case primaryKey = "pk"
-    }
-}
-
-struct SQLMirrorTableDescription: Decodable {
-    let databasePath: String
-    let table: String
-    let resourceName: String
-    let rowCount: Int
-    let columns: [SQLMirrorTableColumn]
-}
-
-struct SQLMirrorQueryRow: Identifiable {
-    let id = UUID()
-    let values: [String: String]
-    let recordId: String?
-}
-
-struct SQLMirrorQueryResult {
-    let databasePath: String?
-    let query: String
-    let rowCount: Int
-    let columns: [String]
-    let rows: [SQLMirrorQueryRow]
-}
-
-enum SQLExplorerError: LocalizedError {
-    case unavailable
-    case invalidResponse
-    case missingFilePath(String)
-
-    var errorDescription: String? {
-        switch self {
-        case .unavailable:
-            return "The sync engine is not available yet."
-        case .invalidResponse:
-            return "API2File returned an unexpected SQLite response."
-        case .missingFilePath(let path):
-            return "The resolved file does not exist: \(path)"
+            return false
         }
+
+        guard let existingInstance else { return false }
+
+        DistributedNotificationCenter.default().post(
+            name: AppState.activateDashboardNotification,
+            object: nil,
+            deliverImmediately: true
+        )
+        existingInstance.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
+        return true
     }
 }
 
 @MainActor
 final class AppState: ObservableObject {
+    static let activateDashboardNotification = Notification.Name("com.api2file.activate-dashboard")
+
     @Published var services: [ServiceInfo] = []
     @Published var isPaused: Bool = false
     @Published var config: GlobalConfig = .init() {
@@ -143,11 +112,28 @@ final class AppState: ObservableObject {
     /// Shared WebViewStore for the Browser pane — also serves as BrowserControlDelegate for MCP
     let sharedWebViewStore = WebViewStore()
     private var lastSyncTimes: [String: Date] = [:]
+    private var dashboardWindowOpener: (() -> Void)?
+    private var dashboardActivationObserver: NSObjectProtocol?
 
-    init() {
-        // Auto-start engine on creation
-        Task { @MainActor [weak self] in
-            self?.startEngine()
+    init(autoStart: Bool = true) {
+        dashboardActivationObserver = DistributedNotificationCenter.default().addObserver(
+            forName: Self.activateDashboardNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.openDashboardWindow()
+        }
+
+        if autoStart {
+            Task { @MainActor [weak self] in
+                self?.startEngine()
+            }
+        }
+    }
+
+    deinit {
+        if let dashboardActivationObserver {
+            DistributedNotificationCenter.default().removeObserver(dashboardActivationObserver)
         }
     }
 
@@ -160,6 +146,22 @@ final class AppState: ObservableObject {
 
     var codingAgentDisplayName: String {
         "Claude Code"
+    }
+
+    func registerDashboardWindowOpener(_ opener: @escaping () -> Void) {
+        dashboardWindowOpener = opener
+    }
+
+    func openDashboardWindow() {
+        if let dashboardWindowOpener {
+            dashboardWindowOpener()
+            return
+        }
+
+        NSApp.activate(ignoringOtherApps: true)
+        if let dashboardWindow = NSApp.windows.first(where: { $0.title == "Dashboard" }) {
+            dashboardWindow.makeKeyAndOrderFront(nil)
+        }
     }
 
     func startEngine() {

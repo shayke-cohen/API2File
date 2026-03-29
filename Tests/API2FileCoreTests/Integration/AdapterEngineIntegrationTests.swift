@@ -494,6 +494,67 @@ final class AdapterEngineIntegrationTests: XCTestCase {
         XCTAssertEqual(name["last"] as? String, "Mitchell")
     }
 
+    func testWixContactsUpdateIgnoresRawExtendedFieldsAndParsesJSONEmailCell() async throws {
+        let repoRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let data = try Data(contentsOf: repoRoot.appendingPathComponent("Sources/API2FileCore/Resources/Adapters/wix.adapter.json"))
+        let config = try JSONDecoder().decode(AdapterConfig.self, from: data)
+        let resource = try XCTUnwrap(config.resources.first(where: { $0.name == "contacts" }))
+
+        let sessionConfig = URLSessionConfiguration.ephemeral
+        sessionConfig.protocolClasses = [MockURLProtocol.self]
+        let session = URLSession(configuration: sessionConfig)
+        let client = HTTPClient(session: session)
+        let engine = AdapterEngine(config: config, serviceDir: tempDir, httpClient: client)
+
+        let capture = RequestCapture()
+        MockURLProtocol.requestHandler = { request in
+            capture.request = request
+            let response = HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 200, httpVersion: nil, headerFields: [:])!
+            return (response, Data("{}".utf8))
+        }
+
+        try await engine.pushRecord(
+            [
+                "id": "contact-123",
+                "revision": 4,
+                "primaryEmail": #"{"subscriptionStatus":"NOT_SET","deliverabilityStatus":"NOT_SET","email":"codex@example.com"}"#,
+                "info": [
+                    "emails": [
+                        "items": [
+                            [
+                                "email": "codex@example.com",
+                                "id": "email-1",
+                                "primary": true,
+                                "tag": "UNTAGGED"
+                            ]
+                        ]
+                    ],
+                    "extendedFields": [
+                        "items": [
+                            "contacts.displayByFirstName": "codex@example.com"
+                        ]
+                    ]
+                ]
+            ],
+            resource: resource,
+            action: .update(id: "contact-123")
+        )
+
+        let request = try XCTUnwrap(capture.request)
+        let body = try XCTUnwrap(Self.bodyData(from: request))
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+        let info = try XCTUnwrap(json["info"] as? [String: Any])
+        let emails = try XCTUnwrap(info["emails"] as? [String: Any])
+        let items = try XCTUnwrap(emails["items"] as? [[String: Any]])
+
+        XCTAssertEqual(items.first?["email"] as? String, "codex@example.com")
+        XCTAssertNil(info["extendedFields"], "Human contact updates should not push raw extended fields back to Wix")
+    }
+
     func testMondayCreateBuildsGraphQLVariablesBody() async throws {
         let repoRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

@@ -1189,8 +1189,9 @@ public actor AdapterEngine {
     }
 
     private func buildWixContactBody(record: [String: Any], isUpdate: Bool) -> [String: Any]? {
-        var info = (record["info"] as? [String: Any]) ?? [:]
-        var name = (info["name"] as? [String: Any]) ?? [:]
+        let existingInfo = (record["info"] as? [String: Any]) ?? [:]
+        var info: [String: Any] = [:]
+        var name = (existingInfo["name"] as? [String: Any]) ?? [:]
         let hadExplicitNestedName =
             nonEmptyString(name["first"]) != nil ||
             nonEmptyString(name["last"]) != nil
@@ -1217,8 +1218,16 @@ public actor AdapterEngine {
             info["name"] = name
         }
 
-        if info["emails"] == nil,
-           let email = nonEmptyString(record["primaryEmail"]) ?? firstEmailString(from: record["emails"]) {
+        let currentEmail = firstEmailString(from: existingInfo["emails"])
+        let editedEmail = firstEmailString(from: record["primaryEmail"]) ?? firstEmailString(from: record["emails"])
+        let fallbackEmail: String?
+        if record["primaryEmail"] == nil, record["emails"] == nil {
+            fallbackEmail = currentEmail
+        } else {
+            fallbackEmail = nil
+        }
+        if let email = editedEmail ?? fallbackEmail,
+           !isUpdate || currentEmail == nil || email != currentEmail || editedEmail == nil {
             info["emails"] = [
                 "items": [
                     [
@@ -1229,8 +1238,16 @@ public actor AdapterEngine {
             ]
         }
 
-        if info["phones"] == nil,
-           let phone = firstPhoneString(from: record["phones"]) {
+        let currentPhone = firstPhoneString(from: existingInfo["phones"])
+        let editedPhone = firstPhoneString(from: record["primaryPhone"]) ?? firstPhoneString(from: record["phones"])
+        let fallbackPhone: String?
+        if record["primaryPhone"] == nil, record["phones"] == nil {
+            fallbackPhone = currentPhone
+        } else {
+            fallbackPhone = nil
+        }
+        if let phone = editedPhone ?? fallbackPhone,
+           !isUpdate || currentPhone == nil || phone != currentPhone || editedPhone == nil {
             info["phones"] = [
                 "items": [
                     [
@@ -1267,6 +1284,11 @@ public actor AdapterEngine {
     private func firstEmailString(from value: Any?) -> String? {
         switch value {
         case let email as String:
+            if let jsonData = email.data(using: .utf8),
+               let parsed = try? JSONSerialization.jsonObject(with: jsonData),
+               !(parsed is NSNull) {
+                return firstEmailString(from: parsed)
+            }
             return nonEmptyString(email)
         case let dict as [String: Any]:
             if let items = dict["items"] as? [[String: Any]] {
@@ -1304,6 +1326,11 @@ public actor AdapterEngine {
     private func firstPhoneString(from value: Any?) -> String? {
         switch value {
         case let phone as String:
+            if let jsonData = phone.data(using: .utf8),
+               let parsed = try? JSONSerialization.jsonObject(with: jsonData),
+               !(parsed is NSNull) {
+                return firstPhoneString(from: parsed)
+            }
             return nonEmptyString(phone)
         case let dict as [String: Any]:
             if let items = dict["items"] as? [[String: Any]] {

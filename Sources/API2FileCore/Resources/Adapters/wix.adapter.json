@@ -94,9 +94,9 @@
         "transforms": {
           "pull": [
             { "op": "spread", "path": "info.name" },
-            { "op": "flatten", "path": "info.emails", "to": "emails" },
-            { "op": "flatten", "path": "info.phones", "to": "phones" },
-            { "op": "omit", "fields": ["info", "revision", "source", "lastActivity"] },
+            { "op": "spread", "path": "primaryEmail" },
+            { "op": "rename", "from": "email", "to": "primaryEmail" },
+            { "op": "omit", "fields": ["info", "revision", "source", "lastActivity", "subscriptionStatus", "deliverabilityStatus", "createdDate", "updatedDate", "primaryInfo", "memberInfo", "picture"] },
             { "op": "set", "field": "_url", "value": "https://manage.wix.com/dashboard/YOUR_SITE_ID_HERE/contacts/{id}" }
           ],
           "push": [
