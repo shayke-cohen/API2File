@@ -322,6 +322,9 @@ struct ActivityPane: View {
         .onChange(of: serviceFilter) { _ in
             Task { await loadActivity() }
         }
+        .onReceive(appState.$recentActivity) { _ in
+            Task { await loadActivity() }
+        }
     }
 
     private var filteredActivity: [SyncHistoryEntry] {
