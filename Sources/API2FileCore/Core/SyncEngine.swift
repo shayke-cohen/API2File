@@ -498,19 +498,25 @@ public actor SyncEngine {
                 guard isOnePerRecord || !childNames.isEmpty || hasCompanions else { continue }
 
                 var staleFilePaths: [String] = []
-                for (filePath, fileState) in localState.files {
-                    if !newFilePaths.contains(filePath),
-                       let matchedResource = findResource(for: filePath, in: engine.config) {
-                        if isOnePerRecord,
-                           matchedResource.name == resource.name,
-                           matchedResource.fileMapping.strategy == .onePerRecord {
-                            staleFilePaths.append(filePath)
-                        } else if childNames.contains(matchedResource.name) {
-                            staleFilePaths.append(filePath)
-                        } else if hasCompanions, fileState.isCompanion == true {
-                            // Companion file for a deleted record
-                            staleFilePaths.append(filePath)
-                        }
+                for (filePath, fileState) in localState.files where !newFilePaths.contains(filePath) {
+                    // Companion file for a deleted record — scope check to this resource's companion dirs
+                    if hasCompanions, fileState.isCompanion == true,
+                       let companionConfigs = resource.fileMapping.companionFiles,
+                       companionConfigs.contains(where: { cfg in
+                           cfg.directory.isEmpty || cfg.directory == "."
+                               ? true
+                               : filePath.hasPrefix(cfg.directory + "/")
+                       }) {
+                        staleFilePaths.append(filePath)
+                        continue
+                    }
+                    guard let matchedResource = findResource(for: filePath, in: engine.config) else { continue }
+                    if isOnePerRecord,
+                       matchedResource.name == resource.name,
+                       matchedResource.fileMapping.strategy == .onePerRecord {
+                        staleFilePaths.append(filePath)
+                    } else if childNames.contains(matchedResource.name) {
+                        staleFilePaths.append(filePath)
                     }
                 }
 
