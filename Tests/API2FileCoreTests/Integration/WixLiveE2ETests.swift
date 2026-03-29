@@ -4285,6 +4285,200 @@ final class WixLiveE2ETests: XCTestCase {
     }
 
     // ======================================================================
+    // MARK: - Contacts — Bidirectional Live Sync (create / update / delete)
+    // ======================================================================
+
+    /// Server creates a contact → contact row appears in contacts.csv after sync.
+    func testContacts_LiveSync_ServerCreate_AppearsInCSV() async throws {
+        let email = "codex-create-\(UUID().uuidString.prefix(8))@example.com"
+        let token = uniqueTestName("LiveCreate")
+        let created = try await createContact(firstName: token, lastName: "LiveSync", email: email)
+
+        try await withIsolatedSyncHarness(resourceNames: ["contacts"]) { harness in
+            await harness.syncEngine.triggerSync(serviceId: "wix")
+            try await self.waitForSyncIdle(harness.syncEngine)
+
+            let humanURL = harness.serviceDir.appendingPathComponent("contacts.csv")
+            try await self.waitForCollectionFile(humanURL)
+
+            try await self.waitUntil("created contact row appears in contacts.csv") {
+                let rows = try self.readCSV(at: humanURL)
+                return rows.contains { row in
+                    self.recordId(from: row) == created.id ||
+                    self.contactEmail(from: row)?.lowercased() == email.lowercased()
+                }
+            }
+
+            let rows = try self.readCSV(at: humanURL)
+            let row = rows.first { self.recordId(from: $0) == created.id }
+            XCTAssertNotNil(row, "contacts.csv should contain the server-created contact")
+            XCTAssertEqual(
+                self.contactEmail(from: row ?? [:])?.lowercased(),
+                email.lowercased(),
+                "contacts.csv row should have the correct email"
+            )
+            XCTAssertEqual(
+                self.contactFirstName(from: row ?? [:]),
+                token,
+                "contacts.csv row should reflect the first name"
+            )
+        }
+    }
+
+    /// Server deletes a contact → row disappears from contacts.csv after next sync.
+    func testContacts_LiveSync_ServerDelete_RemovedFromCSV() async throws {
+        let email = "codex-del-\(UUID().uuidString.prefix(8))@example.com"
+        let created = try await createContact(firstName: "LiveDelete", lastName: "Contact", email: email)
+
+        try await withIsolatedSyncHarness(resourceNames: ["contacts"]) { harness in
+            await harness.syncEngine.triggerSync(serviceId: "wix")
+            try await self.waitForSyncIdle(harness.syncEngine)
+
+            let humanURL = harness.serviceDir.appendingPathComponent("contacts.csv")
+            try await self.waitForCollectionFile(humanURL)
+
+            // Verify contact is in the initial CSV
+            try await self.waitUntil("contact row initially present") {
+                let rows = try self.readCSV(at: humanURL)
+                return rows.contains { self.recordId(from: $0) == created.id }
+            }
+
+            // Delete from server
+            _ = try await self.wixAPI(method: .DELETE, path: "/contacts/v4/contacts/\(created.id)")
+            self.createdIds.removeAll(where: { $0.id == created.id })
+            // Give Wix a moment to propagate the delete before querying
+            try await self.delay(2000)
+
+            // Poll: trigger sync and check until row disappears (Wix has eventual consistency)
+            try await self.waitUntil("deleted contact row removed from contacts.csv", timeout: 60) {
+                try await self.triggerAndWaitForSync(harness.syncEngine)
+                let rows = try self.readCSV(at: humanURL)
+                return !rows.contains { self.recordId(from: $0) == created.id }
+            }
+        }
+    }
+
+    /// Edit a CSV row's first name locally → PATCH reaches the Wix server.
+    func testContacts_LiveSync_LocalCSVEdit_PushesUpdateToServer() async throws {
+        let email = "codex-edit-\(UUID().uuidString.prefix(8))@example.com"
+        let created = try await createContact(firstName: "LiveEdit", lastName: "Contact", email: email)
+
+        try await withIsolatedSyncHarness(resourceNames: ["contacts"]) { harness in
+            await harness.syncEngine.triggerSync(serviceId: "wix")
+            try await self.waitForSyncIdle(harness.syncEngine)
+
+            let humanURL = harness.serviceDir.appendingPathComponent("contacts.csv")
+            try await self.waitForCollectionFile(humanURL)
+            try await self.waitUntil("test contact row in CSV before edit") {
+                try self.readCSV(at: humanURL).contains { self.recordId(from: $0) == created.id }
+            }
+
+            // Edit: change first name to a unique token
+            let token = self.uniqueTestName("LiveEditFirst")
+            var rows = try self.readCSV(at: humanURL)
+            guard let idx = rows.firstIndex(where: { self.recordId(from: $0) == created.id }) else {
+                throw XCTSkip("Test contact not found in contacts.csv")
+            }
+            rows[idx]["first"] = token
+            try self.writeCSV(rows, to: humanURL)
+
+            // Push: file-change → queue push → sync cycle → PATCH Wix contact
+            try await self.triggerAndWaitForSync(harness.syncEngine, filePath: "contacts.csv")
+
+            // Verify server reflects the first-name change
+            try await self.waitUntil("server contact first name updated", timeout: 30) {
+                let contact = try await self.getContact(id: created.id)
+                let name = (contact["info"] as? [String: Any])?["name"] as? [String: Any]
+                return name?["first"] as? String == token
+            }
+        }
+    }
+
+    /// Add a new CSV row with no ID → POST creates a new contact on the Wix server.
+    func testContacts_LiveSync_LocalCSVAdd_CreatesContactOnServer() async throws {
+        let email = "codex-new-\(UUID().uuidString.prefix(8))@example.com"
+        let token = uniqueTestName("LiveNewFirst")
+
+        try await withIsolatedSyncHarness(resourceNames: ["contacts"]) { harness in
+            await harness.syncEngine.triggerSync(serviceId: "wix")
+            try await self.waitForSyncIdle(harness.syncEngine)
+
+            let humanURL = harness.serviceDir.appendingPathComponent("contacts.csv")
+            try await self.waitForCollectionFile(humanURL)
+
+            // Append a new row with no id
+            var rows = try self.readCSV(at: humanURL)
+            rows.append([
+                "id": "",
+                "first": token,
+                "last": "LiveNew",
+                "primaryEmail": email,
+                "primaryPhone": "+1-555-0000"
+            ])
+            try self.writeCSV(rows, to: humanURL)
+
+            // Push: file-change → queue push → sync cycle → POST Wix contact
+            try await self.triggerAndWaitForSync(harness.syncEngine, filePath: "contacts.csv")
+
+            // Verify new contact appears on server
+            try await self.waitUntil("new contact appears on Wix server", timeout: 30) {
+                let contacts = try await self.queryContacts()
+                return contacts.contains {
+                    let info = $0["info"] as? [String: Any]
+                    let emails = info?["emails"] as? [String: Any]
+                    let items = emails?["items"] as? [[String: Any]]
+                    return items?.contains { ($0["email"] as? String)?.lowercased() == email.lowercased() } == true
+                }
+            }
+
+            // Fetch the ID so tearDown can clean it up
+            let allContacts = try await self.queryContacts()
+            if let found = allContacts.first(where: {
+                let info = $0["info"] as? [String: Any]
+                let emails = info?["emails"] as? [String: Any]
+                let items = emails?["items"] as? [[String: Any]]
+                return items?.contains { ($0["email"] as? String)?.lowercased() == email.lowercased() } == true
+            }), let id = found["id"] as? String {
+                let res = try self.resource("contacts")
+                self.createdIds.append((resource: res, id: id))
+            } else {
+                XCTFail("New contact ID not found on server after CSV push")
+            }
+        }
+    }
+
+    /// Delete a CSV row → DELETE reaches the Wix server.
+    func testContacts_LiveSync_LocalCSVDelete_DeletesContactFromServer() async throws {
+        let email = "codex-csvdel-\(UUID().uuidString.prefix(8))@example.com"
+        let created = try await createContact(firstName: "LiveCSVDel", lastName: "Contact", email: email)
+
+        try await withIsolatedSyncHarness(resourceNames: ["contacts"]) { harness in
+            await harness.syncEngine.triggerSync(serviceId: "wix")
+            try await self.waitForSyncIdle(harness.syncEngine)
+
+            let humanURL = harness.serviceDir.appendingPathComponent("contacts.csv")
+            try await self.waitForCollectionFile(humanURL)
+            try await self.waitUntil("test contact row present before deletion") {
+                try self.readCSV(at: humanURL).contains { self.recordId(from: $0) == created.id }
+            }
+
+            // Remove the test contact's row and write the CSV back
+            var rows = try self.readCSV(at: humanURL)
+            rows.removeAll { self.recordId(from: $0) == created.id }
+            try self.writeCSV(rows, to: humanURL)
+
+            // Push: file-change → diff detects deletion → DELETE Wix contact
+            try await self.triggerAndWaitForSync(harness.syncEngine, filePath: "contacts.csv")
+            self.createdIds.removeAll(where: { $0.id == created.id })
+
+            try await self.waitUntil("contact deleted from Wix server", timeout: 30) {
+                let contacts = try await self.queryContacts()
+                return !contacts.contains { $0["id"] as? String == created.id }
+            }
+        }
+    }
+
+    // ======================================================================
     // MARK: - CMS Events — Pull
     // ======================================================================
 
