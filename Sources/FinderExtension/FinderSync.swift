@@ -123,18 +123,18 @@ final class FinderSync: FIFinderSync {
             NSLog("FinderSync openInAppAction could not resolve service id")
             return
         }
-        var userInfo: [String: String] = ["serviceId": serviceId]
-        if let relativePath = FinderBadgeSupport.relativePath(for: targetURL, syncRootURL: syncFolderURL) {
-            let pathWithinService = String(relativePath.dropFirst(serviceId.count + 1))
-            if !pathWithinService.isEmpty {
-                userInfo["path"] = pathWithinService
-            }
+        var relativePath: String? = nil
+        if let fullRelative = FinderBadgeSupport.relativePath(for: targetURL, syncRootURL: syncFolderURL) {
+            let pathWithinService = String(fullRelative.dropFirst(serviceId.count + 1))
+            if !pathWithinService.isEmpty { relativePath = pathWithinService }
         }
-        NSLog("FinderSync openInAppAction posting serviceId=%@ path=%@", serviceId, userInfo["path"] ?? "")
+        NSLog("FinderSync openInAppAction serviceId=%@ path=%@", serviceId, relativePath ?? "")
+        // Write to shared UserDefaults (userInfo is stripped from distributed notifications in sandboxed extensions)
+        FinderBadgeSupport.setOpenPath(serviceId: serviceId, relativePath: relativePath)
         DistributedNotificationCenter.default().postNotificationName(
-            Notification.Name("com.api2file.open-path"),
+            FinderBadgeSupport.openPathNotificationName,
             object: nil,
-            userInfo: userInfo,
+            userInfo: nil,
             deliverImmediately: true
         )
     }

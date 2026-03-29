@@ -15,6 +15,24 @@ public enum FinderBadgeSupport {
     public static let badgeKeyPrefix = "badge."
     public static let serviceConfigKeyPrefix = "serviceConfig."
     public static let refreshNotificationName = Notification.Name("com.api2file.finder-badges-updated")
+    public static let openPathNotificationName = Notification.Name("com.api2file.open-path")
+    public static let openPathServiceIdKey = "finder.openPath.serviceId"
+    public static let openPathRelativePathKey = "finder.openPath.relativePath"
+
+    public static func setOpenPath(serviceId: String, relativePath: String?, in defaults: UserDefaults? = sharedDefaults()) {
+        persist(serviceId, forKey: openPathServiceIdKey, defaults: defaults)
+        persist(relativePath, forKey: openPathRelativePathKey, defaults: defaults)
+    }
+
+    public static func openPath(in defaults: UserDefaults? = sharedDefaults()) -> (serviceId: String, relativePath: String?)? {
+        guard let serviceId = stringValue(forKey: openPathServiceIdKey, defaults: defaults), !serviceId.isEmpty else { return nil }
+        return (serviceId: serviceId, relativePath: stringValue(forKey: openPathRelativePathKey, defaults: defaults))
+    }
+
+    public static func clearOpenPath(in defaults: UserDefaults? = sharedDefaults()) {
+        persist(nil, forKey: openPathServiceIdKey, defaults: defaults)
+        persist(nil, forKey: openPathRelativePathKey, defaults: defaults)
+    }
     public static let supportedStatuses: Set<String> = ["synced", "syncing", "conflict", "error"]
 
     public static func sharedDefaults() -> UserDefaults? {

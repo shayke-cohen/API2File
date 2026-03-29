@@ -93,7 +93,6 @@ struct API2FileApp: App {
 @MainActor
 final class AppState: ObservableObject {
     static let activateDashboardNotification = Notification.Name("com.api2file.activate-dashboard")
-    static let openPathNotification = Notification.Name("com.api2file.open-path")
 
     @Published var services: [ServiceInfo] = []
     /// Set when Finder extension requests "Open in API2File"; Dashboard observes and navigates.
@@ -131,15 +130,15 @@ final class AppState: ObservableObject {
         }
 
         DistributedNotificationCenter.default().addObserver(
-            forName: Self.openPathNotification,
+            forName: FinderBadgeSupport.openPathNotificationName,
             object: nil,
             queue: .main
-        ) { [weak self] notification in
+        ) { [weak self] _ in
             Task { @MainActor [weak self] in
                 guard let self else { return }
-                let serviceId = notification.userInfo?["serviceId"] as? String ?? ""
-                let path = notification.userInfo?["path"] as? String
-                self.pendingOpenPath = (serviceId: serviceId, relativePath: path)
+                guard let target = FinderBadgeSupport.openPath() else { return }
+                FinderBadgeSupport.clearOpenPath()
+                self.pendingOpenPath = (serviceId: target.serviceId, relativePath: target.relativePath)
                 self.openDashboardWindow()
             }
         }
