@@ -276,9 +276,12 @@ struct IOSBrowserView: View {
             }
 
             HStack(spacing: 10) {
+                IOSSecondaryPill(service.serviceId, systemImage: "shippingbox")
                 IOSSecondaryPill("\(service.config.resources.count) resources", systemImage: "square.grid.2x2.fill")
                 IOSSecondaryPill("\(visibleFiles.count) synced files", systemImage: "doc.on.doc")
             }
+
+            filePortalActions(for: service)
         }
         .iosCardStyle()
     }
@@ -314,6 +317,32 @@ struct IOSBrowserView: View {
             .accessibilityIdentifier("browser.empty.service")
         }
         .iosScreenBackground()
+    }
+
+    @ViewBuilder
+    private func filePortalActions(for service: ServiceInfo) -> some View {
+        let dashboardURL = service.config.dashboardUrl.flatMap(URL.init(string:))
+        let siteURL = service.config.siteUrl.flatMap(URL.init(string:))
+
+        if dashboardURL != nil || siteURL != nil {
+            HStack(spacing: 10) {
+                if let dashboardURL {
+                    Button("Dashboard") {
+                        UIApplication.shared.open(dashboardURL)
+                    }
+                    .buttonStyle(IOSOutlineButtonStyle())
+                    .accessibilityIdentifier(IOSAccessibility.id("browser", service.serviceId, "open-dashboard"))
+                }
+
+                if let siteURL {
+                    Button("Website") {
+                        UIApplication.shared.open(siteURL)
+                    }
+                    .buttonStyle(IOSOutlineButtonStyle())
+                    .accessibilityIdentifier(IOSAccessibility.id("browser", service.serviceId, "open-website"))
+                }
+            }
+        }
     }
 
     @ViewBuilder

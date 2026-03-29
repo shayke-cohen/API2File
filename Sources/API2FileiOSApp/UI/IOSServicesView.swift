@@ -302,6 +302,9 @@ private struct ServiceCard: View {
             }
 
             HStack(spacing: 10) {
+                IOSSecondaryPill(service.serviceId, systemImage: "shippingbox")
+                    .accessibilityIdentifier(IOSAccessibility.id("services", service.serviceId, "service-id"))
+
                 IOSSecondaryPill("\(service.fileCount) files", systemImage: "doc.text")
                     .accessibilityIdentifier(IOSAccessibility.id("services", service.serviceId, "files"))
 
@@ -328,6 +331,8 @@ private struct ServiceCard: View {
                     .buttonStyle(IOSOutlineButtonStyle())
                     .accessibilityIdentifier(IOSAccessibility.id("services", service.serviceId, "open-in-browser"))
             }
+
+            portalButtons
 
             Button("Disconnect", role: .destructive, action: onDisconnect)
                 .font(.subheadline.weight(.semibold))
@@ -362,5 +367,31 @@ private struct ServiceCard: View {
             return "Never synced"
         }
         return lastSyncTime.formatted(date: .abbreviated, time: .shortened)
+    }
+
+    @ViewBuilder
+    private var portalButtons: some View {
+        let dashboardURL = service.config.dashboardUrl.flatMap(URL.init(string:))
+        let siteURL = service.config.siteUrl.flatMap(URL.init(string:))
+
+        if dashboardURL != nil || siteURL != nil {
+            HStack(spacing: 12) {
+                if let dashboardURL {
+                    Button("Open Dashboard") {
+                        UIApplication.shared.open(dashboardURL)
+                    }
+                    .buttonStyle(IOSOutlineButtonStyle())
+                    .accessibilityIdentifier(IOSAccessibility.id("services", service.serviceId, "open-dashboard"))
+                }
+
+                if let siteURL {
+                    Button("Open Website") {
+                        UIApplication.shared.open(siteURL)
+                    }
+                    .buttonStyle(IOSOutlineButtonStyle())
+                    .accessibilityIdentifier(IOSAccessibility.id("services", service.serviceId, "open-website"))
+                }
+            }
+        }
     }
 }
