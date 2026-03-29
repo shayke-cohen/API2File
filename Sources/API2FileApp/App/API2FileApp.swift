@@ -129,6 +129,17 @@ final class AppState: ObservableObject {
             }
         }
 
+        // Handle "Open in API2File" from Finder extension (posted by API2FileAppDelegate)
+        NotificationCenter.default.addObserver(
+            forName: .api2fileOpenURL,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let self, let url = notification.object as? URL else { return }
+            self.handleOpenURL(url)
+        }
+
+        // Also keep distributed notification as fallback for older builds
         DistributedNotificationCenter.default().addObserver(
             forName: FinderBadgeSupport.openPathNotificationName,
             object: nil,
@@ -136,6 +147,7 @@ final class AppState: ObservableObject {
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
                 guard let self else { return }
+                NSLog("AppState received openPath distributed notification (fallback)")
                 guard let target = FinderBadgeSupport.openPath() else { return }
                 FinderBadgeSupport.clearOpenPath()
                 self.pendingOpenPath = (serviceId: target.serviceId, relativePath: target.relativePath)
@@ -169,15 +181,19 @@ final class AppState: ObservableObject {
 
     func registerDashboardWindowOpener(_ opener: @escaping () -> Void) {
         dashboardWindowOpener = opener
+        // If a Finder action already set a pending path, open the window now
+        if pendingOpenPath != nil {
+            opener()
+        }
     }
 
     func openDashboardWindow() {
+        NSApp.activate(ignoringOtherApps: true)
         if let dashboardWindowOpener {
             dashboardWindowOpener()
             return
         }
-
-        NSApp.activate(ignoringOtherApps: true)
+        // Fallback: find an already-open window
         if let dashboardWindow = NSApp.windows.first(where: { $0.title == "Dashboard" }) {
             dashboardWindow.makeKeyAndOrderFront(nil)
         }
@@ -344,6 +360,17 @@ final class AppState: ObservableObject {
             await syncEngine?.setServiceEnabled(serviceId: serviceId, enabled: enabled)
             await refreshServices()
         }
+    }
+
+    func handleOpenURL(_ url: URL) {
+        guard url.scheme == "api2file", url.host == "open" else { return }
+        let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+        guard let serviceId = components?.queryItems?.first(where: { $0.name == "service" })?.value,
+              !serviceId.isEmpty else { return }
+        let relativePath = components?.queryItems?.first(where: { $0.name == "path" })?.value
+        NSLog("AppState handleOpenURL serviceId=%@ path=%@", serviceId, relativePath ?? "")
+        pendingOpenPath = (serviceId: serviceId, relativePath: relativePath)
+        openDashboardWindow()
     }
 
     func setResourceEnabled(serviceId: String, resourceName: String, enabled: Bool) {

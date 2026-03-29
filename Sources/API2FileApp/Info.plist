@@ -18,5 +18,18 @@
 	<string>1.0</string>
 	<key>CFBundleVersion</key>
 	<string>1</string>
+	<key>API2FileAppGroupIdentifier</key>
+	<string>$(API2FILE_APP_GROUP_IDENTIFIER)</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.shayco.api2file.dev</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>api2file</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>

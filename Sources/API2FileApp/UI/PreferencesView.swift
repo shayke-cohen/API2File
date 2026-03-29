@@ -141,118 +141,99 @@ struct GeneralPane: View {
     @State private var hasPendingAdapterUpdates = false
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: 14) {
-                // Sync section
-                GroupBox {
-                    VStack(spacing: 10) {
-                        settingRow("Sync Folder") {
-                            TextField("", text: $config.syncFolder)
-                                .textFieldStyle(.roundedBorder)
-                                .testId("general-sync-folder")
-                        }
-                        settingRow("Sync Interval") {
-                            HStack(spacing: 6) {
-                                Stepper("\(config.defaultSyncInterval)s", value: $config.defaultSyncInterval, in: 10...600, step: 10)
-                                    .testId("general-sync-interval")
-                                Text("10–600s")
-                                    .font(.caption)
-                                    .foregroundStyle(.tertiary)
-                            }
-                        }
-                        settingRow("Adapters") {
-                            HStack(spacing: 6) {
-                                Text("~/.api2file/adapters")
-                                    .foregroundStyle(.secondary)
-                                    .font(.callout)
-                                if hasPendingAdapterUpdates {
-                                    Circle()
-                                        .fill(.yellow)
-                                        .frame(width: 7, height: 7)
-                                        .help("Adapter updates available")
-                                        .testId("general-adapters-update-badge")
-                                }
-                                Button("Reveal") {
-                                    NSWorkspace.shared.open(AdapterStore.userAdaptersURL)
-                                }
-                                .controlSize(.small)
-                                .testId("general-adapters-reveal")
-                            }
-                        }
+        Form {
+            // Sync section
+            Section {
+                LabeledContent("Sync Folder") {
+                    HStack(spacing: 6) {
+                        TextField("", text: $config.syncFolder)
+                            .testId("general-sync-folder")
+                        Button("Browse…") { chooseSyncFolder() }
+                            .controlSize(.small)
                     }
-                    .padding(.vertical, 2)
-                } label: {
-                    Label("Sync", systemImage: "arrow.triangle.2.circlepath")
-                        .font(.headline)
                 }
-
-                // Git section
-                GroupBox {
-                    VStack(spacing: 10) {
-                        settingRow("Auto-commit") {
-                            Toggle("", isOn: $config.gitAutoCommit)
-                                .toggleStyle(.switch)
-                                .labelsHidden()
-                                .testId("general-git-auto-commit")
+                LabeledContent("Interval") {
+                    HStack(spacing: 8) {
+                        Stepper(value: $config.defaultSyncInterval, in: 10...600, step: 10) {
+                            Text("\(config.defaultSyncInterval) s")
+                                .monospacedDigit()
+                                .foregroundStyle(.primary)
                         }
-                        settingRow("Commit format") {
-                            TextField("", text: $config.commitMessageFormat)
-                                .textFieldStyle(.roundedBorder)
-                                .font(.system(.callout, design: .monospaced))
-                                .testId("general-commit-format")
-                        }
+                        .testId("general-sync-interval")
+                        Text("10–600 s")
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
                     }
-                    .padding(.vertical, 2)
-                } label: {
-                    Label("Git", systemImage: "arrow.triangle.branch")
-                        .font(.headline)
                 }
-
-                // App section
-                GroupBox {
-                    VStack(spacing: 10) {
-                        settingRow("Launch at login") {
-                            Toggle("", isOn: $config.launchAtLogin)
-                                .toggleStyle(.switch)
-                                .labelsHidden()
-                                .testId("general-launch-at-login")
+                LabeledContent("Adapters") {
+                    HStack(spacing: 6) {
+                        Text("~/.api2file/adapters")
+                            .foregroundStyle(.secondary)
+                        if hasPendingAdapterUpdates {
+                            Circle()
+                                .fill(.yellow)
+                                .frame(width: 7, height: 7)
+                                .help("Adapter updates available")
+                                .testId("general-adapters-update-badge")
                         }
-                        settingRow("Notifications") {
-                            Toggle("", isOn: $config.showNotifications)
-                                .toggleStyle(.switch)
-                                .labelsHidden()
-                                .testId("general-show-notifications")
+                        Button("Reveal") {
+                            NSWorkspace.shared.open(AdapterStore.userAdaptersURL)
                         }
-                        settingRow("Finder badges") {
-                            Toggle("", isOn: $config.finderBadges)
-                                .toggleStyle(.switch)
-                                .labelsHidden()
-                                .testId("general-finder-badges")
-                        }
-                        settingRow("Server port") {
-                            Stepper("\(config.serverPort)", value: $config.serverPort, in: 1024...65535)
-                                .testId("general-server-port")
-                        }
+                        .controlSize(.small)
+                        .testId("general-adapters-reveal")
                     }
-                    .padding(.vertical, 2)
-                } label: {
-                    Label("App", systemImage: "app.badge.checkmark")
-                        .font(.headline)
                 }
+            } header: {
+                Label("Sync", systemImage: "arrow.triangle.2.circlepath")
             }
-            .padding()
+
+            // Git section
+            Section {
+                Toggle("Auto-commit", isOn: $config.gitAutoCommit)
+                    .testId("general-git-auto-commit")
+                LabeledContent("Commit format") {
+                    TextField("", text: $config.commitMessageFormat)
+                        .font(.system(.callout, design: .monospaced))
+                        .testId("general-commit-format")
+                }
+            } header: {
+                Label("Git", systemImage: "arrow.triangle.branch")
+            }
+
+            // App section
+            Section {
+                Toggle("Launch at login", isOn: $config.launchAtLogin)
+                    .testId("general-launch-at-login")
+                Toggle("Notifications", isOn: $config.showNotifications)
+                    .testId("general-show-notifications")
+                Toggle("Finder badges", isOn: $config.finderBadges)
+                    .testId("general-finder-badges")
+                LabeledContent("Server port") {
+                    Stepper(value: $config.serverPort, in: 1024...65535) {
+                        Text(String(config.serverPort))
+                            .monospacedDigit()
+                            .foregroundStyle(.primary)
+                    }
+                    .testId("general-server-port")
+                }
+            } header: {
+                Label("App", systemImage: "app.badge.checkmark")
+            }
         }
+        .formStyle(.grouped)
         .task {
             hasPendingAdapterUpdates = await AdapterStore.shared.hasPendingUpdates()
         }
     }
 
-    private func settingRow<Content: View>(_ label: String, @ViewBuilder content: () -> Content) -> some View {
-        HStack {
-            Text(label)
-                .foregroundStyle(.secondary)
-                .frame(width: 110, alignment: .trailing)
-            content()
+    private func chooseSyncFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Choose"
+        if panel.runModal() == .OK, let url = panel.url {
+            config.syncFolder = url.path
         }
     }
 }

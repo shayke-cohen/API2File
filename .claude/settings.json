@@ -71,7 +71,11 @@
       "Bash(printf '{\"\"\"\"jsonrpc\"\"\"\":\"\"\"\"2.0\"\"\"\",\"\"\"\"id\"\"\"\":1,\"\"\"\"method\"\"\"\":\"\"\"\"initialize\"\"\"\",\"\"\"\"params\"\"\"\":{\"\"\"\"protocolVersion\"\"\"\":\"\"\"\"2024-11-05\"\"\"\",\"\"\"\"capabilities\"\"\"\":{},\"\"\"\"clientInfo\"\"\"\":{\"\"\"\"name\"\"\"\":\"\"\"\"test\"\"\"\",\"\"\"\"version\"\"\"\":\"\"\"\"1.0\"\"\"\"}}}\\\\n')",
       "Bash(gtimeout 5 .build/debug/api2file-mcp)",
       "Bash(grep -r \"frame\\\\|padding\\\\|spacing\\\\|font\\\\|color\" /Users/shayco/API2File/Sources/API2FileApp/UI/*.swift)",
-      "Bash(bash /Users/shayco/API2File/scripts/rebuild.sh)"
+      "Bash(bash /Users/shayco/API2File/scripts/rebuild.sh)",
+      "Bash(ls /Users/shayco/API2File/*.xcodeproj)",
+      "Bash(ls /Users/shayco/API2File/*.xcworkspace)",
+      "Bash(pluginkit -m -v -p com.apple.FinderSync 2)",
+      "Bash(1 ps:*)"
     ],
     "additionalDirectories": [
       "/Users/shayco/API2File",

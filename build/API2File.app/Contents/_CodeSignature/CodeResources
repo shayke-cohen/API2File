@@ -10,37 +10,44 @@
 		<dict>
 			<key>cdhash</key>
 			<data>
-			779Gh7xDF8b+AxPH+wXFKiXYg5s=
+			12yKsr0Jukh7a8C0ZiE4o4kpS8I=
 			</data>
 			<key>requirement</key>
-			<string>cdhash H"efbf4687bc4317c6fe0313c7fb05c52a25d8839b"</string>
+			<string>identifier "com.api2file.core" and anchor apple generic and certificate leaf[subject.CN] = "Apple Development: Shay Cohen (Q5548VAM5R)" and certificate 1[field.1.2.840.113635.100.6.2.1] /* exists */</string>
 		</dict>
 		<key>MacOS/API2File.debug.dylib</key>
 		<dict>
 			<key>cdhash</key>
 			<data>
-			SnH4IFUo+ctfzHK3NZnurKKP744=
+			7Y4pOEN4VxxPxNk9cMBBtB2xBdQ=
 			</data>
 			<key>requirement</key>
-			<string>cdhash H"4a71f8205528f9cb5fcc72b73599eeaca28fef8e"</string>
+			<string>identifier "API2File.debug" and anchor apple generic and certificate leaf[subject.CN] = "Apple Development: Shay Cohen (Q5548VAM5R)" and certificate 1[field.1.2.840.113635.100.6.2.1] /* exists */</string>
 		</dict>
 		<key>MacOS/__preview.dylib</key>
 		<dict>
 			<key>cdhash</key>
 			<data>
-			jueIH8pCXJk7b1ngWcghATfNPXY=
+			Fv6v/9Q5HieEMWon4NaCw6Q2JnQ=
 			</data>
 			<key>requirement</key>
-			<string>cdhash H"8ee7881fca425c993b6f59e059c8210137cd3d76"</string>
+			<string>identifier "__preview" and anchor apple generic and certificate leaf[subject.CN] = "Apple Development: Shay Cohen (Q5548VAM5R)" and certificate 1[field.1.2.840.113635.100.6.2.1] /* exists */</string>
 		</dict>
 		<key>PlugIns/API2FileFinderExtension.appex</key>
 		<dict>
 			<key>cdhash</key>
 			<data>
-			FjCDEJD5G4AXw9TNAxePGnLtJRY=
+			m2eORNopwLJPRrpOSU6wrvIL/jE=
 			</data>
 			<key>requirement</key>
-			<string>cdhash H"1630831090f91b8017c3d4cd03178f1a72ed2516"</string>
+			<string>identifier "com.shayco.api2file.dev.finder-extension" and anchor apple generic and certificate leaf[subject.CN] = "Apple Development: Shay Cohen (Q5548VAM5R)" and certificate 1[field.1.2.840.113635.100.6.2.1] /* exists */</string>
+		</dict>
+		<key>embedded.provisionprofile</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			Mxsj3XjSomPNYwZ5kv/ni7Je2OEpEuZQkGTO6nLvKzY=
+			</data>
 		</dict>
 	</dict>
 	<key>rules</key>

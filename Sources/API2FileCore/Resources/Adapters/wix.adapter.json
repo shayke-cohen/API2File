@@ -246,10 +246,13 @@
         "transforms": {
           "pull": [
             { "op": "rename", "from": "actualPriceRange.minValue.amount", "to": "priceAmount" },
+            { "op": "rename", "from": "media.main.image.url", "to": "imageUrl" },
+            { "op": "rename", "from": "inventory.availabilityStatus", "to": "inventoryStatus" },
+            { "op": "rename", "from": "compareAtPriceRange.minValue.amount", "to": "compareAtPrice" },
             { "op": "omit", "fields": ["actualPriceRange", "media", "options", "modifiers", "infoSections", "mainCategoryId", "physicalProperties", "handle", "variantsInfo", "additionalRibbons", "flattenOptions", "flattenModifiers", "variantSummary", "entityEventSequence", "numericId", "visibleInPos", "inventory", "revision", "createdDate", "updatedDate", "compareAtPriceRange"] }
           ],
           "push": [
-            { "op": "omit", "fields": ["createdDate", "updatedDate", "compareAtPriceRange"] }
+            { "op": "omit", "fields": ["createdDate", "updatedDate", "compareAtPriceRange", "imageUrl", "inventoryStatus", "compareAtPrice"] }
           ]
         }
       },

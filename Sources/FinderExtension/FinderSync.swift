@@ -129,14 +129,20 @@ final class FinderSync: FIFinderSync {
             if !pathWithinService.isEmpty { relativePath = pathWithinService }
         }
         NSLog("FinderSync openInAppAction serviceId=%@ path=%@", serviceId, relativePath ?? "")
-        // Write to shared UserDefaults (userInfo is stripped from distributed notifications in sandboxed extensions)
-        FinderBadgeSupport.setOpenPath(serviceId: serviceId, relativePath: relativePath)
-        DistributedNotificationCenter.default().postNotificationName(
-            FinderBadgeSupport.openPathNotificationName,
-            object: nil,
-            userInfo: nil,
-            deliverImmediately: true
-        )
+
+        // Use custom URL scheme to activate the app — most reliable from a sandboxed extension
+        var components = URLComponents()
+        components.scheme = "api2file"
+        components.host = "open"
+        var queryItems = [URLQueryItem(name: "service", value: serviceId)]
+        if let relativePath {
+            queryItems.append(URLQueryItem(name: "path", value: relativePath))
+        }
+        components.queryItems = queryItems
+        if let url = components.url {
+            NSLog("FinderSync openInAppAction opening %@", url.absoluteString)
+            NSWorkspace.shared.open(url)
+        }
     }
 
     @objc func forceSyncAction(_ sender: AnyObject?) {

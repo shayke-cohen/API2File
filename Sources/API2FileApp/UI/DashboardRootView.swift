@@ -102,34 +102,15 @@ private struct Dashboard3WorkspaceView: View {
         }
         .sheet(isPresented: $showingSettings) {
             NavigationStack {
-                ZStack {
-                    background.ignoresSafeArea()
-
-                    VStack(alignment: .leading, spacing: 14) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("Settings")
-                                .font(.system(size: 24, weight: .bold, design: .rounded))
-                            Text("General sync, git, and app settings for your API2File workspace.")
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                        }
-                        .padding(.horizontal, 18)
-                        .padding(.top, 18)
-
-                        GeneralPane(config: $appState.config)
-                            .padding(.horizontal, 18)
-                            .padding(.bottom, 18)
-                    }
-                }
-                .toolbar {
-                    ToolbarItem(placement: .cancellationAction) {
-                        Button("Done") {
-                            showingSettings = false
+                GeneralPane(config: $appState.config)
+                    .navigationTitle("Settings")
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Done") { showingSettings = false }
                         }
                     }
-                }
             }
-            .frame(minWidth: 860, idealWidth: 980, minHeight: 620, idealHeight: 760)
+            .frame(minWidth: 480, idealWidth: 540, minHeight: 460, idealHeight: 520)
         }
     }
 

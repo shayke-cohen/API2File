@@ -69,6 +69,19 @@ struct Dashboard2View: View {
         }
         .onAppear {
             selectDefaultServiceIfNeeded()
+            // Handle pending navigation from "Open in API2File" Finder action
+            if let serviceId = appState.pendingOpenPath?.serviceId {
+                selectedServiceId = serviceId
+                if let relativePath = appState.pendingOpenPath?.relativePath {
+                    let fileURL = appState.config.resolvedSyncFolder
+                        .appendingPathComponent(serviceId)
+                        .appendingPathComponent(relativePath)
+                    if FileManager.default.fileExists(atPath: fileURL.path) {
+                        selectedFileURL = fileURL
+                    }
+                }
+                appState.pendingOpenPath = nil
+            }
         }
         .onChange(of: services.map(\.serviceId)) { _ in
             selectDefaultServiceIfNeeded()
