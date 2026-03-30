@@ -44,7 +44,7 @@ struct SiteSnapshotManifest: Codable, Equatable {
 
 enum WixSiteSnapshotSupport {
     static let catalogResourceName = "site-urls"
-    static let catalogRelativePath = "site/site-urls.json"
+    static let catalogRelativePath = "site-urls/site-urls.json"
     static let derivedDirectory = ".api2file/derived/site-snapshots"
     static let exposedDirectory = "Snapshots"
     static let exposedManifestRelativePath = "Snapshots/manifest.json"
