@@ -736,7 +736,10 @@ final class AdapterEngineIntegrationTests: XCTestCase {
             .deletingLastPathComponent()
         let data = try Data(contentsOf: repoRoot.appendingPathComponent("Sources/API2FileCore/Resources/Adapters/monday.adapter.json"))
         let config = try JSONDecoder().decode(AdapterConfig.self, from: data)
-        let resource = try XCTUnwrap(config.resources.first(where: { $0.name == "boards" }))
+        let resource = try XCTUnwrap(
+            config.resources.first(where: { $0.name == "boards" })?
+                .children?.first(where: { $0.name == "items" })
+        )
 
         let sessionConfig = URLSessionConfiguration.ephemeral
         sessionConfig.protocolClasses = [MockURLProtocol.self]
@@ -786,7 +789,10 @@ final class AdapterEngineIntegrationTests: XCTestCase {
             .deletingLastPathComponent()
         let data = try Data(contentsOf: repoRoot.appendingPathComponent("Sources/API2FileCore/Resources/Adapters/monday.adapter.json"))
         let config = try JSONDecoder().decode(AdapterConfig.self, from: data)
-        let resource = try XCTUnwrap(config.resources.first(where: { $0.name == "boards" }))
+        let resource = try XCTUnwrap(
+            config.resources.first(where: { $0.name == "boards" })?
+                .children?.first(where: { $0.name == "items" })
+        )
 
         let sessionConfig = URLSessionConfiguration.ephemeral
         sessionConfig.protocolClasses = [MockURLProtocol.self]

@@ -15,6 +15,7 @@ struct Dashboard2View: View {
     @State private var expandedFolders: Set<String> = []
     @State private var isLoadingHistory = false
     @State private var syncState: SyncState?
+    @State private var showCleanSyncConfirmation = false
 
     private let background = LinearGradient(
         colors: [
@@ -112,6 +113,19 @@ struct Dashboard2View: View {
                 let stateURL = dir.appendingPathComponent(".api2file/state.json")
                 syncState = try? SyncState.load(from: stateURL)
             }
+        }
+        .alert(
+            "Clean Sync \(selectedService?.displayName ?? "Service")?",
+            isPresented: $showCleanSyncConfirmation
+        ) {
+            Button("Cancel", role: .cancel) {}
+            Button("Clean Sync", role: .destructive) {
+                if let serviceId = selectedService?.serviceId {
+                    appState.cleanSyncService(serviceId: serviceId)
+                }
+            }
+        } message: {
+            Text("This deletes all local mirrored files for the selected service, clears local sync state and cache, and then pulls a fresh copy from the server. Remote data is not deleted.")
         }
     }
 
@@ -279,6 +293,7 @@ struct Dashboard2View: View {
                 serviceEnabledToggle
                 openActionsMenu
                 Spacer(minLength: 12)
+                cleanSyncButton
                 syncNowButton
             }
 
@@ -293,6 +308,7 @@ struct Dashboard2View: View {
                     serviceEnabledToggle
                     openActionsMenu
                     Spacer(minLength: 0)
+                    cleanSyncButton
                     syncNowButton
                 }
             }
@@ -348,8 +364,17 @@ struct Dashboard2View: View {
                 }
             }
             .disabled(selectedService == nil)
+
+            Divider()
+
+            Button(role: .destructive) {
+                showCleanSyncConfirmation = true
+            } label: {
+                Label("Clean Sync", systemImage: "trash.arrow.triangle.2.circlepath")
+            }
+            .disabled(selectedService == nil || selectedService?.status == .syncing || selectedService?.config.enabled == false)
         } label: {
-            Label("Open", systemImage: "folder")
+            Label("Actions", systemImage: "ellipsis.circle")
         }
         .menuStyle(.borderedButton)
         .controlSize(.small)
@@ -369,6 +394,17 @@ struct Dashboard2View: View {
         .buttonStyle(.borderedProminent)
         .controlSize(.small)
         .disabled(selectedService?.status == .syncing || selectedService?.config.enabled == false)
+    }
+
+    private var cleanSyncButton: some View {
+        Button(role: .destructive) {
+            showCleanSyncConfirmation = true
+        } label: {
+            Label("Clean Sync", systemImage: "trash.arrow.triangle.2.circlepath")
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+        .disabled(selectedService == nil || selectedService?.status == .syncing || selectedService?.config.enabled == false)
     }
 
     private var folderCount: Int {

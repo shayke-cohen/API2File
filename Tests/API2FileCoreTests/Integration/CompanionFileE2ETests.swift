@@ -142,13 +142,14 @@ final class CompanionFileE2ETests: XCTestCase {
         return AdapterEngine(config: config, serviceDir: serviceDir, httpClient: HTTPClient())
     }
 
-    private func startSyncEngine() async throws -> SyncEngine {
+    private func startSyncEngine(generateCompanionFiles: Bool = true) async throws -> SyncEngine {
         let config = GlobalConfig(
             syncFolder: syncRoot.path,
             gitAutoCommit: false,
             defaultSyncInterval: 5,
             showNotifications: false,
-            serverPort: Int(port)
+            serverPort: Int(port),
+            generateCompanionFiles: generateCompanionFiles
         )
         let eng = SyncEngine(config: config)
         try await eng.start()
@@ -218,6 +219,10 @@ final class CompanionFileE2ETests: XCTestCase {
         XCTAssertEqual(contactCompanions.count, 2, "Should have one companion .md per contact")
     }
 
+    func testGlobalConfigDefaultsCompanionGenerationToDisabled() {
+        XCTAssertFalse(GlobalConfig().generateCompanionFiles)
+    }
+
     // ======================================================================
     // MARK: - 2. Companion content matches template with field substitution
     // ======================================================================
@@ -284,6 +289,19 @@ final class CompanionFileE2ETests: XCTestCase {
         let rawTasks = result.rawRecordsByFile["tasks.csv"]
         XCTAssertNotNil(rawTasks, "tasks.csv should have raw records")
         XCTAssertEqual(rawTasks?.count, 3, "Should have 3 raw task records")
+    }
+
+    func testSyncEngineSkipsCompanionsWhenGenerationDisabled() async throws {
+        let eng = try await startSyncEngine(generateCompanionFiles: false)
+        defer { Task { await eng.stop() } }
+
+        let primaryAppeared = await waitForFile("tasks.csv")
+        XCTAssertTrue(primaryAppeared, "Primary collection file should still sync")
+
+        try await Task.sleep(nanoseconds: 800_000_000)
+
+        XCTAssertFalse(fileExists("tasks/buy-groceries.md"))
+        XCTAssertFalse(fileExists("contact-summaries/jane-doe.md"))
     }
 
     // ======================================================================

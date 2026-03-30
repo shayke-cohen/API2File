@@ -112,6 +112,13 @@ public actor SyncCoordinator {
         pendingPushes[serviceId]?.removeValue(forKey: filePath)
     }
 
+    /// Drop all queued push/sync work for a service.
+    public func clearPendingWork(serviceId: String) {
+        pendingPushes[serviceId]?.removeAll()
+        pushFailureCounts[serviceId]?.removeAll()
+        pendingSyncRequests.remove(serviceId)
+    }
+
     // MARK: - Status
 
     /// Get all registered service IDs

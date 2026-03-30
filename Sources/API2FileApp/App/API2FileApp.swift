@@ -317,6 +317,18 @@ final class AppState: ObservableObject {
         }
     }
 
+    func cleanSyncService(serviceId: String) {
+        Task {
+            do {
+                try await syncEngine?.cleanSync(serviceId: serviceId)
+            } catch {
+                NSLog("Clean sync failed for \(serviceId): \(error.localizedDescription)")
+            }
+            await refreshServices()
+            await refreshHistory(serviceId: serviceId)
+        }
+    }
+
     func removeService(serviceId: String) {
         Task {
             await syncEngine?.removeService(serviceId: serviceId)

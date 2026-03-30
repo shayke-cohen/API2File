@@ -12,6 +12,7 @@ public struct GlobalConfig: Codable, Sendable {
     public var launchAtLogin: Bool
     public var deleteFromAPI: Bool
     public var enableSnapshots: Bool
+    public var generateCompanionFiles: Bool
 
     public init(
         syncFolder: String = "~/API2File-Data",
@@ -23,7 +24,8 @@ public struct GlobalConfig: Codable, Sendable {
         serverPort: Int = 21567,
         launchAtLogin: Bool = false,
         deleteFromAPI: Bool = false,
-        enableSnapshots: Bool = true
+        enableSnapshots: Bool = true,
+        generateCompanionFiles: Bool = false
     ) {
         self.syncFolder = syncFolder
         self.gitAutoCommit = gitAutoCommit
@@ -35,6 +37,36 @@ public struct GlobalConfig: Codable, Sendable {
         self.launchAtLogin = launchAtLogin
         self.deleteFromAPI = deleteFromAPI
         self.enableSnapshots = enableSnapshots
+        self.generateCompanionFiles = generateCompanionFiles
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case syncFolder
+        case gitAutoCommit
+        case commitMessageFormat
+        case defaultSyncInterval
+        case showNotifications
+        case finderBadges
+        case serverPort
+        case launchAtLogin
+        case deleteFromAPI
+        case enableSnapshots
+        case generateCompanionFiles
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        syncFolder = try container.decodeIfPresent(String.self, forKey: .syncFolder) ?? "~/API2File-Data"
+        gitAutoCommit = try container.decodeIfPresent(Bool.self, forKey: .gitAutoCommit) ?? true
+        commitMessageFormat = try container.decodeIfPresent(String.self, forKey: .commitMessageFormat) ?? "sync: {service} — {summary}"
+        defaultSyncInterval = try container.decodeIfPresent(Int.self, forKey: .defaultSyncInterval) ?? 60
+        showNotifications = try container.decodeIfPresent(Bool.self, forKey: .showNotifications) ?? true
+        finderBadges = try container.decodeIfPresent(Bool.self, forKey: .finderBadges) ?? true
+        serverPort = try container.decodeIfPresent(Int.self, forKey: .serverPort) ?? 21567
+        launchAtLogin = try container.decodeIfPresent(Bool.self, forKey: .launchAtLogin) ?? false
+        deleteFromAPI = try container.decodeIfPresent(Bool.self, forKey: .deleteFromAPI) ?? false
+        enableSnapshots = try container.decodeIfPresent(Bool.self, forKey: .enableSnapshots) ?? true
+        generateCompanionFiles = try container.decodeIfPresent(Bool.self, forKey: .generateCompanionFiles) ?? false
     }
 
     /// Resolve the sync folder path, expanding ~ to home directory

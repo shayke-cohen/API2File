@@ -2,6 +2,17 @@ import Foundation
 
 /// Top-level sync engine — ties together all components for the full sync lifecycle
 public actor SyncEngine {
+    private enum CleanSyncError: LocalizedError {
+        case unknownService(String)
+
+        var errorDescription: String? {
+            switch self {
+            case .unknownService(let serviceId):
+                return "Unknown service '\(serviceId)'"
+            }
+        }
+    }
+
     private let platformServices: PlatformServices
     private enum AuthReadiness {
         case loading
@@ -390,6 +401,7 @@ public actor SyncEngine {
             var isIncremental = false
             var unchangedCount = 0
             var fullSyncFilePathsByResource: [String: Set<String>] = [:]
+            let pendingPushPaths = Set(await coordinator.getPendingPushes(serviceId: serviceId).map(\.filePath))
 
             struct ResourcePullResult: Sendable {
                 let name: String
@@ -463,16 +475,18 @@ public actor SyncEngine {
                     }
 
                     if let result = pullResult.result, !result.notModified {
-                        pulledFiles.append(contentsOf: result.files)
+                        let effectiveResult = filteredPullResultForSettings(result)
+                        pulledFiles.append(contentsOf: effectiveResult.files)
                         if pullResult.wasIncremental {
                             isIncremental = true
                         } else {
-                            fullSyncFilePathsByResource[pullResult.name] = Set(result.files.map(\.relativePath))
+                            fullSyncFilePathsByResource[pullResult.name] = Set(effectiveResult.files.map(\.relativePath))
                         }
 
                         try await applyPullFiles(
-                            result: result,
+                            result: effectiveResult,
                             resourceWasIncremental: pullResult.wasIncremental,
+                            pendingPushPaths: pendingPushPaths,
                             serviceId: serviceId,
                             serviceDir: serviceDir,
                             engine: engine,
@@ -652,6 +666,7 @@ public actor SyncEngine {
     private func applyPullFiles(
         result: PullResult,
         resourceWasIncremental: Bool,
+        pendingPushPaths: Set<String>,
         serviceId: String,
         serviceDir: URL,
         engine: AdapterEngine,
@@ -681,6 +696,11 @@ public actor SyncEngine {
                     status: .synced,
                     isCompanion: true
                 )
+                continue
+            }
+
+            if pendingPushPaths.contains(file.relativePath) {
+                await ActivityLogger.shared.info(.sync, "↓ Skipping \(file.relativePath) — queued local push is pending")
                 continue
             }
 
@@ -1033,9 +1053,7 @@ public actor SyncEngine {
             let path = change.path
             guard let relativeParts = extractServiceAndPath(from: path) else { continue }
             let (serviceId, filePath) = relativeParts
-
-            // Skip changes while pulling (prevents concurrent access to syncStates)
-            if isPulling[serviceId] == true { continue }
+            let serviceIsPulling = isPulling[serviceId] == true
 
             // Skip internal, temp, and hidden files
             if filePath.hasPrefix(".api2file/") || filePath.hasPrefix(".git/") { continue }
@@ -1049,6 +1067,10 @@ public actor SyncEngine {
             if isSuppressed(filePath) { continue }
 
             if ObjectFileManager.isObjectFile(filePath) {
+                // Object-file pushes still need the full raw-record machinery.
+                // Avoid interleaving them with an active pull; the next explicit
+                // edit or pull cycle can safely reconcile them.
+                guard !serviceIsPulling else { continue }
                 guard !change.flags.contains(.removed) else { continue }
                 Task { await self.performObjectPush(serviceId: serviceId, objectFilePath: filePath) }
                 continue
@@ -1061,7 +1083,11 @@ public actor SyncEngine {
 
             Task {
                 await coordinator.queuePush(serviceId: serviceId, filePath: filePath)
-                await coordinator.flushPendingPushes(serviceId: serviceId)
+                if serviceIsPulling {
+                    await coordinator.syncNow(serviceId: serviceId, queueIfBusy: true)
+                } else {
+                    await coordinator.flushPendingPushes(serviceId: serviceId)
+                }
             }
         }
     }
@@ -1816,7 +1842,9 @@ public actor SyncEngine {
 
         // Full sync if resource has companion configs but no companion files exist yet
         // (catches the first sync after companion support is added to an existing resource)
-        if let companionConfigs = resource.fileMapping.companionFiles, !companionConfigs.isEmpty {
+        if config.generateCompanionFiles,
+           let companionConfigs = resource.fileMapping.companionFiles,
+           !companionConfigs.isEmpty {
             let companionDirs = Set(companionConfigs.map(\.directory).filter { !$0.isEmpty && $0 != "." })
             let files = syncStates[serviceId]?.files ?? [:]
             let hasCompanionForResource = files.contains(where: { path, state in
@@ -2700,9 +2728,95 @@ public actor SyncEngine {
         return trimmed.isEmpty ? nil : trimmed
     }
 
+    private func filteredPullResultForSettings(_ result: PullResult) -> PullResult {
+        guard !config.generateCompanionFiles else { return result }
+        let filteredFiles = result.files.filter { !$0.isCompanion }
+        return PullResult(
+            files: filteredFiles,
+            rawRecordsByFile: result.rawRecordsByFile,
+            responseETag: result.responseETag,
+            notModified: result.notModified
+        )
+    }
+
     private func updateServiceStatus(_ serviceId: String, status: ServiceStatus, error: String? = nil) {
         serviceInfos[serviceId]?.status = status
         serviceInfos[serviceId]?.errorMessage = error
+    }
+
+    private func cleanLocalMirror(serviceId: String, serviceDir: URL) throws {
+        let fileManager = FileManager.default
+        let preservedRootEntries: Set<String> = [".api2file", ".git", ".gitignore", ".gitattributes"]
+        let preservedAPI2FileEntries: Set<String> = ["adapter.json", "sync-history.json"]
+
+        guard fileManager.fileExists(atPath: serviceDir.path) else { return }
+
+        let contents = try fileManager.contentsOfDirectory(at: serviceDir, includingPropertiesForKeys: nil, options: [])
+        for item in contents {
+            let name = item.lastPathComponent
+
+            if preservedRootEntries.contains(name) {
+                if name == ".api2file", fileManager.fileExists(atPath: item.path) {
+                    let apiContents = try fileManager.contentsOfDirectory(at: item, includingPropertiesForKeys: nil, options: [])
+                    for apiItem in apiContents where !preservedAPI2FileEntries.contains(apiItem.lastPathComponent) {
+                        try removeLocalMirrorEntry(apiItem, relativeTo: serviceDir)
+                    }
+                }
+                continue
+            }
+
+            try removeLocalMirrorEntry(item, relativeTo: serviceDir)
+        }
+
+        if let enumerator = fileManager.enumerator(
+            at: serviceDir,
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: [.skipsPackageDescendants]
+        ) {
+            for case let fileURL as URL in enumerator {
+                let relativePath = fileURL.path.replacingOccurrences(of: serviceDir.path + "/", with: "")
+                if relativePath.hasPrefix(".git/") || relativePath == ".gitignore" || relativePath == ".gitattributes" {
+                    continue
+                }
+                if relativePath.hasPrefix(".api2file/") {
+                    let apiName = fileURL.lastPathComponent
+                    if preservedAPI2FileEntries.contains(apiName) {
+                        continue
+                    }
+                }
+                if ObjectFileManager.isObjectFile(relativePath) {
+                    try removeLocalMirrorEntry(fileURL, relativeTo: serviceDir)
+                }
+            }
+        }
+
+        awaitActivityLogCleanSync(serviceId: serviceId)
+    }
+
+    private func removeLocalMirrorEntry(_ url: URL, relativeTo serviceDir: URL) throws {
+        let fileManager = FileManager.default
+        guard fileManager.fileExists(atPath: url.path) else { return }
+
+        if let enumerator = fileManager.enumerator(
+            at: url,
+            includingPropertiesForKeys: [.isRegularFileKey, .isDirectoryKey],
+            options: [.skipsPackageDescendants]
+        ) {
+            for case let nestedURL as URL in enumerator {
+                let relativePath = nestedURL.path.replacingOccurrences(of: serviceDir.path + "/", with: "")
+                suppressPath(relativePath, for: 5)
+            }
+        }
+
+        let relativePath = url.path.replacingOccurrences(of: serviceDir.path + "/", with: "")
+        suppressPath(relativePath, for: 5)
+        try fileManager.removeItem(at: url)
+    }
+
+    private func awaitActivityLogCleanSync(serviceId: String) {
+        Task {
+            await ActivityLogger.shared.info(.sync, "↺ Local mirror cleared for \(serviceId)")
+        }
     }
 
     private func refreshSQLiteMirrorIfPossible(
@@ -2787,6 +2901,43 @@ public actor SyncEngine {
 
     public func triggerSync(serviceId: String) async {
         await coordinator.syncNow(serviceId: serviceId)
+    }
+
+    /// Delete the local mirror for a service and repopulate it from the server.
+    /// Remote data is left untouched.
+    public func cleanSync(serviceId: String) async throws {
+        guard let engine = adapterEngines[serviceId] else {
+            throw CleanSyncError.unknownService(serviceId)
+        }
+
+        let serviceDir = syncFolder.appendingPathComponent(serviceId)
+        let serviceName = serviceInfos[serviceId]?.displayName ?? serviceId
+
+        await ActivityLogger.shared.info(.sync, "↺ CLEAN SYNC START \(serviceId) [\(serviceName)]")
+        await coordinator.clearPendingWork(serviceId: serviceId)
+
+        isPulling[serviceId] = true
+        defer { isPulling[serviceId] = false }
+
+        try cleanLocalMirror(serviceId: serviceId, serviceDir: serviceDir)
+
+        let emptyState = SyncState()
+        syncStates[serviceId] = emptyState
+        serviceInfos[serviceId]?.fileCount = 0
+        serviceInfos[serviceId]?.lastSyncTime = nil
+        serviceInfos[serviceId]?.errorMessage = nil
+        lastKnownRecords = lastKnownRecords.filter { !$0.key.hasPrefix("\(serviceId):") }
+        lastKnownRawRecords = lastKnownRawRecords.filter { !$0.key.hasPrefix("\(serviceId):") }
+        recentlyPushed = recentlyPushed.filter { !$0.key.hasPrefix("\(serviceId):") }
+
+        let stateURL = serviceDir.appendingPathComponent(".api2file/state.json")
+        try emptyState.save(to: stateURL)
+        synchronizeFileLinks(serviceDir: serviceDir, config: engine.config, state: emptyState)
+        refreshSQLiteMirrorIfPossible(serviceId: serviceId, serviceDir: serviceDir, config: engine.config, state: emptyState)
+
+        await coordinator.syncNow(serviceId: serviceId)
+        try? generateGuides()
+        await ActivityLogger.shared.info(.sync, "↺ CLEAN SYNC OK \(serviceId)")
     }
 
     public func listSQLTables(serviceId: String) throws -> Data {

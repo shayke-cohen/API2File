@@ -1208,12 +1208,11 @@ public actor AdapterEngine {
     }
 
     private func buildWixContactBody(record: [String: Any], isUpdate: Bool) -> [String: Any]? {
-        let existingInfo = (record["info"] as? [String: Any]) ?? [:]
+        var rawInfo = (record["info"] as? [String: Any]) ?? [:]
+        rawInfo.removeValue(forKey: "extendedFields")
+        let existingInfo = rawInfo
         var info: [String: Any] = [:]
         var name = (existingInfo["name"] as? [String: Any]) ?? [:]
-        let hadExplicitNestedName =
-            nonEmptyString(name["first"]) != nil ||
-            nonEmptyString(name["last"]) != nil
         let currentDisplayName = [nonEmptyString(name["first"]), nonEmptyString(name["last"])]
             .compactMap { $0 }
             .joined(separator: " ")
@@ -1226,7 +1225,6 @@ public actor AdapterEngine {
         }
         if nonEmptyString(record["first"]) == nil,
            nonEmptyString(record["last"]) == nil,
-           !hadExplicitNestedName,
            let displayName = nestedString(record, path: ["info", "extendedFields", "items", "contacts", "displayByFirstName"]),
            displayName != currentDisplayName,
            let parsedName = splitDisplayName(displayName) {
@@ -1246,7 +1244,7 @@ public actor AdapterEngine {
             fallbackEmail = nil
         }
         if let email = editedEmail ?? fallbackEmail,
-           !isUpdate || currentEmail == nil || email != currentEmail || editedEmail == nil {
+           !isUpdate || currentEmail == nil || email != currentEmail || editedEmail != nil {
             info["emails"] = [
                 "items": [
                     [

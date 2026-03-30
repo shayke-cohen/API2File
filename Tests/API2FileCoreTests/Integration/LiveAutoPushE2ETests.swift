@@ -299,6 +299,44 @@ final class LiveAutoPushE2ETests: XCTestCase {
         )
     }
 
+    func testLiveAutoPush_EditCSVDuringPull_IsQueuedAndPushedAfterPull() async throws {
+        try await startEngine()
+        try await Task.sleep(nanoseconds: 2_000_000_000)
+
+        XCTAssertTrue(tasksCSVExists(), "tasks.csv should exist after initial pull")
+
+        let csvData = try Data(contentsOf: serviceDir.appendingPathComponent("tasks.csv"))
+        var records = try CSVFormat.decode(data: csvData, options: nil)
+        guard let idx = records.firstIndex(where: {
+            ($0["id"] as? String) == "1" || ($0["id"] as? Int) == 1
+        }) else {
+            XCTFail("Could not find task with id 1")
+            return
+        }
+        records[idx]["name"] = "Buy groceries while pull is active"
+        let modifiedCSV = String(
+            data: try CSVFormat.encode(records: records, options: nil),
+            encoding: .utf8
+        )!
+
+        await server.setArtificialDelay(pathPrefix: "/api/tasks", milliseconds: 7_000)
+
+        // Polling is 5s in this suite, so this lands inside the next delayed pull.
+        try await Task.sleep(nanoseconds: 5_600_000_000)
+        try writeTasksCSVTriggeringFSEvents(modifiedCSV)
+
+        // Give the delayed pull time to complete and the queued push time to flush.
+        try await Task.sleep(nanoseconds: 12_000_000_000)
+
+        let apiTasks = try await getTasksFromAPI()
+        let task1 = apiTasks.first(where: { ($0["id"] as? Int) == 1 })
+        XCTAssertEqual(
+            task1?["name"] as? String,
+            "Buy groceries while pull is active",
+            "Edits made during pull should be queued and pushed after the pull finishes"
+        )
+    }
+
     func testInitialPullBuildsFileLinksForInstalledService() async throws {
         try await startEngine()
 

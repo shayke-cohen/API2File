@@ -8,6 +8,7 @@ import Network
 public actor DemoAPIServer {
     private let port: UInt16
     private var listener: NWListener?
+    private var artificialDelayByPathPrefix: [String: UInt64] = [:]
 
     // Resource stores
     private var tasks: [DemoTask] = []
@@ -367,6 +368,14 @@ public actor DemoAPIServer {
         seedAll()
     }
 
+    public func setArtificialDelay(pathPrefix: String, milliseconds: UInt64) {
+        if milliseconds == 0 {
+            artificialDelayByPathPrefix.removeValue(forKey: pathPrefix)
+        } else {
+            artificialDelayByPathPrefix[pathPrefix] = milliseconds
+        }
+    }
+
     // MARK: - Connection
 
     private func handleConnection(_ connection: NWConnection) {
@@ -412,6 +421,10 @@ public actor DemoAPIServer {
         guard let (method, path, queryString, body, headers) = parseHTTPRequest(data) else {
             sendJSON(statusCode: 400, body: ["error": "Bad Request"], connection: connection)
             return
+        }
+
+        if let delayMs = artificialDelayMilliseconds(for: path), delayMs > 0 {
+            usleep(useconds_t(delayMs * 1_000))
         }
 
         let acceptsHTML = Self.requestAcceptsHTML(headers: headers)
@@ -460,6 +473,13 @@ public actor DemoAPIServer {
         } else {
             sendJSON(statusCode: 404, body: ["error": "Not Found"], connection: connection)
         }
+    }
+
+    private func artificialDelayMilliseconds(for path: String) -> UInt64? {
+        artificialDelayByPathPrefix
+            .filter { path.hasPrefix($0.key) }
+            .max(by: { $0.key.count < $1.key.count })?
+            .value
     }
 
     // MARK: - Web Dashboard

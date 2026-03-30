@@ -228,6 +228,8 @@ struct GeneralPane: View {
                     .testId("general-finder-badges")
                 Toggle("Generate snapshots", isOn: $config.enableSnapshots)
                     .testId("general-enable-snapshots")
+                Toggle("Generate companion Markdown files", isOn: $config.generateCompanionFiles)
+                    .testId("general-generate-companion-files")
                 LabeledContent("Server port") {
                     Stepper(value: $config.serverPort, in: 1024...65535) {
                         Text(String(config.serverPort))
