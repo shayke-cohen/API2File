@@ -148,14 +148,14 @@ final class WixLiveE2ETests: XCTestCase {
         .init(name: "contacts", capabilityClass: .partialWritable, humanRelativePath: "contacts/contacts.csv", humanFormat: .csv, objectRelativePath: "contacts/.contacts.objects.json", humanSanitized: true, supportsCreate: true, supportsUpdate: true, supportsDelete: true, humanToObjectToServer: true, objectToHumanToServer: false, serverToObjectToHuman: true, notes: "CSV with strong human CRUD, but object-file propagation still needs hardening."),
         .init(name: "blog-posts", capabilityClass: .fullCRUD, humanRelativePath: "blog-posts/{slug}.md", humanFormat: .markdown, objectRelativePath: "blog-posts/.objects/{slug}.json", humanSanitized: true, supportsCreate: true, supportsUpdate: true, supportsDelete: true, humanToObjectToServer: true, objectToHumanToServer: true, serverToObjectToHuman: true, notes: "Markdown/Ricos full flow."),
         .init(name: "products", capabilityClass: .fullCRUD, humanRelativePath: "products/products.csv", humanFormat: .csv, objectRelativePath: "products/.products.objects.json", humanSanitized: true, supportsCreate: true, supportsUpdate: true, supportsDelete: true, humanToObjectToServer: true, objectToHumanToServer: true, serverToObjectToHuman: true, notes: "CSV with full CRUD."),
-        .init(name: "orders", capabilityClass: .partialWritable, humanRelativePath: "orders.csv", humanFormat: .csv, objectRelativePath: ".orders.objects.json", humanSanitized: true, supportsCreate: false, supportsUpdate: true, supportsDelete: false, humanToObjectToServer: true, objectToHumanToServer: true, serverToObjectToHuman: true, notes: "CSV pull with limited update semantics."),
-        .init(name: "coupons", capabilityClass: .readOnly, humanRelativePath: "coupons.csv", humanFormat: .csv, objectRelativePath: nil, humanSanitized: true, supportsCreate: false, supportsUpdate: false, supportsDelete: false, humanToObjectToServer: false, objectToHumanToServer: false, serverToObjectToHuman: false, notes: "Read-only coupon catalog until safe write semantics are proven."),
-        .init(name: "pricing-plans", capabilityClass: .readOnly, humanRelativePath: "pricing-plans.csv", humanFormat: .csv, objectRelativePath: nil, humanSanitized: true, supportsCreate: false, supportsUpdate: false, supportsDelete: false, humanToObjectToServer: false, objectToHumanToServer: false, serverToObjectToHuman: false, notes: "Read-only pricing plans catalog."),
-        .init(name: "gift-cards", capabilityClass: .readOnly, humanRelativePath: "gift-cards.csv", humanFormat: .csv, objectRelativePath: nil, humanSanitized: true, supportsCreate: false, supportsUpdate: false, supportsDelete: false, humanToObjectToServer: false, objectToHumanToServer: false, serverToObjectToHuman: false, notes: "Read-only gift card ledger surface."),
-        .init(name: "forms", capabilityClass: .partialWritable, humanRelativePath: "forms.csv", humanFormat: .csv, objectRelativePath: ".forms.objects.json", humanSanitized: true, supportsCreate: true, supportsUpdate: true, supportsDelete: true, humanToObjectToServer: true, objectToHumanToServer: true, serverToObjectToHuman: true, notes: "CSV schema catalog with child submissions files."),
-        .init(name: "members", capabilityClass: .fullCRUD, humanRelativePath: "members.csv", humanFormat: .csv, objectRelativePath: ".members.objects.json", humanSanitized: true, supportsCreate: true, supportsUpdate: true, supportsDelete: true, humanToObjectToServer: true, objectToHumanToServer: true, serverToObjectToHuman: true, notes: "CSV with create, update, and delete."),
-        .init(name: "site-properties", capabilityClass: .readOnly, humanRelativePath: "site-properties.json", humanFormat: .json, objectRelativePath: nil, humanSanitized: true, supportsCreate: false, supportsUpdate: false, supportsDelete: false, humanToObjectToServer: false, objectToHumanToServer: false, serverToObjectToHuman: false, notes: "Read-only JSON snapshot."),
-        .init(name: "site-urls", capabilityClass: .readOnly, humanRelativePath: "site/site-urls.json", humanFormat: .json, objectRelativePath: "site/.site-urls.objects.json", humanSanitized: true, supportsCreate: false, supportsUpdate: false, supportsDelete: false, humanToObjectToServer: false, objectToHumanToServer: false, serverToObjectToHuman: true, notes: "Read-only merged site URL catalog with hidden rendered snapshot artifacts."),
+        .init(name: "orders", capabilityClass: .partialWritable, humanRelativePath: "orders/orders.csv", humanFormat: .csv, objectRelativePath: "orders/.orders.objects.json", humanSanitized: true, supportsCreate: false, supportsUpdate: true, supportsDelete: false, humanToObjectToServer: true, objectToHumanToServer: true, serverToObjectToHuman: true, notes: "CSV pull with limited update semantics."),
+        .init(name: "coupons", capabilityClass: .readOnly, humanRelativePath: "coupons/coupons.csv", humanFormat: .csv, objectRelativePath: nil, humanSanitized: true, supportsCreate: false, supportsUpdate: false, supportsDelete: false, humanToObjectToServer: false, objectToHumanToServer: false, serverToObjectToHuman: false, notes: "Read-only coupon catalog until safe write semantics are proven."),
+        .init(name: "pricing-plans", capabilityClass: .readOnly, humanRelativePath: "pricing-plans/pricing-plans.csv", humanFormat: .csv, objectRelativePath: nil, humanSanitized: true, supportsCreate: false, supportsUpdate: false, supportsDelete: false, humanToObjectToServer: false, objectToHumanToServer: false, serverToObjectToHuman: false, notes: "Read-only pricing plans catalog."),
+        .init(name: "gift-cards", capabilityClass: .readOnly, humanRelativePath: "gift-cards/gift-cards.csv", humanFormat: .csv, objectRelativePath: nil, humanSanitized: true, supportsCreate: false, supportsUpdate: false, supportsDelete: false, humanToObjectToServer: false, objectToHumanToServer: false, serverToObjectToHuman: false, notes: "Read-only gift card ledger surface."),
+        .init(name: "forms", capabilityClass: .partialWritable, humanRelativePath: "forms/forms.csv", humanFormat: .csv, objectRelativePath: "forms/.forms.objects.json", humanSanitized: true, supportsCreate: true, supportsUpdate: true, supportsDelete: true, humanToObjectToServer: true, objectToHumanToServer: true, serverToObjectToHuman: true, notes: "CSV schema catalog with child submissions files."),
+        .init(name: "members", capabilityClass: .fullCRUD, humanRelativePath: "members/members.csv", humanFormat: .csv, objectRelativePath: "members/.members.objects.json", humanSanitized: true, supportsCreate: true, supportsUpdate: true, supportsDelete: true, humanToObjectToServer: true, objectToHumanToServer: true, serverToObjectToHuman: true, notes: "CSV with create, update, and delete."),
+        .init(name: "site-properties", capabilityClass: .readOnly, humanRelativePath: "site-properties/site-properties.json", humanFormat: .json, objectRelativePath: nil, humanSanitized: true, supportsCreate: false, supportsUpdate: false, supportsDelete: false, humanToObjectToServer: false, objectToHumanToServer: false, serverToObjectToHuman: false, notes: "Read-only JSON snapshot."),
+        .init(name: "site-urls", capabilityClass: .readOnly, humanRelativePath: "site-urls/site-urls.json", humanFormat: .json, objectRelativePath: "site-urls/.site-urls.objects.json", humanSanitized: true, supportsCreate: false, supportsUpdate: false, supportsDelete: false, humanToObjectToServer: false, objectToHumanToServer: false, serverToObjectToHuman: true, notes: "Read-only merged site URL catalog with hidden rendered snapshot artifacts."),
         .init(name: "media", capabilityClass: .readOnly, humanRelativePath: "media/*", humanFormat: .raw, objectRelativePath: nil, humanSanitized: true, supportsCreate: false, supportsUpdate: false, supportsDelete: false, humanToObjectToServer: false, objectToHumanToServer: false, serverToObjectToHuman: false, notes: "Binary upload/pull/delete only."),
         .init(name: "pro-gallery", capabilityClass: .readOnly, humanRelativePath: "pro-gallery/*", humanFormat: .raw, objectRelativePath: nil, humanSanitized: true, supportsCreate: false, supportsUpdate: false, supportsDelete: false, humanToObjectToServer: false, objectToHumanToServer: false, serverToObjectToHuman: false, notes: "Binary upload/pull/delete only."),
         .init(name: "pdf-viewer", capabilityClass: .readOnly, humanRelativePath: "pdf-viewer/*.pdf", humanFormat: .raw, objectRelativePath: nil, humanSanitized: true, supportsCreate: false, supportsUpdate: false, supportsDelete: false, humanToObjectToServer: false, objectToHumanToServer: false, serverToObjectToHuman: false, notes: "Binary upload/pull/delete only."),
@@ -166,16 +166,16 @@ final class WixLiveE2ETests: XCTestCase {
         .init(name: "groups", capabilityClass: .partialWritable, humanRelativePath: "groups/groups.csv", humanFormat: .csv, objectRelativePath: "groups/.groups.objects.json", humanSanitized: true, supportsCreate: true, supportsUpdate: true, supportsDelete: true, humanToObjectToServer: true, objectToHumanToServer: false, serverToObjectToHuman: true, notes: "CSV with CRUD from the human surface; object-file propagation still needs hardening."),
         .init(name: "inbox-conversations", capabilityClass: .readOnly, humanRelativePath: "inbox-conversations/conversations.csv", humanFormat: .csv, objectRelativePath: ".inbox-conversations.objects.json", humanSanitized: true, supportsCreate: false, supportsUpdate: false, supportsDelete: false, humanToObjectToServer: false, objectToHumanToServer: false, serverToObjectToHuman: false, notes: "Read-only inbox conversation index; writable messages are a child surface."),
         .init(name: "comments", capabilityClass: .readOnly, humanRelativePath: "comments/comments.csv", humanFormat: .csv, objectRelativePath: nil, humanSanitized: false, supportsCreate: false, supportsUpdate: false, supportsDelete: false, humanToObjectToServer: false, objectToHumanToServer: false, serverToObjectToHuman: false, notes: "Read-only comments projection."),
-        .init(name: "events", capabilityClass: .partialWritable, humanRelativePath: "events.csv", humanFormat: .csv, objectRelativePath: ".events.objects.json", humanSanitized: true, supportsCreate: false, supportsUpdate: true, supportsDelete: false, humanToObjectToServer: true, objectToHumanToServer: true, serverToObjectToHuman: true, notes: "Event catalog with update-only semantics in the first pass."),
-        .init(name: "events-rsvps", capabilityClass: .readOnly, humanRelativePath: "events/rsvps.csv", humanFormat: .csv, objectRelativePath: nil, humanSanitized: true, supportsCreate: false, supportsUpdate: false, supportsDelete: false, humanToObjectToServer: false, objectToHumanToServer: false, serverToObjectToHuman: false, notes: "Read-only RSVP feed."),
-        .init(name: "events-tickets", capabilityClass: .readOnly, humanRelativePath: "events/tickets.csv", humanFormat: .csv, objectRelativePath: nil, humanSanitized: true, supportsCreate: false, supportsUpdate: false, supportsDelete: false, humanToObjectToServer: false, objectToHumanToServer: false, serverToObjectToHuman: false, notes: "Read-only ticket definition catalog."),
-        .init(name: "restaurant-menus", capabilityClass: .partialWritable, humanRelativePath: "restaurant/menus.csv", humanFormat: .csv, objectRelativePath: ".restaurant-menus.objects.json", humanSanitized: true, supportsCreate: true, supportsUpdate: true, supportsDelete: true, humanToObjectToServer: false, objectToHumanToServer: false, serverToObjectToHuman: false, notes: "Restaurant menus have pull/create/delete coverage; update remains site-dependent."),
-        .init(name: "restaurant-reservations", capabilityClass: .readOnly, humanRelativePath: "restaurant/reservations.csv", humanFormat: .csv, objectRelativePath: nil, humanSanitized: true, supportsCreate: false, supportsUpdate: false, supportsDelete: false, humanToObjectToServer: false, objectToHumanToServer: false, serverToObjectToHuman: false, notes: "Read-only reservation feed."),
-        .init(name: "restaurant-orders", capabilityClass: .readOnly, humanRelativePath: "restaurant/orders.csv", humanFormat: .csv, objectRelativePath: nil, humanSanitized: true, supportsCreate: false, supportsUpdate: false, supportsDelete: false, humanToObjectToServer: false, objectToHumanToServer: false, serverToObjectToHuman: false, notes: "Read-only restaurants order feed."),
+        .init(name: "events", capabilityClass: .partialWritable, humanRelativePath: "events/events.csv", humanFormat: .csv, objectRelativePath: "events/.events.objects.json", humanSanitized: true, supportsCreate: false, supportsUpdate: true, supportsDelete: false, humanToObjectToServer: true, objectToHumanToServer: true, serverToObjectToHuman: true, notes: "Event catalog with update-only semantics in the first pass."),
+        .init(name: "events-rsvps", capabilityClass: .readOnly, humanRelativePath: "events-rsvps/rsvps.csv", humanFormat: .csv, objectRelativePath: nil, humanSanitized: true, supportsCreate: false, supportsUpdate: false, supportsDelete: false, humanToObjectToServer: false, objectToHumanToServer: false, serverToObjectToHuman: false, notes: "Read-only RSVP feed."),
+        .init(name: "events-tickets", capabilityClass: .readOnly, humanRelativePath: "events-tickets/tickets.csv", humanFormat: .csv, objectRelativePath: nil, humanSanitized: true, supportsCreate: false, supportsUpdate: false, supportsDelete: false, humanToObjectToServer: false, objectToHumanToServer: false, serverToObjectToHuman: false, notes: "Read-only ticket definition catalog."),
+        .init(name: "restaurant-menus", capabilityClass: .partialWritable, humanRelativePath: "restaurant-menus/menus.csv", humanFormat: .csv, objectRelativePath: "restaurant-menus/.restaurant-menus.objects.json", humanSanitized: true, supportsCreate: true, supportsUpdate: true, supportsDelete: true, humanToObjectToServer: false, objectToHumanToServer: false, serverToObjectToHuman: false, notes: "Restaurant menus have pull/create/delete coverage; update remains site-dependent."),
+        .init(name: "restaurant-reservations", capabilityClass: .readOnly, humanRelativePath: "restaurant-reservations/reservations.csv", humanFormat: .csv, objectRelativePath: nil, humanSanitized: true, supportsCreate: false, supportsUpdate: false, supportsDelete: false, humanToObjectToServer: false, objectToHumanToServer: false, serverToObjectToHuman: false, notes: "Read-only reservation feed."),
+        .init(name: "restaurant-orders", capabilityClass: .readOnly, humanRelativePath: "restaurant-orders/orders.csv", humanFormat: .csv, objectRelativePath: nil, humanSanitized: true, supportsCreate: false, supportsUpdate: false, supportsDelete: false, humanToObjectToServer: false, objectToHumanToServer: false, serverToObjectToHuman: false, notes: "Read-only restaurants order feed."),
         .init(name: "bookings", capabilityClass: .partialWritable, humanRelativePath: "bookings/{name}.json", humanFormat: .json, objectRelativePath: "bookings/.objects/{name}.json", humanSanitized: true, supportsCreate: true, supportsUpdate: true, supportsDelete: false, humanToObjectToServer: true, objectToHumanToServer: true, serverToObjectToHuman: false, notes: "One-file-per-record JSON surface with narrower semantics than the CSV service surface."),
         .init(name: "collections", capabilityClass: .readOnly, humanRelativePath: "collections/collections.json", humanFormat: .json, objectRelativePath: "collections/.collections.objects.json", humanSanitized: true, supportsCreate: false, supportsUpdate: false, supportsDelete: false, humanToObjectToServer: false, objectToHumanToServer: false, serverToObjectToHuman: false, notes: "Catalog metadata surface; generic create/delete unsupported."),
-        .init(name: "portfolio-collections", capabilityClass: .fullCRUD, humanRelativePath: "portfolio/collections.csv", humanFormat: .csv, objectRelativePath: ".portfolio-collections.objects.json", humanSanitized: true, supportsCreate: true, supportsUpdate: true, supportsDelete: true, humanToObjectToServer: true, objectToHumanToServer: true, serverToObjectToHuman: true, notes: "CSV with full CRUD. Slug is server-assigned; omitted from push."),
-        .init(name: "portfolio-projects", capabilityClass: .fullCRUD, humanRelativePath: "portfolio/projects.csv", humanFormat: .csv, objectRelativePath: ".portfolio-projects.objects.json", humanSanitized: true, supportsCreate: true, supportsUpdate: true, supportsDelete: true, humanToObjectToServer: true, objectToHumanToServer: true, serverToObjectToHuman: true, notes: "CSV with full CRUD. Items are JSON files per-project via child resource."),
+        .init(name: "portfolio-collections", capabilityClass: .fullCRUD, humanRelativePath: "portfolio-collections/collections.csv", humanFormat: .csv, objectRelativePath: "portfolio-collections/.portfolio-collections.objects.json", humanSanitized: true, supportsCreate: true, supportsUpdate: true, supportsDelete: true, humanToObjectToServer: true, objectToHumanToServer: true, serverToObjectToHuman: true, notes: "CSV with full CRUD. Slug is server-assigned; omitted from push."),
+        .init(name: "portfolio-projects", capabilityClass: .fullCRUD, humanRelativePath: "portfolio-projects/projects.csv", humanFormat: .csv, objectRelativePath: "portfolio-projects/.portfolio-projects.objects.json", humanSanitized: true, supportsCreate: true, supportsUpdate: true, supportsDelete: true, humanToObjectToServer: true, objectToHumanToServer: true, serverToObjectToHuman: true, notes: "CSV with full CRUD. Items are JSON files per-project via child resource."),
     ]
 
     private static let wixChildSurfaceContracts: [WixResourceContract] = [
@@ -3036,10 +3036,10 @@ final class WixLiveE2ETests: XCTestCase {
         let result = try await engine.pull(resource: res)
 
         XCTAssertFalse(result.files.isEmpty, "orders pull returned no files")
-        XCTAssertEqual(result.files.first?.relativePath, "orders.csv")
+        XCTAssertEqual(result.files.first?.relativePath, "orders/orders.csv")
 
         try writeFilesToDisk(result.files)
-        let records = try readCSV("orders.csv")
+        let records = try readCSV("orders/orders.csv")
         guard let first = records.first else {
             throw XCTSkip("No Wix eCommerce orders available on this site")
         }
@@ -3064,10 +3064,10 @@ final class WixLiveE2ETests: XCTestCase {
         }
 
         XCTAssertFalse(result.files.isEmpty, "forms pull returned no files")
-        XCTAssertEqual(result.files.first?.relativePath, "forms.csv")
+        XCTAssertEqual(result.files.first?.relativePath, "forms/forms.csv")
 
         try writeFilesToDisk(result.files)
-        let records = try readCSV("forms.csv")
+        let records = try readCSV("forms/forms.csv")
         guard let first = records.first else {
             throw XCTSkip("No Wix forms available on this site")
         }
@@ -3120,10 +3120,10 @@ final class WixLiveE2ETests: XCTestCase {
         let result = try await engine.pull(resource: res)
 
         XCTAssertFalse(result.files.isEmpty, "members pull returned no files")
-        XCTAssertEqual(result.files.first?.relativePath, "members.csv")
+        XCTAssertEqual(result.files.first?.relativePath, "members/members.csv")
 
         try writeFilesToDisk(result.files)
-        let records = try readCSV("members.csv")
+        let records = try readCSV("members/members.csv")
         guard let first = records.first else {
             throw XCTSkip("No Wix members available on this site")
         }
@@ -3145,10 +3145,10 @@ final class WixLiveE2ETests: XCTestCase {
         let result = try await engine.pull(resource: res)
 
         XCTAssertFalse(result.files.isEmpty, "site-properties pull returned no files")
-        XCTAssertEqual(result.files.first?.relativePath, "site-properties.json")
+        XCTAssertEqual(result.files.first?.relativePath, "site-properties/site-properties.json")
 
         try writeFilesToDisk(result.files)
-        let json = try readJSON("site-properties.json")
+        let json = try readJSON("site-properties/site-properties.json")
         if let records = json as? [[String: Any]] {
             guard let first = records.first else {
                 throw XCTSkip("Site properties JSON file is empty")
@@ -3335,7 +3335,7 @@ final class WixLiveE2ETests: XCTestCase {
     func testCoupons_Pull_WritesExpectedFileWhenInstalled() async throws {
         try await assertCollectionPull(
             resourceName: "coupons",
-            relativePath: "coupons.csv",
+            relativePath: "coupons/coupons.csv",
             expectedColumns: ["id", "name", "code"],
             allowEmptyFile: true,
             allowSiteUnavailable: true
@@ -3345,7 +3345,7 @@ final class WixLiveE2ETests: XCTestCase {
     func testPricingPlans_Pull_WritesExpectedFileWhenInstalled() async throws {
         try await assertCollectionPull(
             resourceName: "pricing-plans",
-            relativePath: "pricing-plans.csv",
+            relativePath: "pricing-plans/pricing-plans.csv",
             expectedColumns: ["id", "name"],
             allowEmptyFile: true,
             allowSiteUnavailable: true
@@ -3355,7 +3355,7 @@ final class WixLiveE2ETests: XCTestCase {
     func testGiftCards_Pull_WritesExpectedFileWhenInstalled() async throws {
         try await assertCollectionPull(
             resourceName: "gift-cards",
-            relativePath: "gift-cards.csv",
+            relativePath: "gift-cards/gift-cards.csv",
             expectedColumns: ["id", "balanceAmount", "initialValueAmount"],
             allowEmptyFile: true,
             allowSiteUnavailable: true
@@ -3437,7 +3437,7 @@ final class WixLiveE2ETests: XCTestCase {
             await harness.syncEngine.triggerSync(serviceId: "wix")
             try await self.waitForSyncIdle(harness.syncEngine)
 
-            let humanRelativePath = "members.csv"
+            let humanRelativePath = "members/members.csv"
             let humanURL = harness.serviceDir.appendingPathComponent(humanRelativePath)
             let objectRelativePath = ObjectFileManager.objectFilePath(forCollectionFile: humanRelativePath)
             let objectURL = harness.serviceDir.appendingPathComponent(objectRelativePath)
@@ -3573,7 +3573,7 @@ final class WixLiveE2ETests: XCTestCase {
             await harness.syncEngine.triggerSync(serviceId: "wix")
             try await self.waitForSyncIdle(harness.syncEngine)
 
-            let humanRelativePath = "forms.csv"
+            let humanRelativePath = "forms/forms.csv"
             let humanURL = harness.serviceDir.appendingPathComponent(humanRelativePath)
             let objectRelativePath = ObjectFileManager.objectFilePath(forCollectionFile: humanRelativePath)
             let objectURL = harness.serviceDir.appendingPathComponent(objectRelativePath)
@@ -3681,7 +3681,7 @@ final class WixLiveE2ETests: XCTestCase {
         let pullResult = try await engine.pull(resource: res)
         try writeFilesToDisk(pullResult.files)
 
-        let rows = try readCSV("orders.csv")
+        let rows = try readCSV("orders/orders.csv")
         guard var row = rows.first, let orderId = recordId(from: row) else {
             throw XCTSkip("No Wix eCommerce orders available on this site")
         }
@@ -3759,7 +3759,7 @@ final class WixLiveE2ETests: XCTestCase {
             await harness.syncEngine.triggerSync(serviceId: "wix")
             try await self.waitForSyncIdle(harness.syncEngine)
 
-            let humanRelativePath = "orders.csv"
+            let humanRelativePath = "orders/orders.csv"
             let humanURL = harness.serviceDir.appendingPathComponent(humanRelativePath)
             let objectRelativePath = ObjectFileManager.objectFilePath(forCollectionFile: humanRelativePath)
             let objectURL = harness.serviceDir.appendingPathComponent(objectRelativePath)
@@ -4718,11 +4718,11 @@ final class WixLiveE2ETests: XCTestCase {
     func testEvents_Pull_ReturnsCSVWithExpectedFields() async throws {
         try await assertCollectionPull(
             resourceName: "events",
-            relativePath: "events.csv",
+            relativePath: "events/events.csv",
             expectedColumns: ["id", "title", "startDate", "endDate", "status", "shortDescription"]
         )
 
-        let rows = try readCSV("events.csv")
+        let rows = try readCSV("events/events.csv")
         if let first = rows.first {
             let columns = Set(first.keys)
             XCTAssertFalse(columns.contains("_url"), "events.csv should not expose _url")
@@ -4749,7 +4749,7 @@ final class WixLiveE2ETests: XCTestCase {
 
         let pullResult = try await engine.pull(resource: res)
         try writeFilesToDisk(pullResult.files)
-        let records = try readCSV("events.csv")
+        let records = try readCSV("events/events.csv")
         let found = records.first(where: { ($0["id"] as? String) == eventId })
         XCTAssertEqual(found?["title"] as? String, updatedTitle)
 
@@ -4765,7 +4765,7 @@ final class WixLiveE2ETests: XCTestCase {
     func testEventsRSVPs_Pull_WritesExpectedFile() async throws {
         try await assertCollectionPull(
             resourceName: "events-rsvps",
-            relativePath: "events/rsvps.csv",
+            relativePath: "events-rsvps/rsvps.csv",
             expectedColumns: ["id", "eventId", "status", "email"],
             allowEmptyFile: true
         )
@@ -4774,7 +4774,7 @@ final class WixLiveE2ETests: XCTestCase {
     func testEventsTickets_Pull_WritesExpectedFile() async throws {
         try await assertCollectionPull(
             resourceName: "events-tickets",
-            relativePath: "events/tickets.csv",
+            relativePath: "events-tickets/tickets.csv",
             expectedColumns: ["id", "title", "price", "currency"],
             allowEmptyFile: true
         )
@@ -5225,13 +5225,13 @@ final class WixLiveE2ETests: XCTestCase {
     func testRestaurantMenus_Pull_WritesExpectedFileWhenInstalled() async throws {
         try await assertCollectionPull(
             resourceName: "restaurant-menus",
-            relativePath: "restaurant/menus.csv",
+            relativePath: "restaurant-menus/menus.csv",
             expectedColumns: ["id", "name", "description", "visible"],
             allowEmptyFile: true,
             allowSiteUnavailable: true
         )
 
-        let rows = try readCSV("restaurant/menus.csv")
+        let rows = try readCSV("restaurant-menus/menus.csv")
         if let first = rows.first {
             let columns = Set(first.keys)
             XCTAssertFalse(columns.contains("revision"), "restaurant/menus.csv should not expose revision")
@@ -5247,7 +5247,7 @@ final class WixLiveE2ETests: XCTestCase {
 
         let pullResult = try await engine.pull(resource: res)
         try writeFilesToDisk(pullResult.files)
-        let records = try readCSV("restaurant/menus.csv")
+        let records = try readCSV("restaurant-menus/menus.csv")
         let found = records.first(where: { ($0["id"] as? String) == created.id })
         XCTAssertNotNil(found, "Created menu should appear in local pull")
         XCTAssertEqual(found?["name"] as? String, name)
@@ -5272,7 +5272,7 @@ final class WixLiveE2ETests: XCTestCase {
     func testRestaurantReservations_Pull_WritesExpectedFileWhenInstalled() async throws {
         try await assertCollectionPull(
             resourceName: "restaurant-reservations",
-            relativePath: "restaurant/reservations.csv",
+            relativePath: "restaurant-reservations/reservations.csv",
             expectedColumns: ["id", "partySize", "reservationDate"],
             allowEmptyFile: true,
             allowSiteUnavailable: true
@@ -5282,7 +5282,7 @@ final class WixLiveE2ETests: XCTestCase {
     func testRestaurantOrders_Pull_WritesExpectedFileWhenInstalled() async throws {
         try await assertCollectionPull(
             resourceName: "restaurant-orders",
-            relativePath: "restaurant/orders.csv",
+            relativePath: "restaurant-orders/orders.csv",
             expectedColumns: ["id", "status", "createdDate"],
             allowEmptyFile: true,
             allowSiteUnavailable: true
