@@ -163,7 +163,7 @@ final class WixLiveE2ETests: XCTestCase {
         .init(name: "wix-music-podcasts", capabilityClass: .readOnly, humanRelativePath: "wix-music-podcasts/*", humanFormat: .raw, objectRelativePath: nil, humanSanitized: true, supportsCreate: false, supportsUpdate: false, supportsDelete: false, humanToObjectToServer: false, objectToHumanToServer: false, serverToObjectToHuman: false, notes: "Binary upload/pull/delete only."),
         .init(name: "bookings-services", capabilityClass: .partialWritable, humanRelativePath: "bookings-services/services.csv", humanFormat: .csv, objectRelativePath: "bookings-services/.services.objects.json", humanSanitized: true, supportsCreate: true, supportsUpdate: true, supportsDelete: true, humanToObjectToServer: true, objectToHumanToServer: false, serverToObjectToHuman: true, notes: "CSV with CRUD from the human surface; object-file propagation still needs hardening."),
         .init(name: "bookings-appointments", capabilityClass: .readOnly, humanRelativePath: "bookings-appointments/appointments.csv", humanFormat: .csv, objectRelativePath: nil, humanSanitized: true, supportsCreate: false, supportsUpdate: false, supportsDelete: false, humanToObjectToServer: false, objectToHumanToServer: false, serverToObjectToHuman: false, notes: "Read-only appointments feed."),
-        .init(name: "groups", capabilityClass: .partialWritable, humanRelativePath: "groups.csv", humanFormat: .csv, objectRelativePath: ".groups.objects.json", humanSanitized: true, supportsCreate: true, supportsUpdate: true, supportsDelete: true, humanToObjectToServer: true, objectToHumanToServer: false, serverToObjectToHuman: true, notes: "CSV with CRUD from the human surface; object-file propagation still needs hardening."),
+        .init(name: "groups", capabilityClass: .partialWritable, humanRelativePath: "groups/groups.csv", humanFormat: .csv, objectRelativePath: "groups/.groups.objects.json", humanSanitized: true, supportsCreate: true, supportsUpdate: true, supportsDelete: true, humanToObjectToServer: true, objectToHumanToServer: false, serverToObjectToHuman: true, notes: "CSV with CRUD from the human surface; object-file propagation still needs hardening."),
         .init(name: "inbox-conversations", capabilityClass: .readOnly, humanRelativePath: "inbox-conversations/conversations.csv", humanFormat: .csv, objectRelativePath: ".inbox-conversations.objects.json", humanSanitized: true, supportsCreate: false, supportsUpdate: false, supportsDelete: false, humanToObjectToServer: false, objectToHumanToServer: false, serverToObjectToHuman: false, notes: "Read-only inbox conversation index; writable messages are a child surface."),
         .init(name: "comments", capabilityClass: .readOnly, humanRelativePath: "comments/comments.csv", humanFormat: .csv, objectRelativePath: nil, humanSanitized: false, supportsCreate: false, supportsUpdate: false, supportsDelete: false, humanToObjectToServer: false, objectToHumanToServer: false, serverToObjectToHuman: false, notes: "Read-only comments projection."),
         .init(name: "events", capabilityClass: .partialWritable, humanRelativePath: "events.csv", humanFormat: .csv, objectRelativePath: ".events.objects.json", humanSanitized: true, supportsCreate: false, supportsUpdate: true, supportsDelete: false, humanToObjectToServer: true, objectToHumanToServer: true, serverToObjectToHuman: true, notes: "Event catalog with update-only semantics in the first pass."),
@@ -2436,7 +2436,7 @@ final class WixLiveE2ETests: XCTestCase {
     func testGroups_Pull_ReturnsCSVWithExpectedFields() async throws {
         try await assertCollectionPull(
             resourceName: "groups",
-            relativePath: "groups.csv",
+            relativePath: "groups/groups.csv",
             expectedColumns: ["id", "name", "description", "privacyStatus"]
         )
     }
@@ -2515,14 +2515,14 @@ final class WixLiveE2ETests: XCTestCase {
             await harness.syncEngine.triggerSync(serviceId: "wix")
             try await self.waitForSyncIdle(harness.syncEngine)
 
-            let humanRelativePath = "groups.csv"
+            let humanRelativePath = "groups/groups.csv"
             let humanURL = harness.serviceDir.appendingPathComponent(humanRelativePath)
             let objectRelativePath = ObjectFileManager.objectFilePath(forCollectionFile: humanRelativePath)
             let objectURL = harness.serviceDir.appendingPathComponent(objectRelativePath)
 
             try await self.waitForCollectionFile(humanURL)
             try await self.waitForCollectionFile(objectURL)
-            try await self.waitUntil("group row pulled into groups.csv") {
+            try await self.waitUntil("group row pulled into groups/groups.csv") {
                 let rows = try self.readCSV(at: humanURL)
                 return rows.contains { self.recordId(from: $0) == id }
             }
@@ -5473,12 +5473,12 @@ final class WixLiveE2ETests: XCTestCase {
         let pullResult = try await engine.pull(resource: groupsRes)
 
         // Pull parent groups to get canonical slugs
-        let groupFiles = pullResult.files.filter { $0.relativePath == "groups.csv" }
-        XCTAssertFalse(groupFiles.isEmpty, "groups.csv missing from pull result")
+        let groupFiles = pullResult.files.filter { $0.relativePath == "groups/groups.csv" }
+        XCTAssertFalse(groupFiles.isEmpty, "groups/groups.csv missing from pull result")
 
         try writeFilesToDisk(pullResult.files)
 
-        let groupRecords = try readCSV("groups.csv")
+        let groupRecords = try readCSV("groups/groups.csv")
         let memberFiles = pullResult.files.filter { $0.relativePath.hasSuffix("/members.csv") }
         XCTAssertFalse(memberFiles.isEmpty, "Expected members.csv children from group pull")
 
