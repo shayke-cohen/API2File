@@ -22,6 +22,7 @@ public actor SyncEngine {
 
     private let config: GlobalConfig
     private let syncFolder: URL
+    private let managedWorkspaceFolder: URL
     private let coordinator: SyncCoordinator
     private let networkMonitor: NetworkMonitor
     private let fileWatcher: FileWatcher
@@ -40,6 +41,7 @@ public actor SyncEngine {
     private var recentlyPushed: [String: Date] = [:]
     private var historyLogs: [String: SyncHistoryLog] = [:]
     private let notificationManager: NotificationManager
+    private let managedWorkspaceManager: ManagedWorkspaceManager
 
     /// Gates all remote deletions. If nil, deletions proceed immediately (existing behaviour).
     /// AppState sets this at startup to show a confirmation dialog.
@@ -49,11 +51,16 @@ public actor SyncEngine {
         self.platformServices = platformServices
         self.config = config
         self.syncFolder = config.resolvedSyncFolder(using: platformServices.storageLocations)
+        self.managedWorkspaceFolder = config.resolvedManagedWorkspaceFolder(using: platformServices.storageLocations)
         self.coordinator = SyncCoordinator()
         self.networkMonitor = NetworkMonitor()
         self.fileWatcher = platformServices.fileWatcher
         self.configWatcher = platformServices.configWatcher
         self.notificationManager = platformServices.notificationManager
+        self.managedWorkspaceManager = ManagedWorkspaceManager(
+            storageLocations: platformServices.storageLocations,
+            config: config
+        )
     }
 
     // MARK: - Lifecycle
@@ -104,6 +111,7 @@ public actor SyncEngine {
         // (files whose on-disk hash differs from lastSyncedHash but had no FSEvent since startup)
         for serviceId in serviceIds {
             guard let engine = adapterEngines[serviceId] else { continue }
+            if isManagedWorkspaceService(serviceId: serviceId) { continue }
             let serviceDir = syncFolder.appendingPathComponent(serviceId)
             let state = syncStates[serviceId] ?? SyncState()
             for (filePath, fileState) in state.files {
@@ -127,7 +135,7 @@ public actor SyncEngine {
         }
 
         // NOW start file watcher (after initial pulls are done)
-        let watchDirs = serviceIds.map { syncFolder.appendingPathComponent($0).path }
+        let watchDirs = serviceIds.map { surfaceRootURL(for: $0).path }
         fileWatcher.start(directories: watchDirs) { [weak self] changes in
             guard let self else { return }
             Task { await self.handleFileChanges(changes) }
@@ -197,6 +205,9 @@ public actor SyncEngine {
             await ActivityLogger.shared.info(.system, "Skipping disabled service: \(serviceId)")
             let stateURL = serviceDir.appendingPathComponent(".api2file/state.json")
             let state = (try? SyncState.load(from: stateURL)) ?? SyncState()
+            if config.storageMode == .managedWorkspace {
+                try? await managedWorkspaceManager.ensureServiceRoot(serviceId: serviceId)
+            }
             serviceInfos[serviceId] = ServiceInfo(
                 serviceId: serviceId,
                 displayName: ServiceIdentity.runtimeDisplayName(for: config, serviceID: serviceId),
@@ -344,6 +355,27 @@ public actor SyncEngine {
             status: .connected,
             fileCount: state.files.count
         )
+        if config.storageMode == .managedWorkspace {
+            try? await managedWorkspaceManager.ensureServiceRoot(serviceId: serviceId)
+            try? await managedWorkspaceManager.synchronizeVisibleFiles(serviceId: serviceId, acceptedRoot: serviceDir)
+        }
+    }
+
+    private func storageMode(for serviceId: String) -> ServiceStorageMode {
+        serviceInfos[serviceId]?.config.storageMode ?? adapterEngines[serviceId]?.config.storageMode ?? .plainSync
+    }
+
+    private func isManagedWorkspaceService(serviceId: String) -> Bool {
+        storageMode(for: serviceId) == .managedWorkspace
+    }
+
+    private func surfaceRootURL(for serviceId: String) -> URL {
+        switch storageMode(for: serviceId) {
+        case .plainSync:
+            return syncFolder.appendingPathComponent(serviceId, isDirectory: true)
+        case .managedWorkspace:
+            return managedWorkspaceFolder.appendingPathComponent(serviceId, isDirectory: true)
+        }
     }
 
     // MARK: - Config Reload
@@ -575,6 +607,9 @@ public actor SyncEngine {
             syncStates[serviceId] = localState
             synchronizeFileLinks(serviceDir: serviceDir, config: engine.config, state: localState)
             refreshSQLiteMirrorIfPossible(serviceId: serviceId, serviceDir: serviceDir, config: engine.config, state: localState)
+            if isManagedWorkspaceService(serviceId: serviceId) {
+                try? await managedWorkspaceManager.synchronizeVisibleFiles(serviceId: serviceId, acceptedRoot: serviceDir)
+            }
 
             if config.gitAutoCommit, let git = gitManagers[serviceId] {
                 if try await git.hasChanges() {
@@ -997,6 +1032,9 @@ public actor SyncEngine {
                 config: engine.config,
                 state: syncStates[serviceId] ?? SyncState()
             )
+            if isManagedWorkspaceService(serviceId: serviceId) {
+                try? await managedWorkspaceManager.synchronizeVisibleFiles(serviceId: serviceId, acceptedRoot: serviceDir)
+            }
 
             // Git commit
             if config.gitAutoCommit, let git = gitManagers[serviceId] {
@@ -1049,10 +1087,20 @@ public actor SyncEngine {
 
     private func handleFileChanges(_ changes: [FileWatcher.FileChange]) {
         for change in changes {
-            // Extract service ID and relative path from the full path
             let path = change.path
-            guard let relativeParts = extractServiceAndPath(from: path) else { continue }
-            let (serviceId, filePath) = relativeParts
+            if let (serviceId, filePath) = extractServiceAndPath(from: path, root: managedWorkspaceFolder) {
+                guard isManagedWorkspaceService(serviceId: serviceId) else { continue }
+                Task {
+                    await self.handleManagedWorkspaceFileChange(
+                        serviceId: serviceId,
+                        filePath: filePath,
+                        flags: change.flags
+                    )
+                }
+                continue
+            }
+
+            guard let (serviceId, filePath) = extractServiceAndPath(from: path, root: syncFolder) else { continue }
             let serviceIsPulling = isPulling[serviceId] == true
 
             // Skip internal, temp, and hidden files
@@ -1090,6 +1138,22 @@ public actor SyncEngine {
                 }
             }
         }
+    }
+
+    private func handleManagedWorkspaceFileChange(
+        serviceId: String,
+        filePath: String,
+        flags: FileWatcher.ChangeFlags
+    ) async {
+        guard !isSuppressed(filePath) else { return }
+        guard !filePath.hasPrefix(".api2file/"), !filePath.hasPrefix(".git/") else { return }
+        guard !filePath.hasPrefix(".") else { return }
+        guard !filePath.contains("/.") else { return }
+        _ = try? await self.submitManagedWorkspaceChange(
+            serviceId: serviceId,
+            filePath: filePath,
+            removed: flags.contains(.removed)
+        )
     }
 
     /// Suppress self-generated watcher events just long enough to absorb duplicate
@@ -1232,11 +1296,11 @@ public actor SyncEngine {
         return enriched
     }
 
-    private func extractServiceAndPath(from fullPath: String) -> (serviceId: String, filePath: String)? {
+    private func extractServiceAndPath(from fullPath: String, root: URL) -> (serviceId: String, filePath: String)? {
         // FSEvents on macOS reports canonical paths (e.g. /private/var/..., /private/tmp/...)
         // while FileManager may return symlinked paths (e.g. /var/..., /tmp/...).
         // Try the stored path first, then the canonical variant with /private prefix.
-        let syncPath = syncFolder.path
+        let syncPath = root.path
         let candidates = [
             syncPath,
             "/private" + syncPath,  // /var -> /private/var, /tmp -> /private/tmp
@@ -2944,6 +3008,23 @@ public actor SyncEngine {
         syncFolder
     }
 
+    public func getManagedWorkspaceRootURL() -> URL {
+        managedWorkspaceFolder
+    }
+
+    public func getServiceSurfaceRootURL(serviceId: String) -> URL {
+        surfaceRootURL(for: serviceId)
+    }
+
+    public func getManagedRuntimeHealth(serviceId: String) async -> ManagedRuntimeHealth? {
+        guard isManagedWorkspaceService(serviceId: serviceId) else { return nil }
+        return await managedWorkspaceManager.health(for: serviceId)
+    }
+
+    public func getManagedRejectedProposals(serviceId: String, limit: Int = 50) async -> [RejectedManagedProposal] {
+        (try? await managedWorkspaceManager.loadRejectedProposals(serviceId: serviceId, limit: limit)) ?? []
+    }
+
     public func triggerSync(serviceId: String) async {
         await coordinator.syncNow(serviceId: serviceId)
     }
@@ -3145,6 +3226,157 @@ public actor SyncEngine {
         await coordinator.startService(serviceId: serviceId)
         try? await performPull(serviceId: serviceId)
         try? generateGuides()
+    }
+
+    @discardableResult
+    public func submitManagedWorkspaceChange(
+        serviceId: String,
+        filePath: String,
+        removed: Bool = false,
+        sourceApplication: String? = nil
+    ) async throws -> ManagedWriteResult {
+        guard isManagedWorkspaceService(serviceId: serviceId) else {
+            return ManagedWriteResult(
+                kind: .rejectedValidation,
+                filePath: filePath,
+                message: "Service is not using managed workspace mode."
+            )
+        }
+        guard let engine = adapterEngines[serviceId] else {
+            return ManagedWriteResult(
+                kind: .rejectedValidation,
+                filePath: filePath,
+                message: "Service is not registered."
+            )
+        }
+
+        let serviceDir = syncFolder.appendingPathComponent(serviceId, isDirectory: true)
+        let workspaceDir = managedWorkspaceFolder.appendingPathComponent(serviceId, isDirectory: true)
+        let acceptedURL = serviceDir.appendingPathComponent(filePath)
+        let workspaceURL = workspaceDir.appendingPathComponent(filePath)
+        let acceptedData = try? Data(contentsOf: acceptedURL)
+        let serviceName = serviceInfos[serviceId]?.displayName ?? serviceId
+        let resource = findResource(for: filePath, in: engine.config)
+        let isSupportFile = filePath == "CLAUDE.md" || filePath == "SKILL.md"
+
+        do {
+            if removed {
+                guard let resource else {
+                    throw NSError(domain: "API2FileCore", code: 400, userInfo: [
+                        NSLocalizedDescriptionKey: "Managed deletes are only supported for synced resource files."
+                    ])
+                }
+                if resource.fileMapping.effectivePushMode == .readOnly || resource.push == nil {
+                    throw NSError(domain: "API2FileCore", code: 403, userInfo: [
+                        NSLocalizedDescriptionKey: "This managed file is read-only."
+                    ])
+                }
+                suppressPath(filePath)
+                try? FileManager.default.removeItem(at: acceptedURL)
+                try await performPush(serviceId: serviceId, filePath: filePath)
+                try? await managedWorkspaceManager.synchronizeVisibleFiles(serviceId: serviceId, acceptedRoot: serviceDir)
+                return ManagedWriteResult(kind: .accepted, filePath: filePath, message: "Managed deletion accepted.")
+            }
+
+            let proposedData = try Data(contentsOf: workspaceURL)
+            if let resource {
+                if syncStates[serviceId]?.files[filePath]?.isCompanion == true {
+                    throw NSError(domain: "API2FileCore", code: 403, userInfo: [
+                        NSLocalizedDescriptionKey: "Companion files are generated and cannot be edited."
+                    ])
+                }
+                if resource.fileMapping.effectivePushMode == .readOnly {
+                    throw NSError(domain: "API2FileCore", code: 403, userInfo: [
+                        NSLocalizedDescriptionKey: "This managed file is read-only."
+                    ])
+                }
+
+                switch resource.effectiveManagedCommitPolicy {
+                case .localFirst, .validateThenCommit:
+                    try validateManagedProposal(data: proposedData, resource: resource)
+                    try FileManager.default.createDirectory(at: acceptedURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+                    suppressPath(filePath)
+                    try proposedData.write(to: acceptedURL, options: .atomic)
+                    if syncStates[serviceId]?.files[filePath] != nil {
+                        syncStates[serviceId]?.files[filePath]?.lastSyncedHash = proposedData.sha256Hex
+                        syncStates[serviceId]?.files[filePath]?.lastSyncTime = Date()
+                        syncStates[serviceId]?.files[filePath]?.status = .synced
+                    }
+                    let stateURL = serviceDir.appendingPathComponent(".api2file/state.json")
+                    try syncStates[serviceId]?.save(to: stateURL)
+                    synchronizeFileLinks(serviceDir: serviceDir, config: engine.config, state: syncStates[serviceId] ?? SyncState())
+                    refreshSQLiteMirrorIfPossible(
+                        serviceId: serviceId,
+                        serviceDir: serviceDir,
+                        config: engine.config,
+                        state: syncStates[serviceId] ?? SyncState()
+                    )
+                case .pushThenCommit:
+                    guard resource.push != nil else {
+                        throw NSError(domain: "API2FileCore", code: 400, userInfo: [
+                            NSLocalizedDescriptionKey: "This managed file has no remote push configuration."
+                        ])
+                    }
+                    try validateManagedProposal(data: proposedData, resource: resource)
+                    try FileManager.default.createDirectory(at: acceptedURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+                    suppressPath(filePath)
+                    try proposedData.write(to: acceptedURL, options: .atomic)
+                    try await performPush(serviceId: serviceId, filePath: filePath)
+                }
+            } else if isSupportFile {
+                try FileManager.default.createDirectory(at: acceptedURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+                suppressPath(filePath)
+                try proposedData.write(to: acceptedURL, options: .atomic)
+            } else {
+                throw NSError(domain: "API2FileCore", code: 404, userInfo: [
+                    NSLocalizedDescriptionKey: "Managed workspace currently accepts edits only for known resource files and generated guides."
+                ])
+            }
+
+            try? await managedWorkspaceManager.synchronizeVisibleFiles(serviceId: serviceId, acceptedRoot: serviceDir)
+            return ManagedWriteResult(kind: .accepted, filePath: filePath, message: "Managed write accepted.")
+        } catch {
+            if let acceptedData {
+                try? FileManager.default.createDirectory(at: acceptedURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+                suppressPath(filePath)
+                try? acceptedData.write(to: acceptedURL, options: .atomic)
+            }
+            try? await managedWorkspaceManager.restoreAcceptedFile(serviceId: serviceId, filePath: filePath, acceptedRoot: serviceDir)
+
+            let proposal = RejectedManagedProposal(
+                serviceId: serviceId,
+                filePath: filePath,
+                contentHash: (try? Data(contentsOf: workspaceURL))?.sha256Hex,
+                errorMessage: error.localizedDescription,
+                sourceApplication: sourceApplication
+            )
+            try? await managedWorkspaceManager.recordRejectedProposal(proposal)
+
+            let entry = SyncHistoryEntry(
+                serviceId: serviceId,
+                serviceName: serviceName,
+                direction: .push,
+                status: .error,
+                duration: 0,
+                files: [FileChange(path: filePath, action: .error, errorMessage: error.localizedDescription)],
+                summary: "managed write rejected: \(error.localizedDescription)"
+            )
+            logHistory(entry, serviceId: serviceId, serviceDir: serviceDir)
+
+            return ManagedWriteResult(
+                kind: resource?.effectiveManagedCommitPolicy == .pushThenCommit ? .rejectedRemote : .rejectedValidation,
+                filePath: filePath,
+                message: error.localizedDescription
+            )
+        }
+    }
+
+    private func validateManagedProposal(data: Data, resource: ResourceConfig) throws {
+        _ = try FormatConverterFactory.decode(
+            data: data,
+            format: resource.fileMapping.format,
+            options: resource.fileMapping.effectiveFormatOptions
+        )
     }
 
     /// Explicitly notify the engine that a synced file changed.

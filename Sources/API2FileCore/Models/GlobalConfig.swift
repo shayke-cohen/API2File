@@ -3,6 +3,7 @@ import Foundation
 /// Global API2File configuration — stored in ~/API2File/.api2file.json
 public struct GlobalConfig: Codable, Sendable {
     public var syncFolder: String
+    public var managedWorkspaceFolder: String
     public var gitAutoCommit: Bool
     public var commitMessageFormat: String
     public var defaultSyncInterval: Int
@@ -16,6 +17,7 @@ public struct GlobalConfig: Codable, Sendable {
 
     public init(
         syncFolder: String = "~/API2File-Data",
+        managedWorkspaceFolder: String = "~/API2File-Workspace",
         gitAutoCommit: Bool = true,
         commitMessageFormat: String = "sync: {service} — {summary}",
         defaultSyncInterval: Int = 60,
@@ -28,6 +30,7 @@ public struct GlobalConfig: Codable, Sendable {
         generateCompanionFiles: Bool = false
     ) {
         self.syncFolder = syncFolder
+        self.managedWorkspaceFolder = managedWorkspaceFolder
         self.gitAutoCommit = gitAutoCommit
         self.commitMessageFormat = commitMessageFormat
         self.defaultSyncInterval = defaultSyncInterval
@@ -42,6 +45,7 @@ public struct GlobalConfig: Codable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case syncFolder
+        case managedWorkspaceFolder
         case gitAutoCommit
         case commitMessageFormat
         case defaultSyncInterval
@@ -57,6 +61,7 @@ public struct GlobalConfig: Codable, Sendable {
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         syncFolder = try container.decodeIfPresent(String.self, forKey: .syncFolder) ?? "~/API2File-Data"
+        managedWorkspaceFolder = try container.decodeIfPresent(String.self, forKey: .managedWorkspaceFolder) ?? "~/API2File-Workspace"
         gitAutoCommit = try container.decodeIfPresent(Bool.self, forKey: .gitAutoCommit) ?? true
         commitMessageFormat = try container.decodeIfPresent(String.self, forKey: .commitMessageFormat) ?? "sync: {service} — {summary}"
         defaultSyncInterval = try container.decodeIfPresent(Int.self, forKey: .defaultSyncInterval) ?? 60
@@ -78,6 +83,29 @@ public struct GlobalConfig: Codable, Sendable {
         let homePath = locations.homeDirectory.path
         let path = syncFolder.replacingOccurrences(of: "~", with: homePath)
         return URL(fileURLWithPath: path)
+    }
+
+    public var resolvedManagedWorkspaceFolder: URL {
+        resolvedManagedWorkspaceFolder(using: .current)
+    }
+
+    public func resolvedManagedWorkspaceFolder(using locations: StorageLocations) -> URL {
+        let homePath = locations.homeDirectory.path
+        let path = managedWorkspaceFolder.replacingOccurrences(of: "~", with: homePath)
+        return URL(fileURLWithPath: path)
+    }
+
+    public func resolvedServiceRoot(
+        serviceId: String,
+        storageMode: ServiceStorageMode,
+        using locations: StorageLocations
+    ) -> URL {
+        switch storageMode {
+        case .plainSync:
+            return resolvedSyncFolder(using: locations).appendingPathComponent(serviceId, isDirectory: true)
+        case .managedWorkspace:
+            return resolvedManagedWorkspaceFolder(using: locations).appendingPathComponent(serviceId, isDirectory: true)
+        }
     }
 
     // MARK: - Persistence

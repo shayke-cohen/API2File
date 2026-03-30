@@ -7,17 +7,21 @@ import Darwin
 public struct StorageLocations: Sendable {
     public let homeDirectory: URL
     public let syncRootDirectory: URL
+    public let managedWorkspaceDirectory: URL
     public let adaptersDirectory: URL
     public let applicationSupportDirectory: URL
 
     public init(
         homeDirectory: URL,
         syncRootDirectory: URL,
+        managedWorkspaceDirectory: URL? = nil,
         adaptersDirectory: URL,
         applicationSupportDirectory: URL
     ) {
         self.homeDirectory = homeDirectory
         self.syncRootDirectory = syncRootDirectory
+        self.managedWorkspaceDirectory = managedWorkspaceDirectory
+            ?? homeDirectory.appendingPathComponent("API2File-Workspace", isDirectory: true)
         self.adaptersDirectory = adaptersDirectory
         self.applicationSupportDirectory = applicationSupportDirectory
     }
@@ -30,17 +34,20 @@ public struct StorageLocations: Sendable {
         let documents = fm.urls(for: .documentDirectory, in: .userDomainMask).first ?? home
         let appSupport = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first ?? home
         let syncRoot = documents.appendingPathComponent("API2File-Data", isDirectory: true)
+        let workspaceRoot = documents.appendingPathComponent("API2File-Workspace", isDirectory: true)
         let adapters = appSupport
             .appendingPathComponent("API2File", isDirectory: true)
             .appendingPathComponent("Adapters", isDirectory: true)
         return StorageLocations(
             homeDirectory: home,
             syncRootDirectory: syncRoot,
+            managedWorkspaceDirectory: workspaceRoot,
             adaptersDirectory: adapters,
             applicationSupportDirectory: appSupport
         )
         #else
         let syncRoot = home.appendingPathComponent("API2File-Data", isDirectory: true)
+        let workspaceRoot = home.appendingPathComponent("API2File-Workspace", isDirectory: true)
         let adapters = home
             .appendingPathComponent(".api2file", isDirectory: true)
             .appendingPathComponent("adapters", isDirectory: true)
@@ -48,6 +55,7 @@ public struct StorageLocations: Sendable {
         return StorageLocations(
             homeDirectory: home,
             syncRootDirectory: syncRoot,
+            managedWorkspaceDirectory: workspaceRoot,
             adaptersDirectory: adapters,
             applicationSupportDirectory: appSupport
         )

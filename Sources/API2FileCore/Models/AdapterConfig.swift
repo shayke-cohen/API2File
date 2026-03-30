@@ -5,6 +5,7 @@ public struct AdapterConfig: Codable, Sendable {
     public let service: String
     public let displayName: String
     public let version: String
+    public let storageMode: ServiceStorageMode?
     public let auth: AuthConfig
     public let globals: GlobalsConfig?
     public let resources: [ResourceConfig]
@@ -23,10 +24,11 @@ public struct AdapterConfig: Codable, Sendable {
     /// URL for the service's management dashboard (e.g., Wix Business Manager, Monday board)
     public var dashboardUrl: String?
 
-    public init(service: String, displayName: String, version: String, auth: AuthConfig, globals: GlobalsConfig? = nil, resources: [ResourceConfig], icon: String? = nil, wizardDescription: String? = nil, setupFields: [SetupField]? = nil, hidden: Bool? = nil, enabled: Bool? = nil, siteUrl: String? = nil, dashboardUrl: String? = nil) {
+    public init(service: String, displayName: String, version: String, storageMode: ServiceStorageMode? = nil, auth: AuthConfig, globals: GlobalsConfig? = nil, resources: [ResourceConfig], icon: String? = nil, wizardDescription: String? = nil, setupFields: [SetupField]? = nil, hidden: Bool? = nil, enabled: Bool? = nil, siteUrl: String? = nil, dashboardUrl: String? = nil) {
         self.service = service
         self.displayName = displayName
         self.version = version
+        self.storageMode = storageMode
         self.auth = auth
         self.globals = globals
         self.resources = resources
@@ -130,6 +132,7 @@ public struct ResourceConfig: Codable, Sendable {
     public let name: String
     public let description: String?
     public let capabilityClass: ResourceCapabilityClass?
+    public let commitPolicy: ManagedCommitPolicy?
     public let pull: PullConfig?
     public let push: PushConfig?
     public let fileMapping: FileMappingConfig
@@ -142,10 +145,11 @@ public struct ResourceConfig: Codable, Sendable {
     /// If false, syncing is disabled for this resource (default: true when nil)
     public var enabled: Bool?
 
-    public init(name: String, description: String? = nil, capabilityClass: ResourceCapabilityClass? = nil, pull: PullConfig? = nil, push: PushConfig? = nil, fileMapping: FileMappingConfig, children: [ResourceConfig]? = nil, sync: SyncConfig? = nil, siteUrl: String? = nil, dashboardUrl: String? = nil, enabled: Bool? = nil) {
+    public init(name: String, description: String? = nil, capabilityClass: ResourceCapabilityClass? = nil, commitPolicy: ManagedCommitPolicy? = nil, pull: PullConfig? = nil, push: PushConfig? = nil, fileMapping: FileMappingConfig, children: [ResourceConfig]? = nil, sync: SyncConfig? = nil, siteUrl: String? = nil, dashboardUrl: String? = nil, enabled: Bool? = nil) {
         self.name = name
         self.description = description
         self.capabilityClass = capabilityClass
+        self.commitPolicy = commitPolicy
         self.pull = pull
         self.push = push
         self.fileMapping = fileMapping
@@ -173,7 +177,7 @@ public struct ResourceConfig: Codable, Sendable {
             deleteFromAPI: fileMapping.deleteFromAPI,
             companionFiles: fileMapping.companionFiles
         )
-        return ResourceConfig(name: name, description: description, capabilityClass: capabilityClass, pull: pull, push: push, fileMapping: newMapping, children: children, sync: sync, siteUrl: siteUrl, dashboardUrl: dashboardUrl, enabled: enabled)
+        return ResourceConfig(name: name, description: description, capabilityClass: capabilityClass, commitPolicy: commitPolicy, pull: pull, push: push, fileMapping: newMapping, children: children, sync: sync, siteUrl: siteUrl, dashboardUrl: dashboardUrl, enabled: enabled)
     }
 
     public func withResolvedFileMapping(directory: String, filename: String?) -> ResourceConfig {
@@ -192,7 +196,17 @@ public struct ResourceConfig: Codable, Sendable {
             deleteFromAPI: fileMapping.deleteFromAPI,
             companionFiles: fileMapping.companionFiles
         )
-        return ResourceConfig(name: name, description: description, capabilityClass: capabilityClass, pull: pull, push: push, fileMapping: newMapping, children: children, sync: sync, siteUrl: siteUrl, dashboardUrl: dashboardUrl, enabled: enabled)
+        return ResourceConfig(name: name, description: description, capabilityClass: capabilityClass, commitPolicy: commitPolicy, pull: pull, push: push, fileMapping: newMapping, children: children, sync: sync, siteUrl: siteUrl, dashboardUrl: dashboardUrl, enabled: enabled)
+    }
+
+    public var effectiveManagedCommitPolicy: ManagedCommitPolicy {
+        if let commitPolicy {
+            return commitPolicy
+        }
+        if fileMapping.effectivePushMode == .readOnly {
+            return .validateThenCommit
+        }
+        return push == nil ? .validateThenCommit : .pushThenCommit
     }
 }
 
