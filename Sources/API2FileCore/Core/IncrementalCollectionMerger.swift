@@ -35,7 +35,7 @@ enum IncrementalCollectionMerger {
         let content = try FormatConverterFactory.encode(
             records: mergedTransformed,
             format: resource.fileMapping.format,
-            options: resource.fileMapping.formatOptions
+            options: resource.fileMapping.effectiveFormatOptions
         )
 
         return IncrementalCollectionMergeResult(

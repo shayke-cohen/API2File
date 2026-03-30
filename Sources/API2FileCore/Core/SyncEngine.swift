@@ -1221,7 +1221,7 @@ public actor SyncEngine {
                     enriched[key] = value
                 }
             }
-        case let name where name.hasPrefix("collections.items"):
+        case "items":
             if enriched["dataCollectionId"] == nil, let collectionContextId {
                 enriched["dataCollectionId"] = collectionContextId
             }
@@ -1379,7 +1379,7 @@ public actor SyncEngine {
 
         // Decode new records from the edited file
         // If decode fails (e.g., OOXML unzip issue), skip this push gracefully
-        let newRecords: [[String: Any]]
+        var newRecords: [[String: Any]]
         do {
             newRecords = try FormatConverterFactory.decode(
                 data: content,
@@ -1458,6 +1458,7 @@ public actor SyncEngine {
         let siblingContext: [String: Any] = siblingRecords.first ?? [:]
 
         // Push creates
+        var assignedCreateIds: [String] = []
         for record in diff.created {
             // Enrich: fill any missing/empty fields from a sibling record so that
             // context fields like `boardId` are available even when the user omitted them.
@@ -1481,7 +1482,32 @@ public actor SyncEngine {
             // For creates there is no cached raw record to merge with, so skip
             // mechanical inverse — it would relocate fields (e.g. boardId → board.boardId)
             // that the push mutation template still expects at their user-facing position.
-            try await engine.pushRecord(enriched, resource: resource, action: .create)
+            let assignedId = (try await engine.pushRecord(enriched, resource: resource, action: .create)) ?? ""
+            assignedCreateIds.append(assignedId)
+        }
+        // Write assigned IDs back to disk and update newRecords so subsequent
+        // pull merges don't see stale blank-ID rows creating duplicates.
+        if assignedCreateIds.contains(where: { !$0.isEmpty }) {
+            var blankIdx = 0
+            for i in newRecords.indices {
+                guard blankIdx < assignedCreateIds.count else { break }
+                let rId = newRecords[i][idField] as? String ?? ""
+                if rId.isEmpty {
+                    if !assignedCreateIds[blankIdx].isEmpty {
+                        newRecords[i][idField] = assignedCreateIds[blankIdx]
+                    }
+                    blankIdx += 1
+                }
+            }
+            let humanFileURL = serviceDir.appendingPathComponent(filePath)
+            if let encoded = try? FormatConverterFactory.encode(
+                records: newRecords,
+                format: resource.fileMapping.format,
+                options: resource.fileMapping.effectiveFormatOptions
+            ) {
+                suppressPath(filePath)
+                try? encoded.write(to: humanFileURL, options: .atomic)
+            }
         }
 
         // Push updates (with inverse transform merging)
@@ -1717,8 +1743,27 @@ public actor SyncEngine {
                     }
 
                     if !createdRecords.isEmpty || !updatedRecords.isEmpty || !deletedIds.isEmpty {
+                        var assignedIds: [String] = []
                         for record in createdRecords {
-                            try await engine.pushRecord(record, resource: resource, action: .create)
+                            let assignedId = (try await engine.pushRecord(record, resource: resource, action: .create)) ?? ""
+                            assignedIds.append(assignedId)
+                        }
+                        // Write assigned IDs back to the object file so the regeneration
+                        // step produces a correct CSV (no blank-ID row persisting)
+                        if assignedIds.contains(where: { !$0.isEmpty }) {
+                            var currentRecords = try ObjectFileManager.readCollectionObjectFile(from: objectURL)
+                            var blankIdx = 0
+                            for i in currentRecords.indices {
+                                guard blankIdx < assignedIds.count else { break }
+                                let rId = currentRecords[i][idField] as? String ?? ""
+                                if rId.isEmpty {
+                                    if !assignedIds[blankIdx].isEmpty {
+                                        currentRecords[i][idField] = assignedIds[blankIdx]
+                                    }
+                                    blankIdx += 1
+                                }
+                            }
+                            try ObjectFileManager.writeCollectionObjectFile(records: currentRecords, to: objectURL)
                         }
                         for (id, record) in updatedRecords {
                             var pushRecord = record
