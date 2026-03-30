@@ -123,4 +123,60 @@ final class AdapterConfigTests: XCTestCase {
         XCTAssertEqual(decoded.files["test.json"]?.remoteId, "abc-123")
         XCTAssertEqual(decoded.files["test.json"]?.status, .synced)
     }
+
+    func testDecodeManagedWorkspaceConfigAndCommitPolicy() throws {
+        let json = """
+        {
+            "service": "test",
+            "displayName": "Test Service",
+            "version": "1.0",
+            "storageMode": "managed_workspace",
+            "auth": {
+                "type": "bearer",
+                "keychainKey": "api2file.test.key"
+            },
+            "resources": [
+                {
+                    "name": "items",
+                    "commitPolicy": "push-then-commit",
+                    "pull": {
+                        "url": "https://api.test.com/items"
+                    },
+                    "push": {
+                        "update": {
+                            "url": "https://api.test.com/items/{id}"
+                        }
+                    },
+                    "fileMapping": {
+                        "strategy": "collection",
+                        "directory": ".",
+                        "filename": "items.csv",
+                        "format": "csv",
+                        "idField": "id"
+                    }
+                }
+            ]
+        }
+        """
+        let config = try JSONDecoder().decode(AdapterConfig.self, from: Data(json.utf8))
+
+        XCTAssertEqual(config.storageMode, .managedWorkspace)
+        XCTAssertEqual(config.resources[0].commitPolicy, .pushThenCommit)
+        XCTAssertEqual(config.resources[0].effectiveManagedCommitPolicy, .pushThenCommit)
+    }
+
+    func testEffectiveManagedCommitPolicyDefaultsToValidateThenCommitForReadOnlyResources() {
+        let resource = ResourceConfig(
+            name: "items",
+            fileMapping: FileMappingConfig(
+                strategy: .collection,
+                directory: ".",
+                filename: "items.csv",
+                format: .csv,
+                readOnly: true
+            )
+        )
+
+        XCTAssertEqual(resource.effectiveManagedCommitPolicy, .validateThenCommit)
+    }
 }

@@ -19,7 +19,7 @@
 	<key>CFBundleVersion</key>
 	<string>1</string>
 	<key>API2FileAppGroupIdentifier</key>
-	<string>group.com.shayco.api2file.dev</string>
+	<string>$(API2FILE_APP_GROUP_IDENTIFIER)</string>
 	<key>NSExtension</key>
 	<dict>
 		<key>NSExtensionAttributes</key>

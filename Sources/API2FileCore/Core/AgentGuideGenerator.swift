@@ -19,6 +19,9 @@ public enum AgentGuideGenerator {
         lines.append("")
         lines.append("This directory syncs cloud service data to local files.")
         lines.append("Edit files here → changes push to the cloud automatically.")
+        if services.contains(where: { $0.config.storageMode == .managedWorkspace }) {
+            lines.append("Managed workspace services keep the last accepted version visible and may reject invalid edits.")
+        }
         lines.append("")
         lines.append("## Connected Services")
 
@@ -79,6 +82,9 @@ public enum AgentGuideGenerator {
         lines.append("")
         lines.append("This folder syncs bidirectionally with your \(displayName) account.")
         lines.append("Edit files locally → changes push to \(displayName) automatically.")
+        if config.storageMode == .managedWorkspace {
+            lines.append("This service uses API2File managed workspace mode: rejected edits are restored to the last accepted version.")
+        }
         lines.append("Hidden `.*.objects.json` files hold the structured canonical records; user-facing files are projections for apps and easy browsing.")
         lines.append("`.api2file/file-links.json` links each projection to its canonical object file.")
         lines.append("`.api2file/cache/service.sqlite` is a derived, read-only SQLite mirror for search, SQL, and agent analysis.")
@@ -112,6 +118,9 @@ public enum AgentGuideGenerator {
 
             let interval = resource.sync?.interval ?? 60
             lines.append("**To update:** Edit the file and save. Changes sync within \(interval)s.")
+            if config.storageMode == .managedWorkspace {
+                lines.append("**Managed commit:** \(resource.effectiveManagedCommitPolicy.rawValue)")
+            }
             lines.append("**To create:** \(Self.createInstructions(for: mapping.strategy, format: format, directory: dir))")
             lines.append("**To delete:** Delete the file. The record is removed after 5s grace period.")
 

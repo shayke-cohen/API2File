@@ -1,5 +1,7 @@
 # API2File — Testing Guide
 
+See also: [`API2FILE_FS.md`](/Users/shayco/API2File/API2FILE_FS.md) for filesystem-specific manual testing, mount attempts, and FSKit debugging commands.
+
 ## Test Suite Overview
 
 **Total coverage:** 500+ Swift package tests plus iOS app-target tests.
@@ -132,6 +134,8 @@ swift test --filter "DemoServerE2E|DemoServerAllResources|BidirectionalSync|Real
 | `DemoServerAllResourcesE2ETests` | All 14 resource types: tasks, contacts, events, notes, pages, config, services, incidents, logos, photos, documents, spreadsheets, reports, presentations |
 | `BidirectionalSyncE2ETests` | Full round-trip: pull CSV from server, edit locally, push back, verify server state |
 | `RealSyncE2ETests` | SyncEngine + DemoAPIServer + real file I/O: pull to disk, verify file contents, edit, push back |
+| `ManagedWorkspaceIntegrationTests` | Managed workspace materialization, accepted writes, rejection restore, and rejection history |
+| `ManagedWorkspaceDemoAdapterBidirectionalTests` | Bundled `demo.adapter.json` tasks resource in managed mode: CSV file edits push to the demo server and live server changes pull back into the managed workspace |
 
 ---
 

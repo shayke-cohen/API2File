@@ -84,6 +84,7 @@ final class GlobalConfigTests: XCTestCase {
     func testDefaultValues() {
         let config = GlobalConfig()
         XCTAssertEqual(config.syncFolder, "~/API2File-Data")
+        XCTAssertEqual(config.managedWorkspaceFolder, "~/API2File-Workspace")
         XCTAssertTrue(config.gitAutoCommit)
         XCTAssertEqual(config.commitMessageFormat, "sync: {service} — {summary}")
         XCTAssertEqual(config.defaultSyncInterval, 60)
@@ -102,6 +103,7 @@ final class GlobalConfigTests: XCTestCase {
 
         let config = GlobalConfig(
             syncFolder: "/custom/path",
+            managedWorkspaceFolder: "/custom/workspace",
             gitAutoCommit: false,
             commitMessageFormat: "custom: {summary}",
             defaultSyncInterval: 120,
@@ -115,6 +117,7 @@ final class GlobalConfigTests: XCTestCase {
         let loaded = try GlobalConfig.load(from: fileURL)
 
         XCTAssertEqual(loaded.syncFolder, "/custom/path")
+        XCTAssertEqual(loaded.managedWorkspaceFolder, "/custom/workspace")
         XCTAssertFalse(loaded.gitAutoCommit)
         XCTAssertEqual(loaded.commitMessageFormat, "custom: {summary}")
         XCTAssertEqual(loaded.defaultSyncInterval, 120)
@@ -162,6 +165,20 @@ final class GlobalConfigTests: XCTestCase {
         let resolved = config.resolvedSyncFolder(using: locations)
 
         XCTAssertEqual(resolved.path, "/sandbox/home/API2File-Data")
+    }
+
+    func testResolvedManagedWorkspaceFolderUsesInjectedStorageLocations() {
+        let locations = StorageLocations(
+            homeDirectory: URL(fileURLWithPath: "/sandbox/home", isDirectory: true),
+            syncRootDirectory: URL(fileURLWithPath: "/sandbox/Documents/API2File-Data", isDirectory: true),
+            managedWorkspaceDirectory: URL(fileURLWithPath: "/sandbox/Documents/API2File-Workspace", isDirectory: true),
+            adaptersDirectory: URL(fileURLWithPath: "/sandbox/Library/API2File/Adapters", isDirectory: true),
+            applicationSupportDirectory: URL(fileURLWithPath: "/sandbox/Library/Application Support", isDirectory: true)
+        )
+        let config = GlobalConfig(managedWorkspaceFolder: "~/API2File-Workspace")
+        let resolved = config.resolvedManagedWorkspaceFolder(using: locations)
+
+        XCTAssertEqual(resolved.path, "/sandbox/home/API2File-Workspace")
     }
 }
 

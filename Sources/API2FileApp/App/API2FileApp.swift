@@ -648,6 +648,14 @@ final class AppState: ObservableObject {
         return websiteURL
     }
 
+    func serviceSurfaceURL(for service: ServiceInfo) -> URL {
+        config.resolvedServiceRoot(
+            serviceId: service.serviceId,
+            storageMode: service.config.storageMode ?? .plainSync,
+            using: .current
+        )
+    }
+
     // MARK: - Claude Code Launcher
 
     func launchCodingAgent(serviceId: String? = nil) {
@@ -688,7 +696,10 @@ final class AppState: ObservableObject {
             }
 
             var targetFolder = self.config.resolvedSyncFolder
-            if let serviceId {
+            if let serviceId,
+               let service = self.services.first(where: { $0.serviceId == serviceId }) {
+                targetFolder = self.serviceSurfaceURL(for: service)
+            } else if let serviceId {
                 targetFolder = targetFolder.appendingPathComponent(serviceId)
             }
             let mcpConfig: [String: Any] = [

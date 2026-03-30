@@ -1,5 +1,7 @@
 # API2File
 
+See also: [`API2FILE_FS.md`](/Users/shayco/API2File/API2FILE_FS.md) for the managed filesystem / FSKit technical spec, implementation notes, gaps, and testing instructions.
+
 > **Dropbox for APIs** — your cloud data lives as local files. Edit a CSV in Numbers, it pushes to Monday.com. New contact in Wix, it appears as a `.vcf`. No code required to add new services.
 
 ---
@@ -196,6 +198,7 @@ Pure Swift core with native macOS and iOS apps.
 - **Read-only SQLite mirror per service** -- query synced data locally at `.api2file/cache/service.sqlite`
 - **Media sync** -- generic binary file download/upload for any cloud storage API (images, videos, documents)
 - **Bidirectional sync** with smart collection diffing -- pull from API, push local edits back
+- **Optional managed workspace mode** -- surface accepted files under `~/API2File-Workspace/` and route edits through validation + managed commit handling
 - **macOS menu bar app + dashboard** -- always-on sync with a unified dashboard for File Explorer, Data Explorer, Activity, and settings
 - **Finder-aware desktop flow** -- Finder Sync badges/context actions, document opening into API2File, and Quick Look previews for synced file types
 - **Universal iOS app** -- browse, preview, edit, import, and share synced files from iPhone and iPad
@@ -395,6 +398,7 @@ These adapters point at the local demo server (`localhost:8089`) and showcase re
 ## Sync Folder Structure
 
 Default sync folder: `~/API2File-Data/` (configurable in `GlobalConfig`).
+Managed workspace root: `~/API2File-Workspace/` (optional per-service, configurable in `GlobalConfig`).
 
 ```text
 ~/API2File-Data/

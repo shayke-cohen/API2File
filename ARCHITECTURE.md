@@ -1,5 +1,7 @@
 # API2File — Architecture
 
+See also: [`API2FILE_FS.md`](/Users/shayco/API2File/API2FILE_FS.md) for the dedicated managed filesystem / FSKit design and investigation notes.
+
 ## Overview
 
 API2File is a native Apple-platform sync engine built in pure Swift. It uses a layered architecture: a top-level **SyncEngine** orchestrates multiple **AdapterEngine** instances (one per connected service), each interpreting a JSON config to handle API communication, data transformation, and file I/O.
@@ -318,8 +320,13 @@ Manages the user-editable adapter definitions in `~/.api2file/adapters/` and kee
 Platform-specific dependencies are injected into `SyncEngine` through `PlatformServices`.
 
 - `StorageLocations` centralizes the sync root, adapters directory, and app support paths
+- `StorageLocations` also defines the managed workspace root used by services running in `managed_workspace` mode
 - `PlatformServices` bundles the adapter store, keychain, notifications, watchers, and version-control backend factory
 - macOS uses shell git and filesystem watchers, while iOS swaps in sandbox-aware storage and an embedded history backend
+
+### Managed Workspace Runtime
+
+Managed workspace services keep their canonical/object state in the normal sync root while surfacing accepted human-facing files under a separate workspace root. `SyncEngine` materializes accepted files into that workspace, watches the workspace surface, and routes edits through a managed commit pipeline that either accepts the proposal or restores the last accepted version and records a rejection entry.
 
 ### GitManager
 

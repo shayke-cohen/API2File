@@ -7,6 +7,7 @@ struct AddServiceView: View {
     @State private var selectedTemplate: AdapterTemplate?
     @State private var serviceID: String = ""
     @State private var apiKey: String = ""
+    @State private var storageMode: ServiceStorageMode = .plainSync
     @State private var extraFieldValues: [String: String] = [:]
     @State private var isConnecting = false
     @State private var error: String?
@@ -74,6 +75,7 @@ struct AddServiceView: View {
                     Button {
                         selectedTemplate = template
                         serviceID = template.config.service
+                        storageMode = template.config.storageMode ?? .plainSync
                         extraFieldValues = [:]
                         apiKey = ""
                         completedServiceID = nil
@@ -133,6 +135,19 @@ struct AddServiceView: View {
                     .testId("wizard-service-id-field")
 
                 Text("Creates a separate folder under the sync root. Use a unique name for a second Wix site.")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+
+                Picker("Storage Mode", selection: $storageMode) {
+                    Text("Plain Sync").tag(ServiceStorageMode.plainSync)
+                    Text("Managed Workspace").tag(ServiceStorageMode.managedWorkspace)
+                }
+                .pickerStyle(.segmented)
+                .testId("wizard-storage-mode")
+
+                Text(storageMode == .managedWorkspace
+                     ? "Managed services surface accepted files in the API2File workspace and route edits through validation."
+                     : "Plain sync services mirror files directly into the regular sync root and watch them for edits.")
                     .font(.caption)
                     .foregroundStyle(.tertiary)
 
@@ -207,7 +222,7 @@ struct AddServiceView: View {
                 .fontWeight(.bold)
                 .testId("wizard-done-title")
 
-            Text("\(selectedTemplate?.config.displayName ?? "") is now syncing to ~/API2File/\(completedServiceID ?? selectedTemplate?.config.service ?? "")/")
+            Text(doneStepMessage)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
 
@@ -239,6 +254,17 @@ struct AddServiceView: View {
             if (extraFieldValues[field.key] ?? "").isEmpty { return false }
         }
         return true
+    }
+
+    private var doneStepMessage: String {
+        let displayName = selectedTemplate?.config.displayName ?? ""
+        let serviceName = completedServiceID ?? selectedTemplate?.config.service ?? ""
+        switch storageMode {
+        case .plainSync:
+            return "\(displayName) is now syncing to ~/API2File/\(serviceName)/"
+        case .managedWorkspace:
+            return "\(displayName) now keeps accepted state under ~/API2File/\(serviceName)/ and surfaces editable files in ~/API2File-Workspace/\(serviceName)/"
+        }
     }
 
     // MARK: - Actions
@@ -286,7 +312,10 @@ struct AddServiceView: View {
                 let configJSON = try ServiceIdentity.installedAdapterJSON(
                     template: template,
                     serviceID: normalizedServiceID,
-                    extraFieldValues: extraFieldValues
+                    extraFieldValues: extraFieldValues,
+                    customizeConfig: { json in
+                        json["storageMode"] = storageMode.rawValue
+                    }
                 )
                 let configData = configJSON.data(using: .utf8)!
                 try configData.write(to: adapterURL, options: .atomic)

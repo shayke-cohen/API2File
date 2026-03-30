@@ -205,6 +205,30 @@ public actor LocalServer {
             return await handleGetHistory(serviceId: serviceId, limit: limit)
         }
 
+        if method == "GET", let serviceId = matchRoute(path: path, pattern: "/api/services/", suffix: "/workspace/status") {
+            return await handleGetManagedWorkspaceStatus(serviceId: serviceId)
+        }
+
+        if method == "GET", let serviceId = matchRoute(path: path, pattern: "/api/services/", suffix: "/workspace/rejections") {
+            let limit = min(Int(request.queryItems["limit"] ?? "") ?? 50, 500)
+            return await handleGetManagedWorkspaceRejections(serviceId: serviceId, limit: limit)
+        }
+
+        if method == "PUT", let serviceId = matchRoute(path: path, pattern: "/api/services/", suffix: "/workspace/file") {
+            return await handleManagedWorkspaceFileCommit(
+                serviceId: serviceId,
+                queryItems: request.queryItems,
+                body: request.body
+            )
+        }
+
+        if method == "DELETE", let serviceId = matchRoute(path: path, pattern: "/api/services/", suffix: "/workspace/file") {
+            return await handleManagedWorkspaceFileDelete(
+                serviceId: serviceId,
+                queryItems: request.queryItems
+            )
+        }
+
         // GET /api/services/:id/sql/tables
         if method == "GET", let serviceId = matchRoute(path: path, pattern: "/api/services/", suffix: "/sql/tables") {
             return await handleListSQLTables(serviceId: serviceId)
@@ -396,12 +420,11 @@ public actor LocalServer {
             targetServiceIds = allowedServices.keys.sorted()
         }
 
-        let rootURL = await syncEngine.getSyncRootURL()
         var files: [[String: Any]] = []
 
         for serviceId in targetServiceIds {
             guard let service = allowedServices[serviceId] else { continue }
-            let serviceRoot = rootURL.appendingPathComponent(serviceId, isDirectory: true)
+            let serviceRoot = await syncEngine.getServiceSurfaceRootURL(serviceId: serviceId)
             guard let enumerator = FileManager.default.enumerator(
                 at: serviceRoot,
                 includingPropertiesForKeys: [.isRegularFileKey, .contentModificationDateKey, .fileSizeKey],
@@ -463,6 +486,9 @@ public actor LocalServer {
         guard let fileURL = await validatedLiteFileURL(queryItems: queryItems) else {
             return HTTPResponse(statusCode: 400, bodyRaw: encodeJSON(["error": "Missing or invalid service/path"]), headers: liteCORSHeaders())
         }
+        guard let serviceId = queryItems["service"], !serviceId.isEmpty else {
+            return HTTPResponse(statusCode: 400, bodyRaw: encodeJSON(["error": "Missing service"]), headers: liteCORSHeaders())
+        }
         guard let body else {
             return HTTPResponse(statusCode: 400, bodyRaw: encodeJSON(["error": "Request body is required"]), headers: liteCORSHeaders())
         }
@@ -477,6 +503,16 @@ public actor LocalServer {
 
         do {
             try body.write(to: fileURL, options: .atomic)
+            if await syncEngine.getManagedRuntimeHealth(serviceId: serviceId) != nil {
+                let result = try await syncEngine.submitManagedWorkspaceChange(
+                    serviceId: serviceId,
+                    filePath: relativePath,
+                    sourceApplication: "Lite Manager"
+                )
+                if result.kind != .accepted {
+                    return HTTPResponse(statusCode: 409, bodyRaw: encodeJSON(["error": result.message]), headers: liteCORSHeaders())
+                }
+            }
             return HTTPResponse(statusCode: 200, bodyRaw: encodeJSON(["status": "ok"]), headers: liteCORSHeaders())
         } catch {
             return HTTPResponse(statusCode: 500, bodyRaw: encodeJSON(["error": error.localizedDescription]), headers: liteCORSHeaders())
@@ -520,6 +556,17 @@ public actor LocalServer {
 
         do {
             try FileManager.default.removeItem(at: fileURL)
+            if await syncEngine.getManagedRuntimeHealth(serviceId: serviceId) != nil {
+                let result = try await syncEngine.submitManagedWorkspaceChange(
+                    serviceId: serviceId,
+                    filePath: path,
+                    removed: true,
+                    sourceApplication: "Lite Manager"
+                )
+                if result.kind != .accepted {
+                    return HTTPResponse(statusCode: 409, bodyRaw: encodeJSON(["error": result.message]), headers: liteCORSHeaders())
+                }
+            }
             return HTTPResponse(statusCode: 200, bodyRaw: encodeJSON(["status": "ok"]), headers: liteCORSHeaders())
         } catch {
             return HTTPResponse(statusCode: 500, bodyRaw: encodeJSON(["error": error.localizedDescription]), headers: liteCORSHeaders())
@@ -643,6 +690,155 @@ public actor LocalServer {
             return HTTPResponse(statusCode: 500, body: ["error": "Failed to encode history"])
         }
         return HTTPResponse(statusCode: 200, bodyRaw: data)
+    }
+
+    private func handleGetManagedWorkspaceStatus(serviceId: String) async -> HTTPResponse {
+        guard await syncEngine.getServiceStatus(serviceId) != nil else {
+            return HTTPResponse(statusCode: 404, body: [
+                "error": "Service not found",
+                "serviceId": serviceId
+            ])
+        }
+        guard let health = await syncEngine.getManagedRuntimeHealth(serviceId: serviceId) else {
+            return HTTPResponse(statusCode: 400, body: [
+                "error": "Service is not using managed workspace mode",
+                "serviceId": serviceId
+            ])
+        }
+        return HTTPResponse(statusCode: 200, body: [
+            "serviceId": serviceId,
+            "status": health.status,
+            "isAvailable": health.isAvailable ? "true" : "false",
+            "detail": health.detail ?? ""
+        ])
+    }
+
+    private func handleGetManagedWorkspaceRejections(serviceId: String, limit: Int) async -> HTTPResponse {
+        guard await syncEngine.getServiceStatus(serviceId) != nil else {
+            return HTTPResponse(statusCode: 404, body: [
+                "error": "Service not found",
+                "serviceId": serviceId
+            ])
+        }
+        let proposals = await syncEngine.getManagedRejectedProposals(serviceId: serviceId, limit: limit)
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.sortedKeys]
+        guard let data = try? encoder.encode(proposals) else {
+            return HTTPResponse(statusCode: 500, body: ["error": "Failed to encode rejection history"])
+        }
+        return HTTPResponse(statusCode: 200, bodyRaw: data)
+    }
+
+    private func handleManagedWorkspaceFileCommit(
+        serviceId: String,
+        queryItems: [String: String],
+        body: Data?
+    ) async -> HTTPResponse {
+        guard await syncEngine.getServiceStatus(serviceId) != nil else {
+            return HTTPResponse(statusCode: 404, body: [
+                "error": "Service not found",
+                "serviceId": serviceId
+            ])
+        }
+        guard await syncEngine.getManagedRuntimeHealth(serviceId: serviceId) != nil else {
+            return HTTPResponse(statusCode: 400, body: [
+                "error": "Service is not using managed workspace mode",
+                "serviceId": serviceId
+            ])
+        }
+        guard let relativePath = queryItems["path"], !relativePath.isEmpty else {
+            return HTTPResponse(statusCode: 400, body: [
+                "error": "Missing path",
+                "serviceId": serviceId
+            ])
+        }
+        guard let body else {
+            return HTTPResponse(statusCode: 400, body: [
+                "error": "Request body is required",
+                "serviceId": serviceId
+            ])
+        }
+
+        do {
+            let result = try await syncEngine.submitManagedWorkspaceChangeData(
+                serviceId: serviceId,
+                filePath: relativePath,
+                proposedData: body,
+                sourceApplication: "Managed Workspace Mount"
+            )
+            if result.kind != .accepted {
+                return HTTPResponse(statusCode: 409, body: [
+                    "error": result.message,
+                    "kind": result.kind.rawValue,
+                    "serviceId": serviceId,
+                    "path": relativePath
+                ])
+            }
+            return HTTPResponse(statusCode: 200, body: [
+                "status": "ok",
+                "serviceId": serviceId,
+                "path": relativePath
+            ])
+        } catch {
+            return HTTPResponse(statusCode: 500, body: [
+                "error": error.localizedDescription,
+                "serviceId": serviceId,
+                "path": relativePath
+            ])
+        }
+    }
+
+    private func handleManagedWorkspaceFileDelete(
+        serviceId: String,
+        queryItems: [String: String]
+    ) async -> HTTPResponse {
+        guard await syncEngine.getServiceStatus(serviceId) != nil else {
+            return HTTPResponse(statusCode: 404, body: [
+                "error": "Service not found",
+                "serviceId": serviceId
+            ])
+        }
+        guard await syncEngine.getManagedRuntimeHealth(serviceId: serviceId) != nil else {
+            return HTTPResponse(statusCode: 400, body: [
+                "error": "Service is not using managed workspace mode",
+                "serviceId": serviceId
+            ])
+        }
+        guard let relativePath = queryItems["path"], !relativePath.isEmpty else {
+            return HTTPResponse(statusCode: 400, body: [
+                "error": "Missing path",
+                "serviceId": serviceId
+            ])
+        }
+
+        do {
+            let result = try await syncEngine.submitManagedWorkspaceChange(
+                serviceId: serviceId,
+                filePath: relativePath,
+                removed: true,
+                sourceApplication: "Managed Workspace Mount"
+            )
+            if result.kind != .accepted {
+                return HTTPResponse(statusCode: 409, body: [
+                    "error": result.message,
+                    "kind": result.kind.rawValue,
+                    "serviceId": serviceId,
+                    "path": relativePath
+                ])
+            }
+            return HTTPResponse(statusCode: 200, body: [
+                "status": "ok",
+                "serviceId": serviceId,
+                "path": relativePath
+            ])
+        } catch {
+            return HTTPResponse(statusCode: 500, body: [
+                "error": error.localizedDescription,
+                "serviceId": serviceId,
+                "path": relativePath
+            ])
+        }
     }
 
     private func handleListSQLTables(serviceId: String) async -> HTTPResponse {
@@ -1115,7 +1311,8 @@ public actor LocalServer {
             "serviceId": info.serviceId,
             "displayName": info.displayName,
             "status": info.status.rawValue,
-            "fileCount": info.fileCount
+            "fileCount": info.fileCount,
+            "storageMode": (info.config.storageMode ?? .plainSync).rawValue
         ]
         if let lastSync = info.lastSyncTime {
             dict["lastSyncTime"] = ISO8601DateFormatter().string(from: lastSync)
@@ -1220,8 +1417,7 @@ public actor LocalServer {
             return nil
         }
 
-        let rootURL = await syncEngine.getSyncRootURL()
-        let serviceRoot = rootURL.appendingPathComponent(serviceId, isDirectory: true).standardizedFileURL
+        let serviceRoot = await syncEngine.getServiceSurfaceRootURL(serviceId: serviceId).standardizedFileURL
         let itemURL = serviceRoot.appendingPathComponent(path, isDirectory: false).standardizedFileURL
         guard itemURL.path.hasPrefix(serviceRoot.path + "/") else {
             return nil

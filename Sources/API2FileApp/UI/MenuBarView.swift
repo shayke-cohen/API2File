@@ -105,8 +105,7 @@ struct MenuBarView: View {
             .testId("menubar-service-sync-\(service.serviceId)")
 
             Button("Open Folder") {
-                let url = appState.config.resolvedSyncFolder
-                    .appendingPathComponent(service.serviceId)
+                let url = appState.serviceSurfaceURL(for: service)
                 FinderSupport.openInFinder(url)
             }
             .testId("menubar-service-folder-\(service.serviceId)")

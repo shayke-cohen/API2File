@@ -140,7 +140,7 @@ struct Dashboard2View: View {
 
     private var selectedServiceDirectory: URL? {
         guard let selectedService else { return nil }
-        return appState.config.resolvedSyncFolder.appendingPathComponent(selectedService.serviceId)
+        return appState.serviceSurfaceURL(for: selectedService)
     }
 
     private var visibleFiles: [URL] {
@@ -219,6 +219,10 @@ struct Dashboard2View: View {
                             PortalStatusPill(
                                 title: portalStatusText(for: selectedService),
                                 tint: portalStatusColor(for: selectedService)
+                            )
+                            PortalStatusPill(
+                                title: storageModeTitle(for: selectedService),
+                                tint: storageModeColor(for: selectedService)
                             )
                         }
                     }
@@ -699,7 +703,7 @@ struct Dashboard2View: View {
 
     private func openSelectedServiceFolder() {
         guard let service = selectedService else { return }
-        let url = appState.config.resolvedSyncFolder.appendingPathComponent(service.serviceId)
+        let url = appState.serviceSurfaceURL(for: service)
         FinderSupport.openInFinder(url)
     }
 
@@ -720,6 +724,24 @@ struct Dashboard2View: View {
         case .paused: return .gray
         case .error: return .red
         case .disconnected: return .secondary
+        }
+    }
+
+    private func storageModeTitle(for service: ServiceInfo) -> String {
+        switch service.config.storageMode ?? .plainSync {
+        case .plainSync:
+            return "Plain Sync"
+        case .managedWorkspace:
+            return "Managed Workspace"
+        }
+    }
+
+    private func storageModeColor(for service: ServiceInfo) -> Color {
+        switch service.config.storageMode ?? .plainSync {
+        case .plainSync:
+            return .secondary
+        case .managedWorkspace:
+            return .orange
         }
     }
 

@@ -57,6 +57,12 @@ AI agents should prefer the canonical structured files for high-fidelity edits a
 - Send creates (POST), updates (PUT), and deletes (DELETE) to API
 - Regenerate human-facing files from the updated canonical records after a successful push
 
+**Managed workspace mode (optional):**
+- A service may use `storageMode: "managed_workspace"` instead of plain sync
+- Managed services surface accepted files under a dedicated workspace root (`~/API2File-Workspace/` by default)
+- Managed writes are validated before acceptance and rejected proposals restore the last accepted visible version
+- Resources may declare `commitPolicy` values such as `local-first`, `validate-then-commit`, or `push-then-commit`
+
 ### FR-3: File Format Support
 
 | Format | Standard | Native App |
@@ -171,6 +177,7 @@ All credentials stored in macOS Keychain with `com.api2file.` namespace.
 - Native SwiftUI menu bar app (`LSUIElement` — no dock icon)
 - Service list with status indicators and per-service sync controls
 - **Dashboard workspace** — a single dashboard window with inner sections for `File Explorer`, `Data Explorer`, and `Activity`
+- **Managed workspace support** — the dashboard and local control API understand both plain-sync and managed-workspace service roots
 - **Settings sheet** — general sync, git, notification, Finder badge, and app settings opened from the dashboard shell
 - **Add Service wizard** — guided 3-step flow: select service → enter credentials → connected
   - Service-specific extra fields (Wix Site ID, Airtable Base ID/Table Name)

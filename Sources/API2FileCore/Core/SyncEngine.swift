@@ -3046,6 +3046,11 @@ public actor SyncEngine {
         defer { isPulling[serviceId] = false }
 
         try cleanLocalMirror(serviceId: serviceId, serviceDir: serviceDir)
+        if isManagedWorkspaceService(serviceId: serviceId) {
+            let workspaceDir = managedWorkspaceFolder.appendingPathComponent(serviceId, isDirectory: true)
+            try? FileManager.default.removeItem(at: workspaceDir)
+            try? await managedWorkspaceManager.ensureServiceRoot(serviceId: serviceId)
+        }
 
         let emptyState = SyncState()
         syncStates[serviceId] = emptyState
@@ -3249,6 +3254,7 @@ public actor SyncEngine {
                 message: "Service is not registered."
             )
         }
+        suppressPath(filePath)
 
         let serviceDir = syncFolder.appendingPathComponent(serviceId, isDirectory: true)
         let workspaceDir = managedWorkspaceFolder.appendingPathComponent(serviceId, isDirectory: true)
@@ -3258,6 +3264,7 @@ public actor SyncEngine {
         let serviceName = serviceInfos[serviceId]?.displayName ?? serviceId
         let resource = findResource(for: filePath, in: engine.config)
         let isSupportFile = filePath == "CLAUDE.md" || filePath == "SKILL.md"
+        var rejectionKind: ManagedWriteResultKind = .rejectedValidation
 
         do {
             if removed {
@@ -3279,62 +3286,12 @@ public actor SyncEngine {
             }
 
             let proposedData = try Data(contentsOf: workspaceURL)
-            if let resource {
-                if syncStates[serviceId]?.files[filePath]?.isCompanion == true {
-                    throw NSError(domain: "API2FileCore", code: 403, userInfo: [
-                        NSLocalizedDescriptionKey: "Companion files are generated and cannot be edited."
-                    ])
-                }
-                if resource.fileMapping.effectivePushMode == .readOnly {
-                    throw NSError(domain: "API2FileCore", code: 403, userInfo: [
-                        NSLocalizedDescriptionKey: "This managed file is read-only."
-                    ])
-                }
-
-                switch resource.effectiveManagedCommitPolicy {
-                case .localFirst, .validateThenCommit:
-                    try validateManagedProposal(data: proposedData, resource: resource)
-                    try FileManager.default.createDirectory(at: acceptedURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-                    suppressPath(filePath)
-                    try proposedData.write(to: acceptedURL, options: .atomic)
-                    if syncStates[serviceId]?.files[filePath] != nil {
-                        syncStates[serviceId]?.files[filePath]?.lastSyncedHash = proposedData.sha256Hex
-                        syncStates[serviceId]?.files[filePath]?.lastSyncTime = Date()
-                        syncStates[serviceId]?.files[filePath]?.status = .synced
-                    }
-                    let stateURL = serviceDir.appendingPathComponent(".api2file/state.json")
-                    try syncStates[serviceId]?.save(to: stateURL)
-                    synchronizeFileLinks(serviceDir: serviceDir, config: engine.config, state: syncStates[serviceId] ?? SyncState())
-                    refreshSQLiteMirrorIfPossible(
-                        serviceId: serviceId,
-                        serviceDir: serviceDir,
-                        config: engine.config,
-                        state: syncStates[serviceId] ?? SyncState()
-                    )
-                case .pushThenCommit:
-                    guard resource.push != nil else {
-                        throw NSError(domain: "API2FileCore", code: 400, userInfo: [
-                            NSLocalizedDescriptionKey: "This managed file has no remote push configuration."
-                        ])
-                    }
-                    try validateManagedProposal(data: proposedData, resource: resource)
-                    try FileManager.default.createDirectory(at: acceptedURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-                    suppressPath(filePath)
-                    try proposedData.write(to: acceptedURL, options: .atomic)
-                    try await performPush(serviceId: serviceId, filePath: filePath)
-                }
-            } else if isSupportFile {
-                try FileManager.default.createDirectory(at: acceptedURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-                suppressPath(filePath)
-                try proposedData.write(to: acceptedURL, options: .atomic)
-            } else {
-                throw NSError(domain: "API2FileCore", code: 404, userInfo: [
-                    NSLocalizedDescriptionKey: "Managed workspace currently accepts edits only for known resource files and generated guides."
-                ])
-            }
-
-            try? await managedWorkspaceManager.synchronizeVisibleFiles(serviceId: serviceId, acceptedRoot: serviceDir)
-            return ManagedWriteResult(kind: .accepted, filePath: filePath, message: "Managed write accepted.")
+            return try await submitManagedWorkspaceChangeData(
+                serviceId: serviceId,
+                filePath: filePath,
+                proposedData: proposedData,
+                sourceApplication: sourceApplication
+            )
         } catch {
             if let acceptedData {
                 try? FileManager.default.createDirectory(at: acceptedURL.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -3364,19 +3321,275 @@ public actor SyncEngine {
             logHistory(entry, serviceId: serviceId, serviceDir: serviceDir)
 
             return ManagedWriteResult(
-                kind: resource?.effectiveManagedCommitPolicy == .pushThenCommit ? .rejectedRemote : .rejectedValidation,
+                kind: rejectionKind,
                 filePath: filePath,
                 message: error.localizedDescription
             )
         }
     }
 
-    private func validateManagedProposal(data: Data, resource: ResourceConfig) throws {
-        _ = try FormatConverterFactory.decode(
+    public func submitManagedWorkspaceChangeData(
+        serviceId: String,
+        filePath: String,
+        proposedData: Data,
+        sourceApplication: String? = nil
+    ) async throws -> ManagedWriteResult {
+        guard isManagedWorkspaceService(serviceId: serviceId) else {
+            return ManagedWriteResult(
+                kind: .rejectedValidation,
+                filePath: filePath,
+                message: "Service is not using managed workspace mode."
+            )
+        }
+        guard let engine = adapterEngines[serviceId] else {
+            return ManagedWriteResult(
+                kind: .rejectedValidation,
+                filePath: filePath,
+                message: "Service is not registered."
+            )
+        }
+
+        let serviceDir = syncFolder.appendingPathComponent(serviceId, isDirectory: true)
+        let acceptedURL = serviceDir.appendingPathComponent(filePath)
+        let acceptedData = try? Data(contentsOf: acceptedURL)
+        let serviceName = serviceInfos[serviceId]?.displayName ?? serviceId
+        let resource = findResource(for: filePath, in: engine.config)
+        let isSupportFile = filePath == "CLAUDE.md" || filePath == "SKILL.md"
+        var rejectionKind: ManagedWriteResultKind = .rejectedValidation
+
+        do {
+            if let resource {
+                if syncStates[serviceId]?.files[filePath]?.isCompanion == true {
+                    throw NSError(domain: "API2FileCore", code: 403, userInfo: [
+                        NSLocalizedDescriptionKey: "Companion files are generated and cannot be edited."
+                    ])
+                }
+                if resource.fileMapping.effectivePushMode == .readOnly {
+                    throw NSError(domain: "API2FileCore", code: 403, userInfo: [
+                        NSLocalizedDescriptionKey: "This managed file is read-only."
+                    ])
+                }
+
+                switch resource.effectiveManagedCommitPolicy {
+                case .localFirst, .validateThenCommit:
+                    try validateManagedProposal(data: proposedData, resource: resource, acceptedData: acceptedData)
+                    try FileManager.default.createDirectory(at: acceptedURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+                    suppressPath(filePath)
+                    try proposedData.write(to: acceptedURL, options: .atomic)
+                    if syncStates[serviceId]?.files[filePath] != nil {
+                        syncStates[serviceId]?.files[filePath]?.lastSyncedHash = proposedData.sha256Hex
+                        syncStates[serviceId]?.files[filePath]?.lastSyncTime = Date()
+                        syncStates[serviceId]?.files[filePath]?.status = .synced
+                    }
+                    let stateURL = serviceDir.appendingPathComponent(".api2file/state.json")
+                    try syncStates[serviceId]?.save(to: stateURL)
+                    synchronizeFileLinks(serviceDir: serviceDir, config: engine.config, state: syncStates[serviceId] ?? SyncState())
+                    refreshSQLiteMirrorIfPossible(
+                        serviceId: serviceId,
+                        serviceDir: serviceDir,
+                        config: engine.config,
+                        state: syncStates[serviceId] ?? SyncState()
+                    )
+                case .pushThenCommit:
+                    guard resource.push != nil else {
+                        throw NSError(domain: "API2FileCore", code: 400, userInfo: [
+                            NSLocalizedDescriptionKey: "This managed file has no remote push configuration."
+                        ])
+                    }
+                    try validateManagedProposal(data: proposedData, resource: resource, acceptedData: acceptedData)
+                    try FileManager.default.createDirectory(at: acceptedURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+                    suppressPath(filePath)
+                    try proposedData.write(to: acceptedURL, options: .atomic)
+                    rejectionKind = .rejectedRemote
+                    try await performPush(serviceId: serviceId, filePath: filePath)
+                }
+            } else if isSupportFile {
+                try FileManager.default.createDirectory(at: acceptedURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+                suppressPath(filePath)
+                try proposedData.write(to: acceptedURL, options: .atomic)
+            } else {
+                throw NSError(domain: "API2FileCore", code: 404, userInfo: [
+                    NSLocalizedDescriptionKey: "Managed workspace currently accepts edits only for known resource files and generated guides."
+                ])
+            }
+
+            try? await managedWorkspaceManager.synchronizeVisibleFiles(serviceId: serviceId, acceptedRoot: serviceDir)
+            return ManagedWriteResult(kind: .accepted, filePath: filePath, message: "Managed write accepted.")
+        } catch {
+            if let acceptedData {
+                try? FileManager.default.createDirectory(at: acceptedURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+                suppressPath(filePath)
+                try? acceptedData.write(to: acceptedURL, options: .atomic)
+            }
+            try? await managedWorkspaceManager.restoreAcceptedFile(serviceId: serviceId, filePath: filePath, acceptedRoot: serviceDir)
+
+            let proposal = RejectedManagedProposal(
+                serviceId: serviceId,
+                filePath: filePath,
+                contentHash: proposedData.sha256Hex,
+                errorMessage: error.localizedDescription,
+                sourceApplication: sourceApplication
+            )
+            try? await managedWorkspaceManager.recordRejectedProposal(proposal)
+
+            let entry = SyncHistoryEntry(
+                serviceId: serviceId,
+                serviceName: serviceName,
+                direction: .push,
+                status: .error,
+                duration: 0,
+                files: [FileChange(path: filePath, action: .error, errorMessage: error.localizedDescription)],
+                summary: "managed write rejected: \(error.localizedDescription)"
+            )
+            logHistory(entry, serviceId: serviceId, serviceDir: serviceDir)
+
+            return ManagedWriteResult(
+                kind: rejectionKind,
+                filePath: filePath,
+                message: error.localizedDescription
+            )
+        }
+    }
+
+    private func validateManagedProposal(data: Data, resource: ResourceConfig, acceptedData: Data?) throws {
+        let proposedRecords = try FormatConverterFactory.decode(
             data: data,
             format: resource.fileMapping.format,
             options: resource.fileMapping.effectiveFormatOptions
         )
+        let acceptedRecords: [[String: Any]]
+        if let acceptedData {
+            acceptedRecords = (try? FormatConverterFactory.decode(
+                data: acceptedData,
+                format: resource.fileMapping.format,
+                options: resource.fileMapping.effectiveFormatOptions
+            )) ?? []
+        } else {
+            acceptedRecords = []
+        }
+
+        try validateManagedDecodedRecords(
+            proposedRecords,
+            acceptedRecords: acceptedRecords,
+            resource: resource
+        )
+    }
+
+    private func validateManagedDecodedRecords(
+        _ proposedRecords: [[String: Any]],
+        acceptedRecords: [[String: Any]],
+        resource: ResourceConfig
+    ) throws {
+        switch resource.fileMapping.strategy {
+        case .collection:
+            try validateManagedCollectionSchema(
+                proposedRecords,
+                acceptedRecords: acceptedRecords,
+                resource: resource
+            )
+        case .onePerRecord, .mirror:
+            break
+        }
+
+        try validateManagedRequiredTextFields(
+            proposedRecords,
+            acceptedRecords: acceptedRecords,
+            resource: resource
+        )
+    }
+
+    private func validateManagedCollectionSchema(
+        _ proposedRecords: [[String: Any]],
+        acceptedRecords: [[String: Any]],
+        resource: ResourceConfig
+    ) throws {
+        let proposedKeys = managedRecordKeys(proposedRecords)
+        let acceptedKeys = managedRecordKeys(acceptedRecords)
+
+        if !acceptedKeys.isEmpty, proposedKeys != acceptedKeys {
+            let missing = acceptedKeys.subtracting(proposedKeys).sorted()
+            let extra = proposedKeys.subtracting(acceptedKeys).sorted()
+            var details: [String] = []
+            if !missing.isEmpty {
+                details.append("missing columns: \(missing.joined(separator: ", "))")
+            }
+            if !extra.isEmpty {
+                details.append("unexpected columns: \(extra.joined(separator: ", "))")
+            }
+            throw NSError(domain: "API2FileCore", code: 422, userInfo: [
+                NSLocalizedDescriptionKey: "Managed file schema mismatch — \(details.joined(separator: "; "))"
+            ])
+        }
+
+        let idField = resource.fileMapping.idField ?? "id"
+        var seenIDs = Set<String>()
+        for (index, record) in proposedRecords.enumerated() {
+            guard let id = managedStringValue(record[idField]), !id.isEmpty else { continue }
+            if !seenIDs.insert(id).inserted {
+                throw NSError(domain: "API2FileCore", code: 422, userInfo: [
+                    NSLocalizedDescriptionKey: "Duplicate \(idField) '\(id)' in row \(index + 2)."
+                ])
+            }
+        }
+    }
+
+    private func validateManagedRequiredTextFields(
+        _ proposedRecords: [[String: Any]],
+        acceptedRecords: [[String: Any]],
+        resource: ResourceConfig
+    ) throws {
+        let acceptedKeys = managedRecordKeys(acceptedRecords)
+        let proposedKeys = managedRecordKeys(proposedRecords)
+
+        var requiredFields = Set<String>()
+        if acceptedKeys.contains("name") || proposedKeys.contains("name") {
+            requiredFields.insert("name")
+        }
+        if acceptedKeys.contains("title") || proposedKeys.contains("title") {
+            requiredFields.insert("title")
+        }
+        if let contentField = resource.fileMapping.contentField,
+           acceptedKeys.contains(contentField) || proposedKeys.contains(contentField) {
+            requiredFields.insert(contentField)
+        }
+
+        guard !requiredFields.isEmpty else { return }
+
+        for (index, record) in proposedRecords.enumerated() {
+            for field in requiredFields.sorted() {
+                guard let value = record[field] else {
+                    throw NSError(domain: "API2FileCore", code: 422, userInfo: [
+                        NSLocalizedDescriptionKey: "Missing required field '\(field)' in row \(index + 2)."
+                    ])
+                }
+                guard let stringValue = managedStringValue(value), !stringValue.isEmpty else {
+                    throw NSError(domain: "API2FileCore", code: 422, userInfo: [
+                        NSLocalizedDescriptionKey: "Field '\(field)' cannot be empty in row \(index + 2)."
+                    ])
+                }
+            }
+        }
+    }
+
+    private func managedRecordKeys(_ records: [[String: Any]]) -> Set<String> {
+        Set(records.flatMap(\.keys))
+    }
+
+    private func managedStringValue(_ value: Any?) -> String? {
+        switch value {
+        case let string as String:
+            return string.trimmingCharacters(in: .whitespacesAndNewlines)
+        case let int as Int:
+            return "\(int)"
+        case let double as Double:
+            return "\(double)"
+        case let bool as Bool:
+            return bool ? "true" : "false"
+        case let number as NSNumber:
+            return number.stringValue
+        default:
+            return nil
+        }
     }
 
     /// Explicitly notify the engine that a synced file changed.

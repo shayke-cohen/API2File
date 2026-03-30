@@ -116,6 +116,7 @@ public actor ManagedWorkspaceManager {
     }
 
     private func enumerateVisibleFiles(in root: URL) -> [(relativePath: String, data: Data)] {
+        let resolvedRoot = root.resolvingSymlinksInPath()
         guard let enumerator = FileManager.default.enumerator(
             at: root,
             includingPropertiesForKeys: [.isRegularFileKey],
@@ -128,10 +129,11 @@ public actor ManagedWorkspaceManager {
         for case let fileURL as URL in enumerator {
             let values = try? fileURL.resourceValues(forKeys: [.isRegularFileKey])
             guard values?.isRegularFile == true else { continue }
-            let relativePath = fileURL.path.replacingOccurrences(of: root.path + "/", with: "")
+            let resolvedFileURL = fileURL.resolvingSymlinksInPath()
+            let relativePath = resolvedFileURL.path.replacingOccurrences(of: resolvedRoot.path + "/", with: "")
             guard !relativePath.contains("/.") else { continue }
             guard !relativePath.hasPrefix(".") else { continue }
-            guard let data = try? Data(contentsOf: fileURL) else { continue }
+            guard let data = try? Data(contentsOf: resolvedFileURL) else { continue }
             files.append((relativePath, data))
         }
         return files
