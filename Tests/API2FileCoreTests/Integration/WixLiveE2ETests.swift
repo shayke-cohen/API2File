@@ -161,11 +161,11 @@ final class WixLiveE2ETests: XCTestCase {
         .init(name: "pdf-viewer", capabilityClass: .readOnly, humanRelativePath: "pdf-viewer/*.pdf", humanFormat: .raw, objectRelativePath: nil, humanSanitized: true, supportsCreate: false, supportsUpdate: false, supportsDelete: false, humanToObjectToServer: false, objectToHumanToServer: false, serverToObjectToHuman: false, notes: "Binary upload/pull/delete only."),
         .init(name: "wix-video", capabilityClass: .readOnly, humanRelativePath: "wix-video/*", humanFormat: .raw, objectRelativePath: nil, humanSanitized: true, supportsCreate: false, supportsUpdate: false, supportsDelete: false, humanToObjectToServer: false, objectToHumanToServer: false, serverToObjectToHuman: false, notes: "Binary upload/pull/delete only."),
         .init(name: "wix-music-podcasts", capabilityClass: .readOnly, humanRelativePath: "wix-music-podcasts/*", humanFormat: .raw, objectRelativePath: nil, humanSanitized: true, supportsCreate: false, supportsUpdate: false, supportsDelete: false, humanToObjectToServer: false, objectToHumanToServer: false, serverToObjectToHuman: false, notes: "Binary upload/pull/delete only."),
-        .init(name: "bookings-services", capabilityClass: .partialWritable, humanRelativePath: "bookings/services.csv", humanFormat: .csv, objectRelativePath: "bookings/.services.objects.json", humanSanitized: true, supportsCreate: true, supportsUpdate: true, supportsDelete: true, humanToObjectToServer: true, objectToHumanToServer: false, serverToObjectToHuman: true, notes: "CSV with CRUD from the human surface; object-file propagation still needs hardening."),
-        .init(name: "bookings-appointments", capabilityClass: .readOnly, humanRelativePath: "bookings/appointments.csv", humanFormat: .csv, objectRelativePath: nil, humanSanitized: true, supportsCreate: false, supportsUpdate: false, supportsDelete: false, humanToObjectToServer: false, objectToHumanToServer: false, serverToObjectToHuman: false, notes: "Read-only appointments feed."),
+        .init(name: "bookings-services", capabilityClass: .partialWritable, humanRelativePath: "bookings-services/services.csv", humanFormat: .csv, objectRelativePath: "bookings-services/.services.objects.json", humanSanitized: true, supportsCreate: true, supportsUpdate: true, supportsDelete: true, humanToObjectToServer: true, objectToHumanToServer: false, serverToObjectToHuman: true, notes: "CSV with CRUD from the human surface; object-file propagation still needs hardening."),
+        .init(name: "bookings-appointments", capabilityClass: .readOnly, humanRelativePath: "bookings-appointments/appointments.csv", humanFormat: .csv, objectRelativePath: nil, humanSanitized: true, supportsCreate: false, supportsUpdate: false, supportsDelete: false, humanToObjectToServer: false, objectToHumanToServer: false, serverToObjectToHuman: false, notes: "Read-only appointments feed."),
         .init(name: "groups", capabilityClass: .partialWritable, humanRelativePath: "groups.csv", humanFormat: .csv, objectRelativePath: ".groups.objects.json", humanSanitized: true, supportsCreate: true, supportsUpdate: true, supportsDelete: true, humanToObjectToServer: true, objectToHumanToServer: false, serverToObjectToHuman: true, notes: "CSV with CRUD from the human surface; object-file propagation still needs hardening."),
-        .init(name: "inbox-conversations", capabilityClass: .readOnly, humanRelativePath: "inbox/conversations.csv", humanFormat: .csv, objectRelativePath: ".inbox-conversations.objects.json", humanSanitized: true, supportsCreate: false, supportsUpdate: false, supportsDelete: false, humanToObjectToServer: false, objectToHumanToServer: false, serverToObjectToHuman: false, notes: "Read-only inbox conversation index; writable messages are a child surface."),
-        .init(name: "comments", capabilityClass: .readOnly, humanRelativePath: "comments.csv", humanFormat: .csv, objectRelativePath: nil, humanSanitized: false, supportsCreate: false, supportsUpdate: false, supportsDelete: false, humanToObjectToServer: false, objectToHumanToServer: false, serverToObjectToHuman: false, notes: "Read-only comments projection."),
+        .init(name: "inbox-conversations", capabilityClass: .readOnly, humanRelativePath: "inbox-conversations/conversations.csv", humanFormat: .csv, objectRelativePath: ".inbox-conversations.objects.json", humanSanitized: true, supportsCreate: false, supportsUpdate: false, supportsDelete: false, humanToObjectToServer: false, objectToHumanToServer: false, serverToObjectToHuman: false, notes: "Read-only inbox conversation index; writable messages are a child surface."),
+        .init(name: "comments", capabilityClass: .readOnly, humanRelativePath: "comments/comments.csv", humanFormat: .csv, objectRelativePath: nil, humanSanitized: false, supportsCreate: false, supportsUpdate: false, supportsDelete: false, humanToObjectToServer: false, objectToHumanToServer: false, serverToObjectToHuman: false, notes: "Read-only comments projection."),
         .init(name: "events", capabilityClass: .partialWritable, humanRelativePath: "events.csv", humanFormat: .csv, objectRelativePath: ".events.objects.json", humanSanitized: true, supportsCreate: false, supportsUpdate: true, supportsDelete: false, humanToObjectToServer: true, objectToHumanToServer: true, serverToObjectToHuman: true, notes: "Event catalog with update-only semantics in the first pass."),
         .init(name: "events-rsvps", capabilityClass: .readOnly, humanRelativePath: "events/rsvps.csv", humanFormat: .csv, objectRelativePath: nil, humanSanitized: true, supportsCreate: false, supportsUpdate: false, supportsDelete: false, humanToObjectToServer: false, objectToHumanToServer: false, serverToObjectToHuman: false, notes: "Read-only RSVP feed."),
         .init(name: "events-tickets", capabilityClass: .readOnly, humanRelativePath: "events/tickets.csv", humanFormat: .csv, objectRelativePath: nil, humanSanitized: true, supportsCreate: false, supportsUpdate: false, supportsDelete: false, humanToObjectToServer: false, objectToHumanToServer: false, serverToObjectToHuman: false, notes: "Read-only ticket definition catalog."),
@@ -4787,12 +4787,12 @@ final class WixLiveE2ETests: XCTestCase {
     func testBookingsServices_Pull_WritesExpectedFile() async throws {
         try await assertCollectionPull(
             resourceName: "bookings-services",
-            relativePath: "bookings/services.csv",
+            relativePath: "bookings-services/services.csv",
             expectedColumns: ["id", "name", "type", "capacity", "onlineBookingEnabled"],
             allowEmptyFile: true
         )
 
-        let records = try readCSV("bookings/services.csv")
+        let records = try readCSV("bookings-services/services.csv")
         if let first = records.first {
             let columns = Set(first.keys)
             XCTAssertFalse(columns.contains("revision"), "Bookings services CSV should not expose revision")
@@ -4809,7 +4809,7 @@ final class WixLiveE2ETests: XCTestCase {
 
         let pullResult = try await engine.pull(resource: res)
         try writeFilesToDisk(pullResult.files)
-        let records = try readCSV("bookings/services.csv")
+        let records = try readCSV("bookings-services/services.csv")
         let found = records.first(where: { ($0["id"] as? String) == created.id })
         XCTAssertNotNil(found, "Created bookings service should appear in local pull")
         XCTAssertEqual(found?["name"] as? String, name)
@@ -4870,7 +4870,7 @@ final class WixLiveE2ETests: XCTestCase {
             await harness.syncEngine.triggerSync(serviceId: "wix")
             try await self.waitForSyncIdle(harness.syncEngine)
 
-            let humanRelativePath = "bookings/services.csv"
+            let humanRelativePath = "bookings-services/services.csv"
             let humanURL = harness.serviceDir.appendingPathComponent(humanRelativePath)
             let objectRelativePath = ObjectFileManager.objectFilePath(forCollectionFile: humanRelativePath)
             let objectURL = harness.serviceDir.appendingPathComponent(objectRelativePath)
@@ -4902,7 +4902,7 @@ final class WixLiveE2ETests: XCTestCase {
     func testBookingsAppointments_Pull_WritesExpectedFile() async throws {
         try await assertCollectionPull(
             resourceName: "bookings-appointments",
-            relativePath: "bookings/appointments.csv",
+            relativePath: "bookings-appointments/appointments.csv",
             expectedColumns: ["id", "serviceName", "startDate", "endDate", "guestEmail"],
             allowEmptyFile: true
         )
@@ -4915,7 +4915,7 @@ final class WixLiveE2ETests: XCTestCase {
     func testComments_Pull_WritesExpectedFile() async throws {
         try await assertCollectionPull(
             resourceName: "comments",
-            relativePath: "comments.csv",
+            relativePath: "comments/comments.csv",
             expectedColumns: ["id", "text", "authorMemberId", "status"],
             allowEmptyFile: true
         )
@@ -5651,7 +5651,7 @@ final class WixLiveE2ETests: XCTestCase {
     func testInboxConversations_Pull_ReturnsCSVFile() async throws {
         try await assertCollectionPull(
             resourceName: "inbox-conversations",
-            relativePath: "inbox/conversations.csv",
+            relativePath: "inbox-conversations/conversations.csv",
             expectedColumns: ["id", "contactName", "contactId"],
             allowEmptyFile: true,
             allowSiteUnavailable: true
@@ -5672,8 +5672,8 @@ final class WixLiveE2ETests: XCTestCase {
 
         XCTAssertFalse(result.files.isEmpty, "inbox-conversations pull returned no files")
 
-        let conversationsFile = result.files.first(where: { $0.relativePath == "inbox/conversations.csv" })
-        XCTAssertNotNil(conversationsFile, "Expected inbox/conversations.csv in pull result; got: \(result.files.map(\.relativePath))")
+        let conversationsFile = result.files.first(where: { $0.relativePath == "inbox-conversations/conversations.csv" })
+        XCTAssertNotNil(conversationsFile, "Expected inbox-conversations/conversations.csv in pull result; got: \(result.files.map(\.relativePath))")
     }
 
     // MARK: - Inbox Messages — Pull / Send
