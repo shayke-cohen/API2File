@@ -6,6 +6,27 @@ extension Notification.Name {
 
 @MainActor
 final class API2FileAppDelegate: NSObject, NSApplicationDelegate {
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        DistributedNotificationCenter.default().postNotificationName(
+            AppState.activateDashboardNotification,
+            object: nil,
+            userInfo: nil,
+            deliverImmediately: true
+        )
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if !flag {
+            DistributedNotificationCenter.default().postNotificationName(
+                AppState.activateDashboardNotification,
+                object: nil,
+                userInfo: nil,
+                deliverImmediately: true
+            )
+        }
+        return true
+    }
+
     func application(_ application: NSApplication, open urls: [URL]) {
         NSLog("AppDelegate open urls: %@", urls.map(\.absoluteString).joined(separator: ", "))
         for url in urls {

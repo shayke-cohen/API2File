@@ -3,7 +3,6 @@ import API2FileCore
 
 struct MenuBarView: View {
     @ObservedObject var appState: AppState
-    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         // Services section
@@ -75,8 +74,7 @@ struct MenuBarView: View {
         .testId("menubar-open-logs")
 
         Button("Dashboard...") {
-            openWindow(id: "dashboard")
-            NSApp.activate(ignoringOtherApps: true)
+            appState.openDashboardWindow()
         }
         .keyboardShortcut(",")
         .testId("menubar-dashboard")

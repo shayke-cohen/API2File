@@ -120,6 +120,7 @@ final class AppState: ObservableObject {
     private var refreshTask: Task<Void, Never>?
     private var engineStarted = false
     private var addServiceWindow: NSWindow?
+    private var dashboardWindow: NSWindow?
     private let webViewBridge = WebViewBridge()
     private let snapshotWebViewBridge = WebViewBridge(presentationMode: .hiddenSnapshot)
     /// Shared WebViewStore for the Browser pane — also serves as BrowserControlDelegate for MCP
@@ -153,6 +154,9 @@ final class AppState: ObservableObject {
             Task { @MainActor [weak self] in
                 self?.startEngine()
             }
+            DispatchQueue.main.async { [weak self] in
+                self?.openDashboardWindow()
+            }
         }
     }
 
@@ -183,14 +187,21 @@ final class AppState: ObservableObject {
 
     func openDashboardWindow() {
         NSApp.activate(ignoringOtherApps: true)
+        if let dashboardWindow {
+            dashboardWindow.makeKeyAndOrderFront(nil)
+            return
+        }
         if let dashboardWindowOpener {
             dashboardWindowOpener()
             return
         }
         // Fallback: find an already-open window
         if let dashboardWindow = NSApp.windows.first(where: { $0.title == "Dashboard" }) {
+            self.dashboardWindow = dashboardWindow
             dashboardWindow.makeKeyAndOrderFront(nil)
+            return
         }
+        createDashboardWindow()
     }
 
     func startEngine() {
@@ -378,6 +389,19 @@ final class AppState: ObservableObject {
 
             self.addServiceWindow = window
         }
+    }
+
+    private func createDashboardWindow() {
+        let hostingController = NSHostingController(rootView: DashboardRootView(appState: self))
+        let window = NSWindow(contentViewController: hostingController)
+        window.title = "Dashboard"
+        window.styleMask = [.titled, .closable, .resizable, .miniaturizable]
+        window.setContentSize(NSSize(width: 1280, height: 820))
+        window.minSize = NSSize(width: 900, height: 620)
+        window.center()
+        window.isReleasedWhenClosed = false
+        window.makeKeyAndOrderFront(nil)
+        dashboardWindow = window
     }
 
     func openLogs() {
