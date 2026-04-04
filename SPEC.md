@@ -176,9 +176,9 @@ All credentials stored in macOS Keychain with `com.api2file.` namespace.
 
 - Native SwiftUI menu bar app (`LSUIElement` — no dock icon)
 - Service list with status indicators and per-service sync controls
-- **Dashboard workspace** — a single dashboard window with inner sections for `File Explorer`, `Data Explorer`, and `Activity`
+- **Dashboard workspace** — a single dashboard window with a shared service top bar, a sidebar for `General`, `File Explorer`, `Data Explorer`, and `Settings`, plus a top-bar activity drawer
 - **Managed workspace support** — the dashboard and local control API understand both plain-sync and managed-workspace service roots
-- **Settings sheet** — general sync, git, notification, Finder badge, and app settings opened from the dashboard shell
+- **Settings section** — general sync, git, notification, Finder badge, and selected-service sync controls inside the dashboard shell
 - **Add Service wizard** — guided 3-step flow: select service → enter credentials → connected
   - Service-specific extra fields (Wix Site ID, Airtable Base ID/Table Name)
   - API key securely stored in macOS Keychain

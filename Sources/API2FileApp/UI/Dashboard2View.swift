@@ -2,11 +2,18 @@ import SwiftUI
 import WebKit
 import API2FileCore
 
+enum Dashboard2Layout {
+    case full
+    case explorerOnly
+}
+
 struct Dashboard2View: View {
     @ObservedObject var appState: AppState
     let headerTitle: String
     let headerSubtitle: String
     let embeddedInWorkspace: Bool
+    let selectedServiceIdOverride: String?
+    let layout: Dashboard2Layout
 
     @State private var selectedServiceId: String?
     @State private var selectedFileURL: URL?
@@ -31,51 +38,51 @@ struct Dashboard2View: View {
         appState: AppState,
         headerTitle: String = "Dashboard",
         headerSubtitle: String = "A management portal for synced content: browse by folder, edit records in tables, refine Markdown content, and jump into the right tool faster.",
-        embeddedInWorkspace: Bool = false
+        embeddedInWorkspace: Bool = false,
+        selectedServiceIdOverride: String? = nil,
+        layout: Dashboard2Layout = .full
     ) {
         self.appState = appState
         self.headerTitle = headerTitle
         self.headerSubtitle = headerSubtitle
         self.embeddedInWorkspace = embeddedInWorkspace
+        self.selectedServiceIdOverride = selectedServiceIdOverride
+        self.layout = layout
     }
 
     var body: some View {
         ZStack {
-            if !embeddedInWorkspace {
+            if !embeddedInWorkspace && layout == .full {
                 background.ignoresSafeArea()
             }
 
             VStack(spacing: 12) {
-                if embeddedInWorkspace {
-                    workspaceDeck
-                } else {
-                    portalHeader
-                    overviewStrip
+                if layout == .full {
+                    if embeddedInWorkspace {
+                        workspaceDeck
+                    } else {
+                        portalHeader
+                        overviewStrip
+                    }
                 }
 
                 if services.isEmpty {
                     portalEmptyState
                 } else {
-                    HSplitView {
-                        contentBrowser
-                            .frame(minWidth: 320, idealWidth: 360, maxWidth: 420)
-
-                        detailWorkspace
-                            .frame(minWidth: 520, idealWidth: 760)
-                    }
-                    .padding(.bottom, 4)
+                    explorerSplitView
                 }
             }
-            .padding(embeddedInWorkspace ? 0 : 18)
+            .padding(layout == .explorerOnly ? 0 : (embeddedInWorkspace ? 0 : 18))
         }
         .onAppear {
             selectDefaultServiceIfNeeded()
             // Handle pending navigation from "Open in API2File" Finder action
             if let serviceId = appState.pendingOpenPath?.serviceId {
-                selectedServiceId = serviceId
+                if selectedServiceIdOverride == nil {
+                    selectedServiceId = serviceId
+                }
                 if let relativePath = appState.pendingOpenPath?.relativePath {
-                    let fileURL = appState.config.resolvedSyncFolder
-                        .appendingPathComponent(serviceId)
+                    let fileURL = (appState.services.first(where: { $0.serviceId == serviceId }).map { appState.serviceSurfaceURL(for: $0) } ?? appState.config.resolvedSyncFolder.appendingPathComponent(serviceId))
                         .appendingPathComponent(relativePath)
                     if FileManager.default.fileExists(atPath: fileURL.path) {
                         selectedFileURL = fileURL
@@ -87,16 +94,17 @@ struct Dashboard2View: View {
         .onChange(of: services.map(\.serviceId)) { _ in
             selectDefaultServiceIfNeeded()
         }
-        .onChange(of: selectedServiceId) { _ in
+        .onChange(of: effectiveSelectedServiceId) { _ in
             selectedFileURL = nil
             expandedFolders = []
         }
         .onChange(of: appState.pendingOpenPath?.serviceId) { serviceId in
             guard let serviceId else { return }
-            selectedServiceId = serviceId
+            if selectedServiceIdOverride == nil {
+                selectedServiceId = serviceId
+            }
             if let relativePath = appState.pendingOpenPath?.relativePath,
-               let dir = appState.config.resolvedSyncFolder
-                   .appendingPathComponent(serviceId) as URL? {
+               let dir = appState.services.first(where: { $0.serviceId == serviceId }).map({ appState.serviceSurfaceURL(for: $0) }) ?? appState.config.resolvedSyncFolder.appendingPathComponent(serviceId) as URL? {
                 let fileURL = dir.appendingPathComponent(relativePath)
                 if FileManager.default.fileExists(atPath: fileURL.path) {
                     selectedFileURL = fileURL
@@ -104,8 +112,8 @@ struct Dashboard2View: View {
             }
             appState.pendingOpenPath = nil
         }
-        .task(id: selectedServiceId) {
-            guard let selectedServiceId else { return }
+        .task(id: effectiveSelectedServiceId) {
+            guard let selectedServiceId = effectiveSelectedServiceId else { return }
             isLoadingHistory = true
             await appState.refreshHistory(serviceId: selectedServiceId)
             isLoadingHistory = false
@@ -134,8 +142,12 @@ struct Dashboard2View: View {
             .sorted { $0.displayName.localizedStandardCompare($1.displayName) == .orderedAscending }
     }
 
+    private var effectiveSelectedServiceId: String? {
+        selectedServiceIdOverride ?? selectedServiceId
+    }
+
     private var selectedService: ServiceInfo? {
-        services.first(where: { $0.serviceId == selectedServiceId }) ?? services.first
+        services.first(where: { $0.serviceId == effectiveSelectedServiceId }) ?? services.first
     }
 
     private var selectedServiceDirectory: URL? {
@@ -154,6 +166,17 @@ struct Dashboard2View: View {
     private var treeNodes: [PortalBrowserNode] {
         guard let directory = selectedServiceDirectory else { return [] }
         return PortalBrowserTreeBuilder.build(files: visibleFiles, serviceDir: directory)
+    }
+
+    private var explorerSplitView: some View {
+        HSplitView {
+            contentBrowser
+                .frame(minWidth: 320, idealWidth: 360, maxWidth: 420)
+
+            detailWorkspace
+                .frame(minWidth: 520, idealWidth: 760)
+        }
+        .padding(.bottom, 4)
     }
 
     private var portalHeader: some View {
@@ -641,11 +664,13 @@ struct Dashboard2View: View {
     @ViewBuilder
     private var detailWorkspace: some View {
         if let selectedFileURL, let serviceDir = selectedServiceDirectory {
+            let relativePath = selectedFileURL.path.replacingOccurrences(of: serviceDir.path + "/", with: "")
             PortalDetailWorkspace(
                 fileURL: selectedFileURL,
                 serviceDir: serviceDir,
                 serviceName: selectedService?.displayName ?? "",
-                serviceConfig: selectedService?.config
+                serviceConfig: selectedService?.config,
+                fileSyncState: syncState?.files[relativePath]
             )
         } else {
             VStack(alignment: .leading, spacing: 12) {
@@ -691,6 +716,7 @@ struct Dashboard2View: View {
     }
 
     private func selectDefaultServiceIfNeeded() {
+        guard selectedServiceIdOverride == nil else { return }
         guard let first = services.first else {
             selectedServiceId = nil
             selectedFileURL = nil
@@ -936,6 +962,100 @@ private struct PortalSummaryCard: View {
     }
 }
 
+private enum PortalFileBadgeState {
+    case synced
+    case syncing
+    case pendingPush
+    case conflict
+    case failed
+    case excluded
+    case localOnly
+
+    var title: String {
+        switch self {
+        case .synced: return "Synced"
+        case .syncing: return "Syncing"
+        case .pendingPush: return "Pending Push"
+        case .conflict: return "Conflict"
+        case .failed: return "Failed"
+        case .excluded: return "Excluded"
+        case .localOnly: return "Local Only"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .synced: return "checkmark.circle.fill"
+        case .syncing: return "arrow.triangle.2.circlepath.circle.fill"
+        case .pendingPush: return "arrow.up.circle.fill"
+        case .conflict: return "exclamationmark.triangle.fill"
+        case .failed: return "xmark.circle.fill"
+        case .excluded: return "minus.circle.fill"
+        case .localOnly: return "circle.dashed"
+        }
+    }
+
+    var tint: Color {
+        switch self {
+        case .synced: return .green
+        case .syncing: return .blue
+        case .pendingPush: return .orange
+        case .conflict: return .yellow
+        case .failed: return .red
+        case .excluded: return .secondary
+        case .localOnly: return .secondary
+        }
+    }
+
+    var priority: Int {
+        switch self {
+        case .failed: return 6
+        case .conflict: return 5
+        case .pendingPush: return 4
+        case .syncing: return 3
+        case .localOnly: return 2
+        case .excluded: return 1
+        case .synced: return 0
+        }
+    }
+}
+
+private func portalBadgeState(for fileState: FileSyncState?) -> PortalFileBadgeState {
+    guard let fileState else { return .localOnly }
+    if fileState.excluded == true { return .excluded }
+    switch fileState.status {
+    case .synced: return .synced
+    case .syncing: return .syncing
+    case .modified: return .pendingPush
+    case .conflict: return .conflict
+    case .error: return .failed
+    }
+}
+
+private struct PortalFileStatusBadge: View {
+    let state: PortalFileBadgeState
+    var compact: Bool = false
+
+    var body: some View {
+        HStack(spacing: compact ? 5 : 6) {
+            Image(systemName: state.icon)
+                .font(.system(size: compact ? 10 : 11, weight: .semibold))
+            if !compact {
+                Text(state.title)
+                    .font(.caption2.weight(.semibold))
+                    .lineLimit(1)
+            }
+        }
+        .foregroundStyle(state.tint)
+        .padding(.horizontal, compact ? 6 : 8)
+        .padding(.vertical, compact ? 4 : 5)
+        .background(
+            Capsule()
+                .fill(state.tint.opacity(compact ? 0.12 : 0.14))
+        )
+    }
+}
+
 private struct PortalBrowserNode: Identifiable {
     enum Kind {
         case folder
@@ -1067,6 +1187,7 @@ private struct PortalBrowserTreeRow: View {
     private var folderRow: some View {
         let resource = matchingResource(for: node.relativePath)
         let isDisabled = resource?.enabled == false
+        let badgeState = aggregateBadgeState(for: node)
         return Button {
             toggleFolder()
         } label: {
@@ -1086,6 +1207,7 @@ private struct PortalBrowserTreeRow: View {
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 } else {
+                    PortalFileStatusBadge(state: badgeState, compact: true)
                     Text("\(node.children.count)")
                         .font(.caption2.weight(.semibold))
                         .foregroundStyle(.secondary)
@@ -1129,7 +1251,9 @@ private struct PortalBrowserTreeRow: View {
     private var fileRow: some View {
         let fileURL = nodeFileURL
         let relativePath = fileURL.path.replacingOccurrences(of: serviceDir.path + "/", with: "")
-        let isExcluded = syncState?.files[relativePath]?.excluded == true
+        let fileState = syncState?.files[relativePath]
+        let badgeState = portalBadgeState(for: fileState)
+        let isExcluded = badgeState == .excluded
         return Button {
             selectedFileURL = fileURL
             expandAncestors()
@@ -1137,7 +1261,7 @@ private struct PortalBrowserTreeRow: View {
             HStack(spacing: 10) {
                 Color.clear.frame(width: 12)
                 Image(systemName: portalIconName(for: fileURL))
-                    .foregroundStyle(selectedFileURL == fileURL ? Color.accentColor : (isExcluded ? Color.secondary.opacity(0.5) : .secondary))
+                    .foregroundStyle(selectedFileURL == fileURL ? Color.accentColor : badgeState.tint)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(node.name)
                         .font(.callout.weight(.medium))
@@ -1149,11 +1273,7 @@ private struct PortalBrowserTreeRow: View {
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
-                if isExcluded {
-                    Image(systemName: "minus.circle")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
+                PortalFileStatusBadge(state: badgeState)
             }
             .padding(.leading, rowPadding)
             .padding(.horizontal, 10)
@@ -1167,6 +1287,22 @@ private struct PortalBrowserTreeRow: View {
         .opacity(isExcluded ? 0.6 : 1.0)
         .contextMenu {
             portalFileContextMenu(fileURL, relativePath: relativePath, isExcluded: isExcluded)
+        }
+    }
+
+    private func aggregateBadgeState(for node: PortalBrowserNode) -> PortalFileBadgeState {
+        let childStates = leafRelativePaths(in: node).map { relativePath in
+            portalBadgeState(for: syncState?.files[relativePath])
+        }
+        return childStates.max(by: { $0.priority < $1.priority }) ?? .synced
+    }
+
+    private func leafRelativePaths(in node: PortalBrowserNode) -> [String] {
+        switch node.kind {
+        case .file:
+            return [node.relativePath]
+        case .folder:
+            return node.children.flatMap(leafRelativePaths(in:))
         }
     }
 
@@ -1248,6 +1384,7 @@ private struct PortalDetailWorkspace: View {
     let serviceDir: URL
     let serviceName: String
     let serviceConfig: AdapterConfig?
+    let fileSyncState: FileSyncState?
     @State private var isEditing = false
 
     private var relativePath: String {
@@ -1266,6 +1403,10 @@ private struct PortalDetailWorkspace: View {
         portalExternalDestination(for: fileURL, serviceConfig: serviceConfig, serviceDir: serviceDir)
     }
 
+    private var badgeState: PortalFileBadgeState {
+        portalBadgeState(for: fileSyncState)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack(alignment: .top) {
@@ -1277,6 +1418,18 @@ private struct PortalDetailWorkspace: View {
                     Text("\(serviceName) · \(relativePath)")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                    HStack(spacing: 8) {
+                        PortalFileStatusBadge(state: badgeState)
+                        if let fileSyncState {
+                            Text("Last sync \(fileSyncState.lastSyncTime.formatted(.relative(presentation: .named)))")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        } else {
+                            Text("This file is present locally but not tracked in sync state yet.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
                 }
                 Spacer()
                 if supportsInlineEditing {

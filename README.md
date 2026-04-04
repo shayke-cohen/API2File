@@ -15,7 +15,7 @@ See also: [`API2FILE_FS.md`](/Users/shayco/API2File/API2FILE_FS.md) for the mana
 | **15 file formats** | CSV, JSON, Markdown, HTML, ICS, VCF, XLSX, DOCX, PPTX, SVG, EML, YAML, WEBLOC, Text, Raw |
 | **12 bundled adapters** | Monday.com, Wix, GitHub, Airtable, + 7 demo-themed adapters |
 | **No-code configuration** | Drop an `.adapter.json` file — engine picks it up automatically |
-| **Always-on macOS app** | Menu bar icon, dashboard (File Explorer + Data Explorer + Activity) |
+| **Always-on macOS app** | Menu bar icon, dashboard shell (General + File Explorer + Data Explorer + Settings) |
 | **iOS app** | Browse, preview, edit, and share synced files from iPhone/iPad |
 | **AI-native** | SQLite mirror, MCP tools, auto-generated `CLAUDE.md` per service |
 | **Git history** | Every sync cycle auto-committed with descriptive messages |
@@ -199,7 +199,7 @@ Pure Swift core with native macOS and iOS apps.
 - **Media sync** -- generic binary file download/upload for any cloud storage API (images, videos, documents)
 - **Bidirectional sync** with smart collection diffing -- pull from API, push local edits back
 - **Optional managed workspace mode** -- surface accepted files under `~/API2File-Workspace/` and route edits through validation + managed commit handling
-- **macOS menu bar app + dashboard** -- always-on sync with a unified dashboard for File Explorer, Data Explorer, Activity, and settings
+- **macOS menu bar app + dashboard** -- always-on sync with a unified dashboard shell for General, File Explorer, Data Explorer, Settings, and top-bar activity
 - **Finder-aware desktop flow** -- Finder Sync badges/context actions, document opening into API2File, and Quick Look previews for synced file types
 - **Universal iOS app** -- browse, preview, edit, import, and share synced files from iPhone and iPad
 - **Web dashboard** at `localhost:8089` -- visual overview served by the demo server
@@ -258,7 +258,7 @@ swift run api2file status        # shows all services and their sync state
 swift run API2FileApp
 ```
 
-The app appears as a cloud icon in the menu bar. Open the Dashboard to browse synced files, inspect the SQLite mirror, review activity, and manage settings from one workspace.
+The app appears as a cloud icon in the menu bar. Open the Dashboard to manage one connected service at a time from a single workspace with a shared top bar, a sidebar for General, File Explorer, Data Explorer, and Settings, and a top-bar activity drawer.
 
 ### 6. Build the iOS app
 

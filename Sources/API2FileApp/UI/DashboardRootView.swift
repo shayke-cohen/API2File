@@ -1,10 +1,30 @@
 import AppKit
 import SwiftUI
+import API2FileCore
 
-private enum Dashboard3Tab: Hashable {
+enum DashboardSection: String, CaseIterable, Hashable {
+    case general
     case fileExplorer
     case dataExplorer
-    case activity
+    case settings
+
+    var title: String {
+        switch self {
+        case .general: return "General"
+        case .fileExplorer: return "File Explorer"
+        case .dataExplorer: return "Data Explorer"
+        case .settings: return "Settings"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .general: return "slider.horizontal.3"
+        case .fileExplorer: return "folder"
+        case .dataExplorer: return "cylinder.split.1x2"
+        case .settings: return "gearshape"
+        }
+    }
 }
 
 struct DashboardRootView: View {
@@ -12,8 +32,8 @@ struct DashboardRootView: View {
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
-        Dashboard3WorkspaceView(appState: appState)
-            .frame(minWidth: 900, idealWidth: 1280, minHeight: 620, idealHeight: 820)
+        DashboardWorkspaceShell(appState: appState)
+            .frame(minWidth: 980, idealWidth: 1280, minHeight: 680, idealHeight: 820)
             .onAppear {
                 appState.registerDashboardWindowOpener {
                     openWindow(id: "dashboard")
@@ -23,9 +43,11 @@ struct DashboardRootView: View {
     }
 }
 
-private struct Dashboard3WorkspaceView: View {
+private struct DashboardWorkspaceShell: View {
     @ObservedObject var appState: AppState
-    @State private var selectedTab: Dashboard3Tab = .fileExplorer
+    @State private var selectedSection: DashboardSection = .general
+    @State private var selectedServiceId: String?
+    @State private var showingActivityPopover = false
 
     private let background = LinearGradient(
         colors: [
@@ -37,90 +59,114 @@ private struct Dashboard3WorkspaceView: View {
         endPoint: .bottomTrailing
     )
 
+    private var services: [ServiceInfo] {
+        appState.services
+            .sorted { $0.displayName.localizedStandardCompare($1.displayName) == .orderedAscending }
+    }
+
+    private var selectedService: ServiceInfo? {
+        services.first(where: { $0.serviceId == selectedServiceId }) ?? services.first
+    }
+
     var body: some View {
         ZStack {
             background.ignoresSafeArea()
 
-            VStack(alignment: .leading, spacing: 14) {
-                HStack(alignment: .center, spacing: 18) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Dashboard")
-                            .font(.system(size: 28, weight: .bold, design: .rounded))
-                        Text("Files, local mirror data, and sync activity in one place.")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                    }
+            VStack(spacing: 10) {
+                DashboardTopBar(
+                    appState: appState,
+                    services: services,
+                    selectedServiceId: $selectedServiceId,
+                    showingActivityPopover: $showingActivityPopover
+                )
+                .padding(.horizontal, 12)
+                .padding(.top, 12)
 
-                    Spacer(minLength: 16)
+                HStack(spacing: 10) {
+                    DashboardSidebar(selection: $selectedSection)
+                        .frame(width: 190)
 
-                    Picker("Workspace Section", selection: $selectedTab) {
-                        Text("File Explorer").tag(Dashboard3Tab.fileExplorer)
-                        Text("Data Explorer").tag(Dashboard3Tab.dataExplorer)
-                        Text("Activity").tag(Dashboard3Tab.activity)
-                    }
-                    .pickerStyle(.segmented)
-                    .labelsHidden()
-                    .frame(width: 420)
+                    detailContent
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
-                .padding(20)
-                .background(dashboardShellPanel(cornerRadius: 28))
-                .padding(.horizontal, 18)
-                .padding(.top, 18)
-
-                Group {
-                    switch selectedTab {
-                    case .fileExplorer:
-                        Dashboard2View(
-                            appState: appState,
-                            headerTitle: "File Explorer",
-                            headerSubtitle: "Browse synced files, edit records in place, and jump into the right tool faster.",
-                            embeddedInWorkspace: true
-                        )
-                        .padding(.horizontal, 18)
-                        .padding(.bottom, 18)
-                    case .dataExplorer:
-                        SQLExplorerPane(appState: appState, initialServiceId: nil)
-                            .padding(.horizontal, 18)
-                            .padding(.bottom, 18)
-                    case .activity:
-                        ActivityPane(appState: appState)
-                            .padding(.horizontal, 18)
-                            .padding(.bottom, 18)
-                    }
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding(.horizontal, 12)
+                .padding(.bottom, 12)
             }
         }
-        .sheet(isPresented: $appState.showingSettings) {
-            NavigationStack {
-                GeneralPane(config: $appState.config)
-                    .navigationTitle("Settings")
-                    .toolbar {
-                        ToolbarItem(placement: .confirmationAction) {
-                            Button("Done") { appState.showingSettings = false }
-                        }
-                    }
+        .onAppear {
+            selectDefaultServiceIfNeeded()
+            handlePendingOpenPath(appState.pendingOpenPath)
+        }
+        .onChange(of: services.map(\.serviceId)) { _ in
+            selectDefaultServiceIfNeeded()
+        }
+        .onChange(of: appState.pendingOpenPath?.serviceId) { _ in
+            handlePendingOpenPath(appState.pendingOpenPath)
+        }
+        .onChange(of: appState.showingSettings) { showingSettings in
+            guard showingSettings else { return }
+            selectedSection = .settings
+            appState.showingSettings = false
+            appState.openDashboardWindow()
+        }
+        .task(id: selectedService?.serviceId) {
+            guard let serviceId = selectedService?.serviceId else {
+                await appState.refreshHistory()
+                return
             }
-            .frame(minWidth: 480, idealWidth: 540, minHeight: 460, idealHeight: 520)
+            await appState.refreshHistory(serviceId: serviceId)
         }
     }
 
-    private func dashboardShellPanel(cornerRadius: CGFloat) -> some View {
-        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-            .fill(
-                LinearGradient(
-                    colors: [
-                        Color.white.opacity(0.72),
-                        Color.white.opacity(0.56)
-                    ],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
+    @ViewBuilder
+    private var detailContent: some View {
+        if services.isEmpty {
+            DashboardEmptyState(onAddService: appState.openAddServiceWindow)
+        } else {
+            switch selectedSection {
+            case .general:
+                DashboardGeneralView(
+                    appState: appState,
+                    selectedService: selectedService
                 )
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .strokeBorder(Color.white.opacity(0.42), lineWidth: 1)
-            )
-            .shadow(color: Color.black.opacity(0.05), radius: 16, x: 0, y: 10)
+            case .fileExplorer:
+                Dashboard2View(
+                    appState: appState,
+                    headerTitle: "File Explorer",
+                    headerSubtitle: "Browse synced files, edit records in place, and jump into the right tool faster.",
+                    embeddedInWorkspace: false,
+                    selectedServiceIdOverride: selectedService?.serviceId,
+                    layout: .explorerOnly
+                )
+            case .dataExplorer:
+                SQLExplorerPane(
+                    appState: appState,
+                    initialServiceId: selectedService?.serviceId,
+                    selectedServiceIdOverride: selectedService?.serviceId,
+                    suppressServicePicker: true
+                )
+            case .settings:
+                DashboardSettingsView(
+                    appState: appState,
+                    selectedService: selectedService
+                )
+            }
+        }
+    }
+
+    private func selectDefaultServiceIfNeeded() {
+        guard let first = services.first else {
+            selectedServiceId = nil
+            return
+        }
+        if selectedServiceId == nil || !services.contains(where: { $0.serviceId == selectedServiceId }) {
+            selectedServiceId = first.serviceId
+        }
+    }
+
+    private func handlePendingOpenPath(_ pending: (serviceId: String, relativePath: String?)?) {
+        guard let pending else { return }
+        selectedServiceId = pending.serviceId
+        selectedSection = .fileExplorer
     }
 }

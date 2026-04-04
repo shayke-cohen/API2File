@@ -53,13 +53,15 @@ The repo now also contains an experimental browser-native product line in [`webs
 
 **Files:** `Sources/API2FileApp/UI/DashboardRootView.swift`, `Sources/API2FileApp/UI/Dashboard2View.swift`, `Sources/API2FileApp/UI/SQLExplorerPane.swift`, `Sources/API2FileApp/UI/PreferencesView.swift`
 
-The macOS dashboard is a single root shell that hosts three inner sections:
+The macOS dashboard is a single root shell with a shared service top bar, a left sidebar, and four primary detail sections:
 
-- **File Explorer** — a workspace-first browser for synced files, service selection, sync actions, and in-app editing/preview launch points
-- **Data Explorer** — a SQLite-backed view over `.api2file/cache/service.sqlite`
-- **Activity** — recent pull/push history for the selected service set
+- **General** — service overview, resource sync toggles, and summary stats for the selected connected service
+- **File Explorer** — a workspace-first browser for synced files, driven by the shell’s shared service selection
+- **Data Explorer** — a SQLite-backed view over `.api2file/cache/service.sqlite`, scoped by the shared selected service
+- **Settings** — mixed global app settings plus safe selected-service sync controls
+- **Top-bar activity drawer** — recent pull/push history for the selected service without leaving the current section
 
-The dashboard also owns the general settings sheet instead of using a separate top-level preferences-style dashboard screen.
+The dashboard also owns service-scoped settings and activity access directly in the shell instead of routing users through a separate dashboard-level preferences surface.
 
 ## Browser-Native Lite
 

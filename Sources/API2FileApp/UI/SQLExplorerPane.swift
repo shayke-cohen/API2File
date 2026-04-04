@@ -4,6 +4,8 @@ import API2FileCore
 struct SQLExplorerPane: View {
     @ObservedObject var appState: AppState
     let initialServiceId: String?
+    let selectedServiceIdOverride: String?
+    let suppressServicePicker: Bool
 
     @State private var selectedServiceId: String?
     @State private var sqlTables: [SQLMirrorTableSummary] = []
@@ -16,14 +18,30 @@ struct SQLExplorerPane: View {
     @State private var isRunningQuery = false
     @State private var selectedRowID: UUID?
 
+    init(
+        appState: AppState,
+        initialServiceId: String?,
+        selectedServiceIdOverride: String? = nil,
+        suppressServicePicker: Bool = false
+    ) {
+        self.appState = appState
+        self.initialServiceId = initialServiceId
+        self.selectedServiceIdOverride = selectedServiceIdOverride
+        self.suppressServicePicker = suppressServicePicker
+    }
+
     private var displayedServices: [ServiceInfo] {
         appState.services
             .sorted { $0.displayName.localizedStandardCompare($1.displayName) == .orderedAscending }
     }
 
+    private var effectiveSelectedServiceId: String? {
+        selectedServiceIdOverride ?? selectedServiceId
+    }
+
     private var selectedService: ServiceInfo? {
-        guard let selectedServiceId else { return displayedServices.first }
-        return displayedServices.first(where: { $0.serviceId == selectedServiceId }) ?? displayedServices.first
+        guard let effectiveSelectedServiceId else { return displayedServices.first }
+        return displayedServices.first(where: { $0.serviceId == effectiveSelectedServiceId }) ?? displayedServices.first
     }
 
     private var selectedTable: SQLMirrorTableSummary? {
@@ -40,26 +58,29 @@ struct SQLExplorerPane: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 header
-                servicePickerRow
+                if !suppressServicePicker {
+                    servicePickerRow
+                }
                 contentCard
             }
             .padding()
         }
         .task {
-            if selectedServiceId == nil {
+            if selectedServiceIdOverride == nil, selectedServiceId == nil {
                 selectedServiceId = initialServiceId ?? displayedServices.first?.serviceId
             }
             await refreshTables()
         }
         .onChange(of: displayedServices.map(\.serviceId)) { _ in
             Task {
-                if selectedServiceId == nil || !displayedServices.contains(where: { $0.serviceId == selectedServiceId }) {
+                if selectedServiceIdOverride == nil &&
+                    (selectedServiceId == nil || !displayedServices.contains(where: { $0.serviceId == selectedServiceId })) {
                     selectedServiceId = initialServiceId ?? displayedServices.first?.serviceId
                 }
                 await refreshTables()
             }
         }
-        .onChange(of: selectedServiceId) { _ in
+        .onChange(of: effectiveSelectedServiceId) { _ in
             Task { await refreshTables() }
         }
         .onChange(of: selectedTableName) { _ in
